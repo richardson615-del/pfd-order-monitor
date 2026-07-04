@@ -1,16 +1,9 @@
-import { createBrowserClient, createServerClient } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-// Use in Client Components
-export function supabaseBrowser() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
-
-// Use in Server Components / Route Handlers - respects the logged-in user's session + RLS
+// Use in Server Components / Route Handlers - respects the logged-in user's session + RLS.
+// IMPORTANT: never import this file from a "use client" component.
 export function supabaseServer() {
   const cookieStore = cookies();
   return createServerClient(

@@ -1,4 +1,4 @@
-import { supabaseServer } from "./supabase";
+import { supabaseServer } from "./supabase-server";
 
 /** True if the currently logged-in user is a PFD admin (row in `admins`). */
 export async function isCurrentUserAdmin(): Promise<boolean> {

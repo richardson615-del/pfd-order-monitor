@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { isCurrentUserAdmin } from "@/lib/authz";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 import AdminPanel from "@/components/AdminPanel";
 
 export const dynamic = "force-dynamic";

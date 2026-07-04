@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabaseBrowser } from "@/lib/supabase";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order, OrderStatus } from "@/lib/types";
 import OrderCard from "./OrderCard";
 import PushSetup from "./PushSetup";

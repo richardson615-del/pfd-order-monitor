@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { supabaseServer } from "@/lib/supabase";
+import { supabaseServer } from "@/lib/supabase-server";
 import OrderViewer from "@/components/OrderViewer";
 
 export const dynamic = "force-dynamic";

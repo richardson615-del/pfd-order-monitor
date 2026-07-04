@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 import { isCurrentUserAdmin } from "@/lib/authz";
 
 /** GET /api/admin/restaurants - list all restaurants + their inboxes (admin only) */

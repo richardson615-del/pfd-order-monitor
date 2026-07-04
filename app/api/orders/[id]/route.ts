@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+import { supabaseServer } from "@/lib/supabase-server";
 
 const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
   opened: "opened_at",

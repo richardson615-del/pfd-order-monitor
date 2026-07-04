@@ -1,5 +1,5 @@
 import webpush from "web-push";
-import { supabaseAdmin } from "./supabase";
+import { supabaseAdmin } from "./supabase-server";
 
 let configured = false;
 function ensureConfigured() {

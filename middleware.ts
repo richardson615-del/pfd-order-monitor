@@ -1,21 +1,21 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request) {
   let response = NextResponse.next({ request: { headers: request.headers } });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
-        get(name: string) {
+        get(name) {
           return request.cookies.get(name)?.value;
         },
-        set(name: string, value: string, options: any) {
+        set(name, value, options) {
           response.cookies.set({ name, value, ...options });
         },
-        remove(name: string, options: any) {
+        remove(name, options) {
           response.cookies.set({ name, value: "", ...options });
         },
       },
@@ -27,9 +27,11 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const protectedPath = path.startsWith("/dashboard") || path.startsWith("/admin") || path.startsWith("/order/");
+  const isApiPath = path.startsWith("/api/");
+  const protectedPagePath =
+    path.startsWith("/dashboard") || path.startsWith("/admin") || path.startsWith("/order/");
 
-  if (!user && protectedPath) {
+  if (!user && protectedPagePath && !isApiPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
@@ -40,5 +42,13 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*", "/order/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/admin/:path*",
+    "/order/:path*",
+    "/api/admin/:path*",
+    "/api/orders/:path*",
+    "/api/push/:path*",
+    "/api/gmail/connect",
+  ],
 };

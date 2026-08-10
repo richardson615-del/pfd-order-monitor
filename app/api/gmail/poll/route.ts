@@ -7,7 +7,7 @@ import {
   moneyToNumber,
   extractOrderNumberFromSubject,
 } from "@/lib/parser";
-import { notifyRestaurant } from "@/lib/push";
+import { ingestOrder } from "@/lib/canonical";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -78,45 +78,32 @@ export async function GET(req: NextRequest) {
 
         const parsed = parseOrderEmail(html);
 
-        const { data: inserted, error: insertError } = await admin
-          .from("orders")
-          .insert({
-            restaurant_id: inbox.restaurant_id,
-            inbox_id: inbox.id,
-            gmail_message_id: messageId,
-            order_number: orderNumber,
-            ticket_restaurant_name: parsed.ticketRestaurantName,
-            order_type: parsed.orderType,
-            due_time: parseDueTimeToDate(parsed.dueTime),
-            customer_name: parsed.customerName,
-            customer_phone: parsed.customerPhone,
-            customer_address: parsed.customerAddress,
-            items: parsed.items,
-            items_total: moneyToNumber(parsed.itemsTotal),
-            tax: moneyToNumber(parsed.tax),
-            service_fee: moneyToNumber(parsed.serviceFee),
-            customer_total: moneyToNumber(parsed.customerTotal),
-            payment_type: parsed.paymentType,
-            raw_html: html,
-            status: "new",
-          })
-          .select()
-          .single();
+        const result = await ingestOrder({
+          source: "email",
+          externalId: messageId,
+          restaurantId: inbox.restaurant_id,
+          inboxId: inbox.id,
+          orderNumber,
+          ticketRestaurantName: parsed.ticketRestaurantName,
+          orderType: parsed.orderType,
+          dueTime: parseDueTimeToDate(parsed.dueTime)?.toISOString() ?? null,
+          customerName: parsed.customerName,
+          customerPhone: parsed.customerPhone,
+          customerAddress: parsed.customerAddress,
+          items: parsed.items,
+          itemsTotal: moneyToNumber(parsed.itemsTotal),
+          tax: moneyToNumber(parsed.tax),
+          serviceFee: moneyToNumber(parsed.serviceFee),
+          customerTotal: moneyToNumber(parsed.customerTotal),
+          paymentType: parsed.paymentType,
+          rawHtml: html,
+        });
 
-        if (insertError) {
-          console.error("Insert failed for", messageId, insertError.message);
+        if (result.status === "error") {
+          console.error("Ingest failed for", messageId, result.error);
           continue;
         }
-
-        created++;
-
-        await notifyRestaurant(inbox.restaurant_id, {
-          title: `New Order #${orderNumber}`,
-          body: parsed.customerTotal
-            ? `${parsed.customerName || "Customer"} - ${parsed.customerTotal}`
-            : "Tap to view the order",
-          orderId: inserted.id,
-        });
+        if (result.status === "created") created++;
       }
 
       await admin

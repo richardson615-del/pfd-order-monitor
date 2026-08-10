@@ -1,6 +1,29 @@
+/**
+ * Assertion-based tests for the Zuppler GraphQL -> canonical mapper.
+ * Run with:  npm test   (which runs `tsx scripts/test-zuppler-mapper.ts`)
+ * Exits non-zero on the first failing suite so CI catches regressions.
+ */
+import assert from "node:assert/strict";
 import { mapZupplerGraphqlOrder } from "@/lib/zuppler-mapper";
 
-// Simulated LoadOrder GraphQL response matching Zuppler's documented shape
+// Make money() deterministic regardless of the ambient shell/CI env.
+// (money() reads process.env.ZUPPLER_AMOUNTS on every call.)
+delete process.env.ZUPPLER_AMOUNTS;
+
+let passed = 0;
+function test(name: string, fn: () => void) {
+  try {
+    fn();
+    passed++;
+    console.log(`  ok - ${name}`);
+  } catch (err) {
+    console.error(`  FAIL - ${name}`);
+    console.error(err instanceof Error ? err.message : err);
+    process.exitCode = 1;
+  }
+}
+
+// Simulated LoadOrder GraphQL response matching Zuppler's documented shape.
 const resp = {
   data: {
     order: {
@@ -30,18 +53,116 @@ const resp = {
   },
 };
 
-const m = mapZupplerGraphqlOrder(resp);
-console.log("externalId:", m.externalId);
-console.log("zupplerRestaurantId:", m.zupplerRestaurantId);
-console.log("orderNumber:", m.canonical.orderNumber);
-console.log("orderType:", m.canonical.orderType);
-console.log("dueTime:", m.canonical.dueTime);
-console.log("customer:", m.canonical.customerName, m.canonical.customerPhone);
-console.log("items:", JSON.stringify(m.canonical.items));
-console.log("totals:", m.canonical.itemsTotal, m.canonical.tax, m.canonical.serviceFee, m.canonical.customerTotal);
-console.log("payment:", m.canonical.paymentType);
-console.log("notes:", m.canonical.notes);
+// --- Delivery order (default cents mode) ------------------------------------
+console.log("delivery order (cents mode):");
+{
+  const m = mapZupplerGraphqlOrder(resp);
+  const c = m.canonical;
 
-// Garbage in, no throw
-const g = mapZupplerGraphqlOrder({ hello: "world" });
-console.log("garbage:", g.externalId, g.zupplerRestaurantId, g.canonical.orderNumber);
+  test("externalId comes from order.uuid", () =>
+    assert.equal(m.externalId, "ed6add77-5b2e-40db-afb5-d64143e13abe"));
+  test("zupplerRestaurantId is the cart restaurantId as string", () =>
+    assert.equal(m.zupplerRestaurantId, "8841"));
+  test("orderNumber comes from shortUuid", () =>
+    assert.equal(c.orderNumber, "5de2ecfc"));
+  test("orderType resolved from service setting id", () =>
+    assert.equal(c.orderType, "delivery"));
+  test("dueTime normalized to ISO", () =>
+    assert.equal(c.dueTime, "2026-08-10T22:30:00.000Z"));
+  test("customer name + phone mapped", () => {
+    assert.equal(c.customerName, "Jane Doe");
+    assert.equal(c.customerPhone, "615-555-0100");
+  });
+  test("items: qty folded into name, cents->dollars, comments->modifiers", () =>
+    assert.deepEqual(c.items, [
+      { name: "2x Cheeseburger", price: "$23.00", modifiers: ["No onions, add bacon"] },
+      { name: "Fries", price: "$4.00", modifiers: [] },
+    ]));
+  test("totals converted cents->dollars", () => {
+    assert.equal(c.itemsTotal, 27);
+    assert.equal(c.tax, 2.57);
+    assert.equal(c.serviceFee, 1.5);
+    assert.equal(c.customerTotal, 35.06);
+  });
+  test("paymentType from tender id", () =>
+    assert.equal(c.paymentType, "CREDIT"));
+  test("notes join cart comments + instructions", () =>
+    assert.equal(c.notes, "Gate code 4482 | Leave at door"));
+  test("no discount note when discount is 0", () =>
+    assert.ok(!/Discount applied/.test(c.notes ?? "")));
+}
+
+// --- Pickup order: no service setting, only pickupTime set ------------------
+console.log("pickup order (time fallback):");
+{
+  const pickupResp = {
+    order: {
+      uuid: "aaaa1111",
+      shortUuid: "p1",
+      pickupTime: "2026-08-10T23:00:00Z",
+      deliveryTime: null,
+      dueTime: "2026-08-10T23:00:00Z",
+      totals: { subtotal: 1000, tax: 90, service: 0, total: 1090, discount: 0 },
+      carts: [{
+        restaurantId: 8841,
+        settings: {},
+        customer: { name: "Bob", phone: "615-555-0200" },
+        items: [{ name: "Taco", quantity: 1, itemTotal: 1000, comments: null }],
+      }],
+    },
+  };
+  const c = mapZupplerGraphqlOrder(pickupResp).canonical;
+  test("orderType falls back to pickup when only pickupTime present", () =>
+    assert.equal(c.orderType, "pickup"));
+  test("dueTime falls back through deliveryTime/pickupTime", () =>
+    assert.equal(c.dueTime, "2026-08-10T23:00:00.000Z"));
+}
+
+// --- Discount surfaces in notes ---------------------------------------------
+console.log("discount handling:");
+{
+  const discResp = JSON.parse(JSON.stringify(resp));
+  discResp.data.order.totals.discount = 500; // $5.00 in cents
+  const c = mapZupplerGraphqlOrder(discResp).canonical;
+  test("discount appended to notes", () =>
+    assert.ok(/Discount applied: \$5\.00/.test(c.notes ?? "")));
+}
+
+// --- Dollars mode: money() must NOT divide by 100 ---------------------------
+console.log("dollars mode (ZUPPLER_AMOUNTS=dollars):");
+{
+  process.env.ZUPPLER_AMOUNTS = "dollars";
+  try {
+    const c = mapZupplerGraphqlOrder(resp).canonical;
+    test("subtotal passed through unchanged in dollars mode", () =>
+      assert.equal(c.itemsTotal, 2700));
+    test("total passed through unchanged in dollars mode", () =>
+      assert.equal(c.customerTotal, 3506));
+  } finally {
+    delete process.env.ZUPPLER_AMOUNTS; // restore default for any later tests
+  }
+}
+
+// --- Garbage in: no throw, safe nulls ---------------------------------------
+console.log("garbage / malformed input:");
+{
+  test("garbage object does not throw and yields null ids", () => {
+    const g = mapZupplerGraphqlOrder({ hello: "world" });
+    assert.equal(g.externalId, null);
+    assert.equal(g.zupplerRestaurantId, null);
+    assert.equal(g.canonical.orderNumber, "");
+    assert.equal(g.canonical.orderType, null);
+    assert.deepEqual(g.canonical.items, []);
+  });
+  test("null input does not throw", () => {
+    const g = mapZupplerGraphqlOrder(null);
+    assert.equal(g.externalId, null);
+    assert.deepEqual(g.canonical.items, []);
+  });
+}
+
+console.log(
+  process.exitCode
+    ? "\nSOME TESTS FAILED"
+    : `\nAll assertions passed (${passed} checks).`
+);

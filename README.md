@@ -247,6 +247,77 @@ If you'd rather not wait on Vercel Cron granularity, you can also call
 
 ---
 
+## 9. Zuppler order ingestion (webhook + GraphQL)
+
+Alongside the Gmail parser, orders can arrive from **Zuppler**. Zuppler sends a
+thin webhook containing an `order_uuid`; our route fetches the full order from
+their GraphQL API, maps it to the canonical shape, and ingests it through the
+same path as email orders (de-dup, push, print dispatch).
+
+**Route:** `POST /api/ingest/zuppler` (see
+[`app/api/ingest/zuppler/route.ts`](./app/api/ingest/zuppler/route.ts))
+
+### One-time setup
+
+1. **Apply the migration.** Run
+   [`db/migrations/002_multi_source_print.sql`](./db/migrations/002_multi_source_print.sql)
+   in the Supabase SQL Editor. It is idempotent (`add column if not exists`) and
+   safe to run once on the existing database. It makes `orders` source-agnostic
+   (`source`, `external_id`, `raw_payload`, nullable `inbox_id`/`raw_html`),
+   adds a partial unique index on `(source, external_id)` for cross-retry
+   de-duplication, and creates the `print_devices` / `print_jobs` tables.
+
+2. **Generate the webhook secret** yourself and set it in Vercel:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   Add it as `ZUPPLER_WEBHOOK_SECRET` (Production + Preview). This is the token
+   Zuppler must send **verbatim** in the `Authorization` header. The route
+   accepts either the raw token or a `Bearer <token>` form.
+
+3. **Share the same secret and the webhook URL with Zuppler (Jerry).** Give
+   them `https://your-app.vercel.app/api/ingest/zuppler` and the token above.
+
+4. **Set `ZUPPLER_AMOUNTS`.** Zuppler's GraphQL money values are integer cents
+   by default (e.g. `2700` = `$27.00`), so leave `ZUPPLER_AMOUNTS=cents`.
+   **VERIFY against the first real order:** compare the dashboard totals to the
+   Zuppler order. If they are off by 100x, set `ZUPPLER_AMOUNTS=dollars` and
+   redeploy. (A wrong value makes every total off by 100x - this is the one
+   setting to eyeball on the first live order.)
+
+5. **Map the restaurant.** Set `zuppler_restaurant_id` (and optionally
+   `zuppler_slug`) on the matching `restaurants` row, and ensure `is_active` is
+   true. Until this exists, the webhook returns `{ ok: false, error: "unmapped
+   restaurant" }` and the order is dropped (by design - it stops Zuppler's
+   retries rather than 500ing forever).
+
+### Behavior / status codes
+
+- **`401`** - missing or wrong `Authorization` token.
+- **`422`** - no `order_uuid` in the body, or Zuppler has no such order.
+- **`500`** - transient fetch/map failure; Zuppler **retries** (self-heals).
+- **`200 { status: "duplicate" }`** - the order was already ingested. Safe under
+  concurrent retries: even if two hit at once, the unique index rejects the
+  second insert and it resolves to `duplicate`.
+- **`200 { ok: false, error: "unmapped restaurant" }`** - config issue, retries
+  stop; add the `zuppler_restaurant_id` mapping and the next order flows.
+
+### Testing the mapper
+
+The GraphQL -> canonical mapping is covered by assertion tests:
+
+```bash
+npm test    # runs scripts/test-zuppler-mapper.ts via tsx
+```
+
+They cover the delivery sample, pickup time-fallback, cents/dollars conversion,
+discount notes, and malformed input. The tests are hermetic - they force
+`ZUPPLER_AMOUNTS` internally, so your shell env does not affect the result.
+
+---
+
 ## Database schema
 
 See [`db/schema.sql`](./db/schema.sql) for the full schema with comments.

@@ -34,9 +34,12 @@ const resp = {
       deliveryTime: "2026-08-10T22:30:00Z",
       dueTime: "2026-08-10T22:30:00Z",
       createdAt: "2026-08-10T21:47:12Z",
+      // total INCLUDES the tip. Verified against a real Zuppler receipt
+      // (order #7c753db5): 50.25 + 6.06 + 14.57 + 4.90 + 11.37 = 87.15.
+      // 2700 + 399 + 150 + 257 + 500 = 4006.
       totals: {
         delivery: 399, discount: 0, includedTax: 0, service: 150,
-        subtotal: 2700, tax: 257, tip: 500, total: 3506,
+        subtotal: 2700, tax: 257, tip: 500, total: 4006,
       },
       carts: [{
         restaurantId: 8841,
@@ -82,7 +85,17 @@ console.log("delivery order (cents mode):");
     assert.equal(c.itemsTotal, 27);
     assert.equal(c.tax, 2.57);
     assert.equal(c.serviceFee, 1.5);
-    assert.equal(c.customerTotal, 35.06);
+    assert.equal(c.customerTotal, 40.06);
+  });
+  test("delivery fee and tip mapped to their own fields", () => {
+    assert.equal(c.deliveryFee, 3.99);
+    assert.equal(c.tip, 5);
+  });
+  test("stored money fields reconcile to customerTotal", () => {
+    const sum =
+      (c.itemsTotal ?? 0) + (c.tax ?? 0) + (c.serviceFee ?? 0) +
+      (c.deliveryFee ?? 0) + (c.tip ?? 0);
+    assert.equal(Number(sum.toFixed(2)), c.customerTotal);
   });
   test("paymentType from tender id", () =>
     assert.equal(c.paymentType, "CREDIT"));
@@ -137,7 +150,7 @@ console.log("dollars mode (ZUPPLER_AMOUNTS=dollars):");
     test("subtotal passed through unchanged in dollars mode", () =>
       assert.equal(c.itemsTotal, 2700));
     test("total passed through unchanged in dollars mode", () =>
-      assert.equal(c.customerTotal, 3506));
+      assert.equal(c.customerTotal, 4006));
   } finally {
     delete process.env.ZUPPLER_AMOUNTS; // restore default for any later tests
   }

@@ -26,6 +26,10 @@ export interface CanonicalOrderInput {
   itemsTotal?: number | null;
   tax?: number | null;
   serviceFee?: number | null;
+  /** Delivery charge, separate from serviceFee. */
+  deliveryFee?: number | null;
+  /** Customer tip - the driver's money. Printed on the ticket. */
+  tip?: number | null;
   customerTotal?: number | null;
   paymentType?: string | null;
   /** Free-text order/customer notes - printed in the ticket NOTE box. */
@@ -96,6 +100,8 @@ export async function ingestOrder(
       items_total: input.itemsTotal ?? null,
       tax: input.tax ?? null,
       service_fee: input.serviceFee ?? null,
+      delivery_fee: input.deliveryFee ?? null,
+      tip: input.tip ?? null,
       customer_total: input.customerTotal ?? null,
       payment_type: input.paymentType ?? null,
       notes: input.notes ?? null,

@@ -20,6 +20,9 @@ export interface Order {
   items_total: number | null;
   tax: number | null;
   service_fee: number | null;
+  delivery_fee: number | null;
+  /** Customer tip - the driver's money. */
+  tip: number | null;
   customer_total: number | null;
   payment_type: string | null;
   raw_html: string;

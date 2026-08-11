@@ -106,8 +106,9 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
     isoOrNull(order.pickupTime) ??
     isoOrNull(order.fireTime);
 
-  // Fees: Zuppler splits service + delivery + tip; our serviceFee column takes
-  // service, delivery and tip ride along in itemization via raw_payload.
+  // Zuppler splits money into subtotal / delivery / service / tax / tip /
+  // total. Each maps to its own column so the stored figures reconcile to
+  // customerTotal; the tip is the driver's money and prints on the ticket.
   const discount = money(totals.discount);
 
   return {
@@ -126,6 +127,8 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       itemsTotal: money(totals.subtotal),
       tax: money(totals.tax),
       serviceFee: money(totals.service),
+      deliveryFee: money(totals.delivery),
+      tip: money(totals.tip),
       customerTotal: money(totals.total),
       paymentType: str(cart.settings?.tender?.id),
       notes:

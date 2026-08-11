@@ -40,8 +40,8 @@ export async function GET(req: NextRequest) {
        orders (
          id, order_number, source, ticket_restaurant_name, order_type,
          due_time, customer_name, customer_phone, customer_address,
-         items, items_total, tax, service_fee, customer_total,
-         payment_type, notes, received_at
+         items, items_total, tax, service_fee, delivery_fee, tip,
+         customer_total, payment_type, notes, received_at
        )`
     )
     .eq("device_id", device.id)

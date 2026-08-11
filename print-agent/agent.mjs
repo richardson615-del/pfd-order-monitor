@@ -21,12 +21,20 @@
  * later means replacing that one function; the renderer is untouched.
  */
 import net from "node:net";
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import { writeFile, unlink } from "node:fs/promises";
+import { join } from "node:path";
 
 // --- config -----------------------------------------------------------------
 
 const cfg = {
   apiBase: (process.env.PFD_API_BASE || "https://pfd-order-monitor.vercel.app").replace(/\/$/, ""),
   deviceKey: process.env.PFD_DEVICE_KEY || "",
+  // "tcp"  - network printer on port 9100 (preferred: no host PC in the loop)
+  // "usb"  - printer attached to THIS machine, via the OS print queue
+  transport: (process.env.PRINTER_TRANSPORT || (process.env.SYSTEM_PRINTER ? "usb" : "tcp")).toLowerCase(),
+  systemPrinter: process.env.SYSTEM_PRINTER || "",
   printerHost: process.env.PRINTER_HOST || "",
   printerPort: Number(process.env.PRINTER_PORT || 9100),
   pollMs: Number(process.env.POLL_INTERVAL_MS || 5000),
@@ -227,6 +235,54 @@ function toPlainText(lines) {
 // --- transport (swap this function for Bluetooth later) ---------------------
 
 function sendToPrinter(bytes) {
+  return cfg.transport === "usb" ? sendViaSystemPrinter(bytes) : sendViaTcp(bytes);
+}
+
+/** Run a command, feed it `input` on stdin, resolve on a clean exit. */
+function run(cmd, argv, input) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, argv);
+    let stderr = "";
+    p.stderr.on("data", (d) => (stderr += d.toString()));
+    p.on("error", (e) =>
+      reject(new Error(`${cmd} could not be started: ${e.message}`))
+    );
+    p.on("close", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`${cmd} exited ${code}${stderr ? `: ${stderr.trim()}` : ""}`))
+    );
+    if (input) p.stdin.end(input);
+    else p.stdin.end();
+  });
+}
+
+/**
+ * USB / locally-attached printer, via the operating system's print queue.
+ *
+ * The queue MUST be a raw/generic one. A driver queue (PostScript, Gutenprint,
+ * an inkjet driver) will rasterise the bytes and emit garbage or blank paper -
+ * ESC/POS has to reach the printer untouched, which is what `-o raw` ensures.
+ */
+async function sendViaSystemPrinter(bytes) {
+  if (process.platform === "win32") {
+    // Windows has no `lp`. Raw-copy to a shared queue: share the printer, then
+    // set SYSTEM_PRINTER to the share name.
+    const tmp = join(tmpdir(), `pfd-ticket-${Date.now()}.bin`);
+    await writeFile(tmp, bytes);
+    try {
+      await run("cmd", ["/c", "copy", "/b", tmp, `\\\\localhost\\${cfg.systemPrinter}`]);
+    } finally {
+      await unlink(tmp).catch(() => {});
+    }
+    return;
+  }
+  const argv = ["-o", "raw"];
+  if (cfg.systemPrinter) argv.unshift("-d", cfg.systemPrinter);
+  await run("lp", argv, bytes);
+}
+
+function sendViaTcp(bytes) {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let settled = false;
@@ -333,14 +389,29 @@ async function main() {
     return;
   }
 
-  const missing = ["PFD_DEVICE_KEY", "PRINTER_HOST"].filter((k) => !process.env[k]);
+  if (args.has("--test-print")) {
+    // Prove the hardware path end to end without waiting for a real order.
+    const dest = cfg.transport === "usb"
+      ? `system printer "${cfg.systemPrinter || "(default)"}"`
+      : `${cfg.printerHost}:${cfg.printerPort}`;
+    log(`test print -> ${dest}`);
+    await sendToPrinter(toEscPos(buildTicket(SAMPLE, cfg.cols), cfg.cols));
+    log("sent - check the paper");
+    return;
+  }
+
+  const needed = cfg.transport === "usb" ? ["PFD_DEVICE_KEY"] : ["PFD_DEVICE_KEY", "PRINTER_HOST"];
+  const missing = needed.filter((k) => !process.env[k]);
   if (missing.length) {
     errlog(`missing required env: ${missing.join(", ")}`);
     errlog("see print-agent/README.md");
     process.exit(1);
   }
 
-  log(`agent ${cfg.agentVersion} | api=${cfg.apiBase} | printer=${cfg.printerHost}:${cfg.printerPort} | ${cfg.cols} cols`);
+  const dest = cfg.transport === "usb"
+    ? `usb:${cfg.systemPrinter || "(system default)"}`
+    : `tcp:${cfg.printerHost}:${cfg.printerPort}`;
+  log(`agent ${cfg.agentVersion} | api=${cfg.apiBase} | ${dest} | ${cfg.cols} cols`);
 
   if (args.has("--once")) {
     // --once is the connectivity smoke test, so a misconfigured key or an

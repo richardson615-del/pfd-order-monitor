@@ -41,12 +41,38 @@ nc -vz 192.168.1.50 9100
 
 ## 3. Configure
 
+Two transports. **TCP is preferred** - a network printer keeps any host PC out
+of the critical path, so printing does not stop because a computer slept, was
+logged out, or had its cable pulled.
+
+**A. Network printer (TCP 9100)**
+
 ```bash
 export PFD_DEVICE_KEY="PFD-XXXX-XXXX-XXXX"
 export PRINTER_HOST="192.168.1.50"
-# optional
+export PRINTER_PORT=9100          # optional
+```
+
+**B. USB printer attached to this machine (OS print queue)**
+
+```bash
+export PFD_DEVICE_KEY="PFD-XXXX-XXXX-XXXX"
+export PRINTER_TRANSPORT=usb
+export SYSTEM_PRINTER="STMicroelectronics_POS80_Printer_USB"
+```
+
+List available queues with `lpstat -p` (macOS/Linux) or `wmic printer get name`
+(Windows). Setting `SYSTEM_PRINTER` selects the `usb` transport automatically.
+
+> **The queue must be raw/generic.** A driver queue (PostScript, Gutenprint, an
+> inkjet driver) rasterises the bytes and yields garbage or blank paper. ESC/POS
+> must reach the printer untouched - which is what `lp -o raw` does. On Windows,
+> share the printer and set `SYSTEM_PRINTER` to the **share name**.
+
+**Common options**
+
+```bash
 export PFD_API_BASE="https://pfd-order-monitor.vercel.app"
-export PRINTER_PORT=9100
 export POLL_INTERVAL_MS=5000
 export PAPER_COLS=48        # 80mm = 48, 58mm = 32
 export PRINTER_NAME="NS8360"
@@ -59,12 +85,14 @@ whether the agent is alive without extra plumbing.
 ## 4. Run
 
 ```bash
-node agent.mjs --sample   # render a sample ticket to stdout, no printer needed
-node agent.mjs --once     # one poll cycle then exit
-node agent.mjs            # the poll loop
+node agent.mjs --sample      # render a sample ticket to stdout, no printer
+node agent.mjs --test-print  # print a sample ticket on the real printer
+node agent.mjs --once        # one poll cycle then exit
+node agent.mjs               # the poll loop
 ```
 
-Start with `--sample` to check the layout, then `--once` to prove connectivity.
+In order: `--sample` checks the layout, `--test-print` proves the hardware and
+transport, `--once` proves the device key and API path. Then run the loop.
 
 ### Run it as a service (Linux / Raspberry Pi)
 
@@ -117,6 +145,12 @@ contract rather than this script.
 |---|---|
 | `unauthorized - check PFD_DEVICE_KEY` | Key wrong, or the device row is `is_active = false` |
 | `printer connection timed out` | Wrong IP, printer asleep, or not listening on 9100 |
-| Jobs claimed but nothing prints | Printer is on a different subnet/VLAN from the agent |
-| Nothing ever claimed | No `print_devices` row for that restaurant, or no orders yet |
-| Ticket tail cut off | Raise the post-write delay in `sendToPrinter()` |
+| Jobs claimed but nothing prints | TCP: printer on a different subnet/VLAN. USB: check `lpstat -o` for a stuck job |
+| Nothing ever claimed | No `print_devices` row for that restaurant, or no orders since it was created |
+| Garbage characters / blank paper (USB) | Queue is not raw - reinstall it with a Generic/Raw driver |
+| `lp could not be started` | Not macOS/Linux, or CUPS not installed |
+| Ticket tail cut off | Raise the post-write delay in `sendViaTcp()` |
+
+**Print jobs are queued at ingest time**, so orders that arrived *before* the
+device was registered will never print. Use `--test-print`, or ingest a new
+order, when validating.

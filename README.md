@@ -318,6 +318,80 @@ discount notes, and malformed input. The tests are hermetic - they force
 
 ---
 
+## 10. Printing to a Bluetooth receipt printer
+
+Every ingested order (email or Zuppler) queues one `print_jobs` row per active
+`print_devices` row at that restaurant. **The server side is complete. The
+phone/tablet app is not in this repo and does not exist yet** - it is the one
+piece still to be built.
+
+### What the server already provides
+
+Register a device (admin only) - the key is shown **once**:
+
+```
+POST /api/admin/print-devices   { "restaurant_id": "...", "name": "Front counter" }
+  -> { device_key: "PFD-XXXX-XXXX-XXXX" }
+```
+
+The app then authenticates with `X-Device-Key` on both calls:
+
+```
+GET  /api/print/jobs    -> { jobs: [ { id, order_id, orders: { ...ticket data } } ] }
+POST /api/print/jobs    { job_id, status: "printed" | "failed", error? }
+```
+
+- `GET` atomically **claims** what it returns, so double-polling can't print twice.
+- Jobs stuck `claimed` for >2 min are re-offered (app crashed mid-print). Paired
+  with the `(order_id, device_id)` unique constraint, this is at-least-once
+  delivery without duplicate rows.
+- `failed` re-queues up to 3 attempts, then stays `failed` for admin visibility.
+- Optional `X-App-Version` / `X-Printer-Name` headers are stored on the device
+  row, so `/admin` shows device health for free.
+- A successful print flips the order to `status = 'printed'`.
+
+### What the app has to do
+
+1. Store the device key (entered once).
+2. Poll `GET /api/print/jobs` every few seconds.
+3. Render the returned order JSON into **ESC/POS** bytes.
+4. Write those bytes to the paired Bluetooth printer.
+5. `POST` back `printed` or `failed`.
+
+### The Bluetooth constraint that drives the platform choice
+
+Most thermal receipt printers (58mm/80mm ESC/POS, Epson TM, Star, and the cheap
+generic ones) speak **Bluetooth Classic SPP**, not BLE. That has consequences:
+
+| Approach | Works? |
+|---|---|
+| Android native app (Kotlin / React Native / Flutter) | **Yes** - full SPP access |
+| Android PWA via Web Bluetooth | **No** - Web Bluetooth is BLE-only, cannot open SPP |
+| iPhone / iPad | **No** for SPP - iOS blocks it without MFi certification |
+
+So: **an Android app is the practical path**, and the dashboard PWA cannot do
+the printing itself no matter how it is packaged. On iOS the only options are a
+BLE-native printer or a WiFi/LAN printer.
+
+### Alternatives that need no custom app
+
+- **RawBT** (Android): a third-party ESC/POS print service driven by intents -
+  a thin wrapper can hand it ticket bytes.
+- **Epson "Server Direct Print"** (TM-m30 and similar, over WiFi/Ethernet): the
+  *printer itself* polls a URL and prints the response. No phone, no app, no
+  Bluetooth - just an endpoint returning ePOS-XML. Worth considering if the
+  printer can sit on WiFi, since it removes the whole mobile app from the
+  critical path.
+
+### Design note: keep ticket layout on the server
+
+`GET /api/print/jobs` currently returns structured order JSON and leaves
+formatting to the app. Moving the layout server-side (returning preformatted
+text or ESC/POS) means ticket changes ship instantly instead of requiring an
+app update on every tablet. Worth deciding before the app is written.
+
+---
+
 ## Database schema
 
 See [`db/schema.sql`](./db/schema.sql) for the full schema with comments.

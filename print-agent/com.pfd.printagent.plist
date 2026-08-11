@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS LaunchAgent for the PFD print agent (USB printer attached to this Mac).
+
+  Install:
+    cp com.pfd.printagent.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.pfd.printagent.plist
+
+  Status / logs:
+    launchctl list | grep pfd
+    tail -f /tmp/pfd-print-agent.log
+
+  Stop:
+    launchctl unload -w ~/Library/LaunchAgents/com.pfd.printagent.plist
+
+  A LaunchAgent (not a LaunchDaemon) on purpose: printing goes through the
+  user's CUPS session, so this must run as the logged-in user. It therefore
+  starts at LOGIN, not at boot - if the Mac reboots and nobody logs in,
+  nothing prints. That, plus sleep, is the cost of a USB printer; a networked
+  printer with the agent on an always-on box avoids both.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pfd.printagent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/node</string>
+        <string>/Users/mattrichardson/pfd-order-monitor/print-agent/agent.mjs</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PFD_DEVICE_KEY</key>
+        <string>PFD-4M88-E74H-GCBJ</string>
+        <key>PRINTER_TRANSPORT</key>
+        <string>usb</string>
+        <key>SYSTEM_PRINTER</key>
+        <string>STMicroelectronics_POS80_Printer_USB</string>
+        <key>PAPER_COLS</key>
+        <string>48</string>
+        <key>PRINTER_NAME</key>
+        <string>NS8360</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Come back from crashes: a kitchen must never be silently printer-less. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/pfd-print-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/pfd-print-agent.log</string>
+</dict>
+</plist>

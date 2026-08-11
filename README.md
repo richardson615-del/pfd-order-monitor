@@ -321,9 +321,17 @@ discount notes, and malformed input. The tests are hermetic - they force
 ## 10. Printing to a Bluetooth receipt printer
 
 Every ingested order (email or Zuppler) queues one `print_jobs` row per active
-`print_devices` row at that restaurant. **The server side is complete. The
-phone/tablet app is not in this repo and does not exist yet** - it is the one
-piece still to be built.
+`print_devices` row at that restaurant.
+
+**For a LAN printer (e.g. NETUM NS8360), use [`print-agent/`](./print-agent/) -
+it is built and ready.** A zero-dependency Node script that runs on any
+always-on machine on the restaurant's network, pulls jobs, and prints over TCP
+9100. No phone, no app, no Bluetooth. See
+[print-agent/README.md](./print-agent/README.md).
+
+A **Bluetooth** printer still needs a native Android app (see the constraint
+table below); that app does not exist yet, but it would reuse the same API
+contract described here.
 
 ### What the server already provides
 

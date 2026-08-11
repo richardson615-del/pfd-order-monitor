@@ -1,0 +1,33 @@
+[Unit]
+Description=PFD print agent (LAN ESC/POS receipt printer)
+# Printing needs the network up; without this the agent can start before the
+# NIC has an address and spend its first minutes logging connection errors.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Edit these three lines for the machine this runs on.
+User=pi
+WorkingDirectory=/home/pi/pfd-order-monitor/print-agent
+ExecStart=/usr/bin/node /home/pi/pfd-order-monitor/print-agent/agent.mjs
+
+Environment=PFD_DEVICE_KEY=PFD-XXXX-XXXX-XXXX
+Environment=PRINTER_HOST=192.168.1.50
+Environment=PRINTER_PORT=9100
+Environment=PAPER_COLS=48
+Environment=PRINTER_NAME=NS8360
+# Environment=PFD_API_BASE=https://pfd-order-monitor.vercel.app
+# Environment=POLL_INTERVAL_MS=5000
+
+# The kitchen must never be left without a printer because of a transient
+# crash, so always come back - but back off so a misconfigured agent does not
+# hammer the API in a tight loop.
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

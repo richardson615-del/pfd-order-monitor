@@ -193,6 +193,11 @@ export function extractOrderNumberFromSubject(
   pattern = "^Order\\s+(\\d+)"
 ): string | null {
   const re = new RegExp(pattern, "i");
-  const m = subject.match(re);
+  // The default pattern is anchored at the start, so a forwarded or replied
+  // subject ("Fwd: Order 1195") would silently fail to be recognised as an
+  // order. Strip any stack of Re:/Fwd:/Fw: prefixes first - a forwarded ticket
+  // is still a ticket, and the order number is what matters.
+  const stripped = String(subject ?? "").replace(/^(\s*(re|fwd?|fw)\s*:\s*)+/i, "");
+  const m = stripped.match(re) ?? String(subject ?? "").match(re);
   return m ? m[1] : null;
 }

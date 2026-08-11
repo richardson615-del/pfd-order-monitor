@@ -39,6 +39,17 @@ export function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      // Next.js patches global fetch and caches GET requests in the (durable,
+      // cross-deployment) Data Cache. That silently froze every read here -
+      // the cron poll kept seeing a stale monitored_inboxes snapshot while its
+      // writes went through, so deactivated inboxes were still polled and new
+      // ones were invisible. Reads of live operational data must never cache.
+      global: {
+        fetch: (input: any, init?: any) =>
+          fetch(input, { ...init, cache: "no-store" }),
+      },
+    }
   );
 }

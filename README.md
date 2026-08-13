@@ -293,6 +293,24 @@ same path as email orders (de-dup, push, print dispatch).
    restaurant" }` and the order is dropped (by design - it stops Zuppler's
    retries rather than 500ing forever).
 
+   Zuppler restaurant IDs are 5-digit numbers (e.g. `29905`), and they are NOT
+   guessable - get them from Zuppler, or let the first order tell you: the
+   route logs `no restaurant mapped for zuppler_restaurant_id <id>`.
+
+   **Replaying a dropped order.** Nothing was written to the database, so once
+   the mapping exists you can re-send the order yourself - the webhook is just
+   an `order_uuid`, and the full order is re-fetched from Zuppler:
+
+   ```bash
+   curl -X POST https://pfd-order-monitor.vercel.app/api/ingest/zuppler \
+     -H "Content-Type: application/json" \
+     -H "Authorization: $ZUPPLER_WEBHOOK_SECRET" \
+     -d '{"order_uuid":"<uuid from the Vercel logs>"}'
+   ```
+
+   The uuid appears in the logs for every webhook call, so an order dropped
+   for a missing mapping is recoverable rather than lost.
+
 ### Behavior / status codes
 
 - **`401`** - missing or wrong `Authorization` token.

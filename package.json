@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "gen:vapid": "web-push generate-vapid-keys",
-    "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts"
+    "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts && tsx scripts/test-ticket.ts"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

@@ -53,7 +53,24 @@ export PRINTER_HOST="192.168.1.50"
 export PRINTER_PORT=9100          # optional
 ```
 
-**B. USB printer attached to this machine (OS print queue)**
+**B. Epson ePOS-Print printer (TM-m30III, TM-i series)**
+
+```bash
+export PFD_DEVICE_KEY="PFD-XXXX-XXXX-XXXX"
+export PRINTER_TRANSPORT=epos
+export PRINTER_HOST="EPSONB6AA2A.local"   # or its IP
+```
+
+> These printers **open port 9100 but silently discard raw ESC/POS** unless raw
+> mode is enabled - the job is accepted and blank paper comes out, which is a
+> confusing failure. Their native protocol is ePOS-Print XML over HTTP, which
+> this transport speaks. It is also what Server Direct Print uses.
+
+Using the Bonjour name (`EPSONxxxxxx.local`) instead of an IP means the printer
+survives a DHCP reassignment. Requires mDNS on the agent's host - native on
+macOS, `avahi-daemon` on Linux/Raspberry Pi.
+
+**C. USB printer attached to this machine (OS print queue)**
 
 ```bash
 export PFD_DEVICE_KEY="PFD-XXXX-XXXX-XXXX"
@@ -149,6 +166,8 @@ contract rather than this script.
 | Nothing ever claimed | No `print_devices` row for that restaurant, or no orders since it was created |
 | Garbage characters / blank paper (USB) | Queue is not raw - reinstall it with a Generic/Raw driver |
 | `lp could not be started` | Not macOS/Linux, or CUPS not installed |
+| Epson: job accepted, **blank paper** | Raw ESC/POS on 9100 - use `PRINTER_TRANSPORT=epos` |
+| `ePOS rejected the job (code=...)` | Cover open, out of paper, or a malformed ticket |
 | Ticket tail cut off | Raise the post-write delay in `sendViaTcp()` |
 
 **Print jobs are queued at ingest time**, so orders that arrived *before* the

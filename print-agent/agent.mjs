@@ -37,6 +37,8 @@ const cfg = {
   systemPrinter: process.env.SYSTEM_PRINTER || "",
   printerHost: process.env.PRINTER_HOST || "",
   printerPort: Number(process.env.PRINTER_PORT || 9100),
+  eposPort: Number(process.env.EPOS_PORT || 80),
+  eposDevId: process.env.EPOS_DEVICE_ID || "local_printer",
   pollMs: Number(process.env.POLL_INTERVAL_MS || 5000),
   // 80mm at Font A = 48 columns. 58mm printers are 32 - set PAPER_COLS=32.
   cols: Number(process.env.PAPER_COLS || 48),
@@ -219,6 +221,59 @@ function toEscPos(lines, cols) {
   return Buffer.concat(chunks);
 }
 
+const xmlEscape = (s) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+
+/**
+ * Epson ePOS-Print XML (TM-m30III, TM-i series).
+ *
+ * These printers listen on 9100 but silently discard raw ESC/POS unless raw
+ * mode is explicitly enabled - the job is accepted and blank paper comes out.
+ * Their native protocol is this XML over HTTP, which is also what Server
+ * Direct Print speaks, so this is the forward-looking transport.
+ */
+function toEposXml(lines, cols) {
+  const body = lines
+    .map((line) => {
+      const t = line.text ?? "";
+      const dbl = line.size === "double" && t.length <= Math.floor(cols / 2);
+      const w = dbl ? 2 : 1;
+      const h = line.size === "double" || line.size === "double-h" ? 2 : 1;
+      const align = line.align === "center" ? "center" : line.align === "right" ? "right" : "left";
+      return (
+        `<text align="${align}" em="${line.bold ? "true" : "false"}" ` +
+        `width="${w}" height="${h}">${xmlEscape(t)}&#10;</text>`
+      );
+    })
+    .join("");
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>
+<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
+${body}<feed line="3"/><cut type="feed"/>
+</epos-print>
+</s:Body></s:Envelope>`;
+}
+
+async function sendViaEpos(lines) {
+  const url = `http://${cfg.printerHost}:${cfg.eposPort}/cgi-bin/epos/service.cgi?devid=${cfg.eposDevId}&timeout=10000`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '""' },
+    body: toEposXml(lines, cfg.cols),
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`ePOS HTTP ${res.status}`);
+  // The printer answers 200 even when it refuses the job; success is in the body.
+  if (!/success="true"/.test(text)) {
+    const code = text.match(/code="([^"]*)"/)?.[1] || "unknown";
+    throw new Error(`ePOS rejected the job (code="${code}")`);
+  }
+}
+
 function toPlainText(lines) {
   return lines
     .map((l) => {
@@ -234,8 +289,15 @@ function toPlainText(lines) {
 
 // --- transport (swap this function for Bluetooth later) ---------------------
 
-function sendToPrinter(bytes) {
-  return cfg.transport === "usb" ? sendViaSystemPrinter(bytes) : sendViaTcp(bytes);
+/**
+ * `lines` is the structured ticket; `bytes` is the same ticket already
+ * rendered to ESC/POS. ePOS builds its own XML from the lines, so both are
+ * passed and each transport takes what it needs.
+ */
+function sendToPrinter(bytes, lines) {
+  if (cfg.transport === "epos") return sendViaEpos(lines);
+  if (cfg.transport === "usb") return sendViaSystemPrinter(bytes);
+  return sendViaTcp(bytes);
 }
 
 /** Run a command, feed it `input` on stdin, resolve on a clean exit. */
@@ -340,8 +402,8 @@ async function pollOnce() {
       continue;
     }
     try {
-      const bytes = toEscPos(buildTicket(order, cfg.cols), cfg.cols);
-      await sendToPrinter(bytes);
+      const lines = buildTicket(order, cfg.cols);
+      await sendToPrinter(toEscPos(lines, cfg.cols), lines);
       await reportJob(job.id, "printed");
       log(`printed order #${order.order_number} (job ${job.id})`);
     } catch (err) {
@@ -393,9 +455,12 @@ async function main() {
     // Prove the hardware path end to end without waiting for a real order.
     const dest = cfg.transport === "usb"
       ? `system printer "${cfg.systemPrinter || "(default)"}"`
-      : `${cfg.printerHost}:${cfg.printerPort}`;
+      : cfg.transport === "epos"
+        ? `ePOS ${cfg.printerHost}:${cfg.eposPort}`
+        : `${cfg.printerHost}:${cfg.printerPort}`;
     log(`test print -> ${dest}`);
-    await sendToPrinter(toEscPos(buildTicket(SAMPLE, cfg.cols), cfg.cols));
+    const sampleLines = buildTicket(SAMPLE, cfg.cols);
+    await sendToPrinter(toEscPos(sampleLines, cfg.cols), sampleLines);
     log("sent - check the paper");
     return;
   }
@@ -410,7 +475,9 @@ async function main() {
 
   const dest = cfg.transport === "usb"
     ? `usb:${cfg.systemPrinter || "(system default)"}`
-    : `tcp:${cfg.printerHost}:${cfg.printerPort}`;
+    : cfg.transport === "epos"
+      ? `epos:${cfg.printerHost}:${cfg.eposPort}`
+      : `tcp:${cfg.printerHost}:${cfg.printerPort}`;
   log(`agent ${cfg.agentVersion} | api=${cfg.apiBase} | ${dest} | ${cfg.cols} cols`);
 
   if (args.has("--once")) {

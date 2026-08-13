@@ -96,17 +96,14 @@ export async function GET(req: NextRequest) {
           subject,
           inbox.subject_pattern
         );
-        // Not a PFD ticket - but Zuppler emails one for every order (and for
-        // later adjustments), which is a second way to learn an order_uuid.
-        // Only the uuid is taken from the email; the order itself is fetched
-        // from Zuppler's API, so this matches the webhook exactly.
-        if (!orderNumber) {
-          if (html && isZupplerOrderEmail(subject, html)) {
-            const zupplerUuid = await extractZupplerOrderUuid(html);
-            if (!zupplerUuid) {
-              note("zuppler_email_no_uuid", subject);
-              continue;
-            }
+        // PFD's order emails ARE Zuppler emails, relayed. So try Zuppler FIRST:
+        // fetching the order from their API gives real items, modifiers and
+        // money, where scraping the HTML gives a ticket with an order number
+        // and little else. Only the uuid is taken from the email, so this is
+        // the same order the webhook would produce.
+        if (html && isZupplerOrderEmail(subject, html)) {
+          const zupplerUuid = await extractZupplerOrderUuid(html);
+          if (zupplerUuid) {
             const z = await ingestZupplerOrderByUuid(zupplerUuid);
             if (z.status === "created") {
               created++;
@@ -124,6 +121,12 @@ export async function GET(req: NextRequest) {
             }
             continue;
           }
+          // No uuid recoverable (no receipt link) - fall through and let the
+          // HTML parser have a go rather than dropping the order.
+          note("zuppler_email_no_uuid", subject);
+        }
+
+        if (!orderNumber) {
           note("subject_did_not_match", subject);
           continue;
         }

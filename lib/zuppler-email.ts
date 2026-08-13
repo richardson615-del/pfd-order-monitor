@@ -36,10 +36,26 @@ const isFollowable = (url: string): boolean => {
   }
 };
 
-/** True for a Zuppler order notification, e.g. "Attention: Order Updated for X (#2bed4416)". */
+/**
+ * True for a Zuppler order notification. Two subject shapes seen in the wild:
+ *
+ *   "Attention: Order Updated for Greg Bishop (#2bed4416)"
+ *   "80eb0e25:Delivery order received for marquita clark for ... for $71.09"
+ *
+ * The second is what PFD's own order emails look like - they are Zuppler
+ * emails, relayed. That matters: such an order can be fetched from Zuppler's
+ * API in full rather than scraped out of the HTML.
+ *
+ * The hex-id form additionally requires the body to reference Zuppler, so a
+ * lookalike subject from elsewhere is not routed down this path.
+ */
 export function isZupplerOrderEmail(subject: string, html?: string | null): boolean {
-  if (/\border\b/i.test(subject) && /\(#[0-9a-f]{6,}\)/i.test(subject)) return true;
-  return !!html && /zuppler\.com|zplr\.io/i.test(html) && /\breceipt\b/i.test(html);
+  const subj = String(subject ?? "").replace(/^(\s*(re|fwd?|fw)\s*:\s*)+/i, "");
+  const mentionsZuppler = !!html && /zuppler\.com|zplr\.io/i.test(html);
+
+  if (/\border\b/i.test(subj) && /\(#[0-9a-f]{6,}\)/i.test(subj)) return true;
+  if (/^[0-9a-f]{8}\s*:/i.test(subj) && mentionsZuppler) return true;
+  return mentionsZuppler && /\breceipt\b/i.test(html!);
 }
 
 /** Extracts hrefs from an HTML body, de-duplicated, allowlisted hosts only. */

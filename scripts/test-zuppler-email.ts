@@ -33,6 +33,21 @@ async function main() {
   await test("forwarded variant is recognised", () =>
     assert.ok(isZupplerOrderEmail("Fwd: Attention: Order Updated for Mac Baggett (#7c753db5)")));
 
+  await test("PFD's own order email (hex-id subject) is recognised", () =>
+    assert.ok(isZupplerOrderEmail(
+      "80eb0e25:Delivery order received for marquita clark for Aug 12, 2026 5:25 PM for $71.09",
+      '<a href="https://web5.zuppler.com/x">Depot Bar and Grill</a>'
+    )));
+
+  await test("forwarded PFD order email is recognised", () =>
+    assert.ok(isZupplerOrderEmail(
+      "Fwd: 80eb0e25:Delivery order received for marquita clark",
+      "<p>restaurant.services@zuppler.com</p>"
+    )));
+
+  await test("a hex-id subject with no Zuppler in the body is NOT claimed", () =>
+    assert.equal(isZupplerOrderEmail("80eb0e25:Delivery order received", "<p>unrelated</p>"), false));
+
   await test("a PFD ticket subject is NOT treated as Zuppler", () =>
     assert.equal(isZupplerOrderEmail("Order 1195", "<p>plain</p>"), false));
 

@@ -69,6 +69,23 @@ test("missing money fields are omitted, not printed as $0.00 or NaN", () => {
   assert.ok(/no itemization available/.test(t));
 });
 
+test("a due time before the order is marked (PAST), not shown as urgent", () => {
+  const t = buildTicket(
+    { ...ORDER, received_at: "2026-08-13T02:00:00Z", due_time: "2026-08-10T22:30:00Z" },
+    48
+  ).map((l) => l.text).join("\n");
+  assert.match(t, /DUE:.*\(PAST\)/);
+});
+
+test("a normal future due time is not marked", () => {
+  const t = buildTicket(
+    { ...ORDER, received_at: "2026-08-13T02:00:00Z", due_time: "2026-08-13T02:45:00Z" },
+    48
+  ).map((l) => l.text).join("\n");
+  assert.ok(/DUE:/.test(t));
+  assert.ok(!/\(PAST\)/.test(t));
+});
+
 console.log("epos-print xml:");
 
 test("xml escapes markup in customer data", () => {

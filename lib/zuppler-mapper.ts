@@ -118,6 +118,12 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
     canonical: {
       orderNumber: str(order.shortUuid) ?? str(order.ivrCode) ?? str(order.uuid) ?? "",
       ticketRestaurantName: null,
+      // Zuppler knows when the order was actually placed; use it rather than
+      // the moment we happened to ingest, which differs by days on a replay.
+      receivedAt:
+        isoOrNull(order.createdAt) ??
+        isoOrNull(order.confirmationTime) ??
+        null,
       orderType,
       dueTime,
       customerName: str(customer.name),

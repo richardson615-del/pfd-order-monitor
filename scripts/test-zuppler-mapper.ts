@@ -97,6 +97,8 @@ console.log("delivery order (cents mode):");
       (c.deliveryFee ?? 0) + (c.tip ?? 0);
     assert.equal(Number(sum.toFixed(2)), c.customerTotal);
   });
+  test("receivedAt comes from Zuppler's createdAt, not ingest time", () =>
+    assert.equal(c.receivedAt, "2026-08-10T21:47:12.000Z"));
   test("paymentType from tender id", () =>
     assert.equal(c.paymentType, "CREDIT"));
   test("notes join cart comments + instructions", () =>

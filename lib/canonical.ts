@@ -17,6 +17,13 @@ export interface CanonicalOrderInput {
 
   orderNumber: string;
   ticketRestaurantName?: string | null;
+  /**
+   * When the ORDER was placed, per the source system. Omit and the row falls
+   * back to now(). Without this a replayed or backfilled order looks like it
+   * arrived when we happened to ingest it - which on a ticket reads as a due
+   * time before the order existed.
+   */
+  receivedAt?: string | null;
   orderType?: "pickup" | "delivery" | null;
   dueTime?: string | null; // ISO timestamp
   customerName?: string | null;
@@ -213,6 +220,8 @@ export async function ingestOrder(
       notes: input.notes ?? null,
       raw_html: input.rawHtml ?? null,
       raw_payload: input.rawPayload ?? null,
+      // Only override the now() default when the source actually told us.
+      ...(input.receivedAt ? { received_at: input.receivedAt } : {}),
       status: "new",
     })
     .select()

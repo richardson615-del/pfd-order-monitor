@@ -95,7 +95,15 @@ export function buildTicket(order: TicketOrder, cols = 48): TicketLine[] {
   lines.push(L(`ORDER #${order.order_number ?? "?"}`, { align: "center", size: "double", bold: true }));
 
   const due = localTime(order.due_time);
-  if (due) lines.push(L(`DUE: ${due}`, { align: "center", bold: true }));
+  if (due) {
+    // A due time before the order was placed means a replayed or backfilled
+    // order, not a real deadline. Say so rather than letting the kitchen read
+    // it as urgently late.
+    const dueMs = order.due_time ? new Date(order.due_time).getTime() : NaN;
+    const recvMs = order.received_at ? new Date(order.received_at).getTime() : NaN;
+    const stale = Number.isFinite(dueMs) && Number.isFinite(recvMs) && dueMs < recvMs;
+    lines.push(L(`DUE: ${due}${stale ? "  (PAST)" : ""}`, { align: "center", bold: true }));
+  }
   const recv = localTime(order.received_at);
   if (recv) lines.push(L(`received ${recv}`, { align: "center" }));
   lines.push(L(rule));

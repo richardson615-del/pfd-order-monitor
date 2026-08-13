@@ -329,6 +329,9 @@ always-on machine on the restaurant's network, pulls jobs, and prints over TCP
 9100. No phone, no app, no Bluetooth. See
 [print-agent/README.md](./print-agent/README.md).
 
+An **Epson TM-m30III / TM-i** printer needs nothing on site at all - see
+Server Direct Print below, which is the preferred setup.
+
 A **Bluetooth** printer still needs a native Android app (see the constraint
 table below); that app does not exist yet, but it would reuse the same API
 contract described here.
@@ -390,6 +393,43 @@ BLE-native printer or a WiFi/LAN printer.
   Bluetooth - just an endpoint returning ePOS-XML. Worth considering if the
   printer can sit on WiFi, since it removes the whole mobile app from the
   critical path.
+
+### Server Direct Print (recommended for new sites)
+
+**Built and in production.** The printer polls
+`POST /api/print/epson` on a timer and prints whatever we return, so a site
+needs **no agent, no PC, no Raspberry Pi and no app** - only the printer. This
+is the deployment model to use for new locations.
+
+Per-site install, start to finish:
+
+1. **Register the device** in the app (admin) - keep the `PFD-XXXX-XXXX-XXXX`
+   key it returns; it is shown once.
+2. Plug the printer into the network and open `http://<printer-ip>/webconfig/`.
+3. **Web Service Settings -> Direct Print**:
+
+   | Field | Value |
+   |---|---|
+   | Server Direct Print | Enable |
+   | ID | the device key |
+   | Server 1 URL | `https://pfd-order-monitor.vercel.app/api/print/epson` |
+   | Interval(s) | `5` |
+
+4. Press **Access Test**. Done - orders now print.
+
+Notes learned the hard way:
+
+- Use **`PrintRequestInfo Version="1.00"`**. Version 2.00 adds `printjobid` but
+  needs TM-i firmware 4.1+; the TM-m30III answers it with `code="SchemaError"`
+  and prints nothing, surfacing as a failed print rather than a clear error.
+- Because 1.00 carries no `printjobid`, results are matched to the oldest
+  outstanding claim, so the endpoint hands out **one job per response**.
+- The printer returns **HTTP 200 even when it refuses the job** - the real
+  outcome is `success="true|false"` inside the body. Always parse the body.
+- **Do not run the pull agent and Server Direct Print against the same
+  device.** Both claim from the same queue and whichever polls first wins.
+- The `ID` field is the only credential, sent over HTTPS. WebConfig also
+  supports a Password for Digest auth if you want defence in depth.
 
 ### Design note: keep ticket layout on the server
 

@@ -47,7 +47,13 @@ export async function GET(req: NextRequest) {
       const lastPoll = inbox.gmail_last_poll_at
         ? new Date(inbox.gmail_last_poll_at)
         : new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const afterEpoch = Math.floor(lastPoll.getTime() / 1000) - 120; // 2 min overlap, safer than missing one
+      // Generous overlap on purpose. The watermark advances on every
+      // successful poll, so anything not ingested on the pass it arrived in
+      // (sitting in spam, a parse failure, a transient Gmail error) falls
+      // outside the window within the overlap and is then invisible forever.
+      // Re-scanning is free: ingestOrder de-duplicates on gmail_message_id.
+      const overlapSeconds = Number(process.env.GMAIL_POLL_OVERLAP_SECONDS || 3600);
+      const afterEpoch = Math.floor(lastPoll.getTime() / 1000) - overlapSeconds;
 
       const messageIds = await listOrderMessageIds(
         inbox.gmail_refresh_token,

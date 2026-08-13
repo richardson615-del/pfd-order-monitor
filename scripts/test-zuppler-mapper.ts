@@ -4,7 +4,7 @@
  * Exits non-zero on the first failing suite so CI catches regressions.
  */
 import assert from "node:assert/strict";
-import { mapZupplerGraphqlOrder } from "@/lib/zuppler-mapper";
+import { implausibleTotalReason, mapZupplerGraphqlOrder } from "@/lib/zuppler-mapper";
 
 // Make money() deterministic regardless of the ambient shell/CI env.
 // (money() reads process.env.ZUPPLER_AMOUNTS on every call.)
@@ -172,6 +172,53 @@ console.log("garbage / malformed input:");
     assert.equal(g.externalId, null);
     assert.deepEqual(g.canonical.items, []);
   });
+}
+
+// --- totals sanity check -----------------------------------------------------
+// Numbers below are from a REAL Zuppler order (f9212833): an $84.34 receipt
+// returned by the API as integer cents.
+console.log("totals sanity check:");
+{
+  const REAL = { totals: { subtotal: 5744, tax: 560, service: 804, delivery: 826, tip: 500, total: 8434, discount: 0 },
+                 uuid: "f9212833-f76f-4a7f-a2d4-80d5fc732a41", shortUuid: "f9212833",
+                 carts: [{ restaurantId: 29905, settings: {}, customer: {}, items: [] }] };
+
+  test("a real order in cents mode passes", () => {
+    const c = mapZupplerGraphqlOrder({ order: REAL }).canonical;
+    assert.equal(c.customerTotal, 84.34);
+    assert.equal(implausibleTotalReason(c), null);
+  });
+
+  test("the SAME order in dollars mode is caught", () => {
+    process.env.ZUPPLER_AMOUNTS = "dollars";
+    try {
+      const c = mapZupplerGraphqlOrder({ order: REAL }).canonical;
+      assert.equal(c.customerTotal, 8434);
+      const reason = implausibleTotalReason(c);
+      assert.ok(reason, "a 100x-inflated total must be flagged");
+      assert.match(reason!, /ZUPPLER_AMOUNTS/);
+    } finally {
+      delete process.env.ZUPPLER_AMOUNTS;
+    }
+  });
+
+  test("internal consistency alone cannot detect the units error", () => {
+    // Both modes balance perfectly - which is why magnitude is the test.
+    const sum = (5744 + 560 + 804 + 826 + 500);
+    assert.equal(sum, 8434);
+  });
+
+  test("a missing total is flagged", () =>
+    assert.match(implausibleTotalReason({ customerTotal: null })!, /no order total/));
+
+  test("a negative total is flagged", () =>
+    assert.match(implausibleTotalReason({ customerTotal: -5 })!, /negative/));
+
+  test("subtotal above total is flagged", () =>
+    assert.match(implausibleTotalReason({ customerTotal: 10, itemsTotal: 50 })!, /exceeds total/));
+
+  test("an ordinary order passes", () =>
+    assert.equal(implausibleTotalReason({ customerTotal: 42.5, itemsTotal: 35 }), null));
 }
 
 console.log(

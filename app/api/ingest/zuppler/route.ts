@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-server";
 import { ingestOrder } from "@/lib/canonical";
 import {
   fetchZupplerOrder,
+  implausibleTotalReason,
   mapZupplerGraphqlOrder,
 } from "@/lib/zuppler-mapper";
 
@@ -112,12 +113,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unmapped restaurant" });
   }
 
+  // Never drop the order over suspect money - the kitchen still needs the
+  // food. But do not present wrong figures as fact either: flag it on the
+  // ticket so whoever reads it knows the totals are unverified.
+  const moneyProblem = implausibleTotalReason(mapped.canonical);
+  if (moneyProblem) {
+    console.error("Zuppler order has implausible totals", {
+      orderUuid,
+      reason: moneyProblem,
+      totals: {
+        itemsTotal: mapped.canonical.itemsTotal,
+        tax: mapped.canonical.tax,
+        serviceFee: mapped.canonical.serviceFee,
+        deliveryFee: mapped.canonical.deliveryFee,
+        tip: mapped.canonical.tip,
+        customerTotal: mapped.canonical.customerTotal,
+      },
+      amountsMode: process.env.ZUPPLER_AMOUNTS || "cents",
+    });
+  }
+
   const result = await ingestOrder({
     source: "zuppler",
     externalId: mapped.externalId,
     restaurantId: restaurant.id,
     ...mapped.canonical,
     ticketRestaurantName: mapped.canonical.ticketRestaurantName ?? restaurant.name,
+    notes: moneyProblem
+      ? [`** CHECK TOTALS: ${moneyProblem} **`, mapped.canonical.notes]
+          .filter(Boolean)
+          .join(" | ")
+      : mapped.canonical.notes,
   });
 
   if (result.status === "error") {

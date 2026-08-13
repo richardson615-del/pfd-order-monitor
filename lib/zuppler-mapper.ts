@@ -161,3 +161,40 @@ export async function fetchZupplerOrder(orderUuid: string): Promise<any> {
   }
   return json;
 }
+
+/**
+ * Plausibility check on mapped money, to catch a units mismatch.
+ *
+ * ZUPPLER_AMOUNTS decides whether their integers are cents or dollars, and
+ * getting it wrong does not throw - it prints a ticket that looks entirely
+ * normal with every figure 100x off. Note that internal consistency cannot
+ * detect this: in the wrong mode every field scales together, so
+ * subtotal + tax + fees + tip still equals the total. Only magnitude gives
+ * it away, which is why the ceiling is a restaurant-sized order rather than
+ * a generous round number - a real $84.34 order read as dollars is $8,434.
+ *
+ * Returns a human-readable reason when something looks wrong, else null.
+ */
+export function implausibleTotalReason(
+  canonical: { customerTotal?: number | null; itemsTotal?: number | null }
+): string | null {
+  const total = canonical.customerTotal;
+  if (total == null) return "no order total was mapped";
+  if (!Number.isFinite(total)) return `order total is not a number (${total})`;
+  if (total < 0) return `order total is negative (${total})`;
+
+  const max = Number(process.env.ZUPPLER_MAX_ORDER_TOTAL || 1000);
+  const min = Number(process.env.ZUPPLER_MIN_ORDER_TOTAL || 1);
+  if (total > max) {
+    return `order total $${total.toFixed(2)} exceeds $${max} - check ZUPPLER_AMOUNTS (cents vs dollars)`;
+  }
+  if (total < min) {
+    return `order total $${total.toFixed(2)} is under $${min} - check ZUPPLER_AMOUNTS (cents vs dollars)`;
+  }
+  // Subtotal larger than the total means fields are mismatched or mis-scaled.
+  const items = canonical.itemsTotal;
+  if (items != null && Number.isFinite(items) && items > total + 0.01) {
+    return `subtotal $${items.toFixed(2)} exceeds total $${total.toFixed(2)}`;
+  }
+  return null;
+}

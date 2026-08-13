@@ -8,6 +8,8 @@ import {
   extractOrderNumberFromSubject,
 } from "@/lib/parser";
 import { ingestOrder } from "@/lib/canonical";
+import { extractZupplerOrderUuid, isZupplerOrderEmail } from "@/lib/zuppler-email";
+import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -94,8 +96,34 @@ export async function GET(req: NextRequest) {
           subject,
           inbox.subject_pattern
         );
-        // Not an order email we recognise - record which check rejected it.
+        // Not a PFD ticket - but Zuppler emails one for every order (and for
+        // later adjustments), which is a second way to learn an order_uuid.
+        // Only the uuid is taken from the email; the order itself is fetched
+        // from Zuppler's API, so this matches the webhook exactly.
         if (!orderNumber) {
+          if (html && isZupplerOrderEmail(subject, html)) {
+            const zupplerUuid = await extractZupplerOrderUuid(html);
+            if (!zupplerUuid) {
+              note("zuppler_email_no_uuid", subject);
+              continue;
+            }
+            const z = await ingestZupplerOrderByUuid(zupplerUuid);
+            if (z.status === "created") {
+              created++;
+            } else if (z.status === "unmapped") {
+              console.error(
+                "Zuppler email: no restaurant mapped for zuppler_restaurant_id",
+                z.zupplerRestaurantId, "- order_uuid", zupplerUuid
+              );
+              note("zuppler_unmapped_restaurant", subject);
+            } else if (z.status === "error") {
+              console.error("Zuppler email ingest failed", zupplerUuid, z.error);
+              note("zuppler_fetch_error", subject);
+            } else {
+              note(`zuppler_${z.status}`);
+            }
+            continue;
+          }
           note("subject_did_not_match", subject);
           continue;
         }

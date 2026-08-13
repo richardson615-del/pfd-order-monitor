@@ -35,13 +35,14 @@
         <key>PFD_DEVICE_KEY</key>
         <string>PFD-4M88-E74H-GCBJ</string>
         <key>PRINTER_TRANSPORT</key>
-        <string>usb</string>
-        <key>SYSTEM_PRINTER</key>
-        <string>STMicroelectronics_POS80_Printer_USB</string>
+        <string>epos</string>
+        <!-- Bonjour name, not an IP: survives DHCP reassignment. -->
+        <key>PRINTER_HOST</key>
+        <string>EPSONB6AA2A.local</string>
         <key>PAPER_COLS</key>
         <string>48</string>
         <key>PRINTER_NAME</key>
-        <string>NS8360</string>
+        <string>Epson TM-m30III</string>
     </dict>
 
     <key>RunAtLoad</key>

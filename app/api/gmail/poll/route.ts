@@ -62,6 +62,17 @@ export async function GET(req: NextRequest) {
       );
 
       let created = 0;
+      // Why a message was skipped, not just how many. "checked: 1, created: 0"
+      // is indistinguishable between "already had it" and "could not read the
+      // subject", which turns every miss into a guessing game.
+      const skipped: Record<string, number> = {};
+      const skippedSubjects: string[] = [];
+      const note = (reason: string, subject?: string) => {
+        skipped[reason] = (skipped[reason] ?? 0) + 1;
+        if (subject && skippedSubjects.length < 5) {
+          skippedSubjects.push(`${reason}: ${subject.slice(0, 80)}`);
+        }
+      };
       for (const messageId of messageIds) {
         // Skip if we've already stored this message
         const { data: existing } = await admin
@@ -69,7 +80,10 @@ export async function GET(req: NextRequest) {
           .select("id")
           .eq("gmail_message_id", messageId)
           .maybeSingle();
-        if (existing) continue;
+        if (existing) {
+          note("already_ingested");
+          continue;
+        }
 
         const { subject, html } = await getMessageContent(
           inbox.gmail_refresh_token,
@@ -80,7 +94,15 @@ export async function GET(req: NextRequest) {
           subject,
           inbox.subject_pattern
         );
-        if (!orderNumber || !html) continue; // not an order email we recognize
+        // Not an order email we recognise - record which check rejected it.
+        if (!orderNumber) {
+          note("subject_did_not_match", subject);
+          continue;
+        }
+        if (!html) {
+          note("no_html_body", subject);
+          continue;
+        }
 
         const parsed = parseOrderEmail(html);
 
@@ -107,9 +129,12 @@ export async function GET(req: NextRequest) {
 
         if (result.status === "error") {
           console.error("Ingest failed for", messageId, result.error);
+          note("ingest_error");
           continue;
         }
         if (result.status === "created") created++;
+        else if (result.status === "updated") note("updated");
+        else note("duplicate_in_ingest");
       }
 
       await admin
@@ -117,7 +142,12 @@ export async function GET(req: NextRequest) {
         .update({ gmail_last_poll_at: new Date().toISOString() })
         .eq("id", inbox.id);
 
-      results[inbox.email_address] = { checked: messageIds.length, created };
+      results[inbox.email_address] = {
+        checked: messageIds.length,
+        created,
+        ...(Object.keys(skipped).length ? { skipped } : {}),
+        ...(skippedSubjects.length ? { details: skippedSubjects } : {}),
+      };
     } catch (err: any) {
       console.error("Poll failed for", inbox.email_address, err);
       results[inbox.email_address] = { error: err.message };

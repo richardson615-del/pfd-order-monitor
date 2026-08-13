@@ -86,7 +86,11 @@ async function handleGetRequest(deviceKey: string) {
     .eq("device_id", device.id)
     .eq("status", "queued")
     .order("queued_at", { ascending: true })
-    .limit(5);
+    // One job per response. PrintRequestInfo 1.00 carries no printjobid, so
+    // results are matched back by oldest-outstanding-claim - which is only
+    // unambiguous with a single job in flight. The printer polls every few
+    // seconds, so a queue drains almost as fast either way.
+    .limit(1);
 
   if (!jobs?.length) return empty();
 
@@ -104,12 +108,15 @@ async function handleGetRequest(deviceKey: string) {
   const blocks = printable
     .map((job: any) => {
       const data = toEposPrintXml(buildTicket(job.orders, cols), cols);
-      return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout><printjobid>${toJobId(job.id)}</printjobid></Parameter><PrintData>${data}</PrintData></ePOSPrint>`;
+      return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout></Parameter><PrintData>${data}</PrintData></ePOSPrint>`;
     })
     .join("");
 
+  // Version 1.00: supported by every TM-i firmware. 2.00 adds printjobid but
+  // needs firmware 4.1+, and this printer answers it with SchemaError - which
+  // surfaces as a failed print, not a clear error, so compatibility wins.
   return xml(
-    `<?xml version="1.0" encoding="utf-8"?>\n<PrintRequestInfo Version="2.00">${blocks}</PrintRequestInfo>`
+    `<?xml version="1.0" encoding="utf-8"?>\n<PrintRequestInfo Version="1.00">${blocks}</PrintRequestInfo>`
   );
 }
 

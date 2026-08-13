@@ -46,11 +46,17 @@ export async function listOrderMessageIds(
   afterEpochSeconds: number
 ) {
   const gmail = getGmailClient(refreshToken);
-  const q = `from:(${senderFilter}) after:${afterEpochSeconds}`;
+  // Spam is included deliberately. Gmail sometimes misclassifies automated
+  // order emails, and the API omits spam unless asked - so an order silently
+  // vanishes, which is precisely the failure a restaurant cannot notice. The
+  // sender + subject filters are narrow enough to make this safe. Trash stays
+  // excluded: a deleted message is a deliberate act.
+  const q = `from:(${senderFilter}) after:${afterEpochSeconds} -in:trash`;
   const res = await gmail.users.messages.list({
     userId: "me",
     q,
     maxResults: 25,
+    includeSpamTrash: true,
   });
   return (res.data.messages || []).map((m) => m.id!).filter(Boolean);
 }

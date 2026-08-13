@@ -194,6 +194,20 @@ export async function ingestOrder(
     return { status: "duplicate", orderId: crossDupe.id };
   }
 
+  // A ticket with no restaurant name on it prints as "PFD ORDER", which tells
+  // the kitchen nothing. The parser can miss the header (formats change), so
+  // fall back to the restaurant we already know this order belongs to. Doing
+  // it here covers every source rather than each caller remembering.
+  let ticketName = input.ticketRestaurantName ?? null;
+  if (!ticketName) {
+    const { data: restaurant } = await admin
+      .from("restaurants")
+      .select("name")
+      .eq("id", input.restaurantId)
+      .maybeSingle();
+    ticketName = restaurant?.name ?? null;
+  }
+
   const { data: inserted, error: insertError } = await admin
     .from("orders")
     .insert({
@@ -203,7 +217,7 @@ export async function ingestOrder(
       inbox_id: input.inboxId ?? null,
       gmail_message_id: input.source === "email" ? input.externalId : null,
       order_number: input.orderNumber,
-      ticket_restaurant_name: input.ticketRestaurantName ?? null,
+      ticket_restaurant_name: ticketName,
       order_type: input.orderType ?? null,
       due_time: input.dueTime ?? null,
       customer_name: input.customerName ?? null,

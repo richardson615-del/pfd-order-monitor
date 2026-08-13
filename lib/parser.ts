@@ -199,5 +199,12 @@ export function extractOrderNumberFromSubject(
   // is still a ticket, and the order number is what matters.
   const stripped = String(subject ?? "").replace(/^(\s*(re|fwd?|fw)\s*:\s*)+/i, "");
   const m = stripped.match(re) ?? String(subject ?? "").match(re);
-  return m ? m[1] : null;
+  if (!m) return null;
+  // Return the first group that actually matched, so a pattern can carry
+  // alternatives - PFD sends more than one subject format ("Order 1195" and
+  // "80eb0e25:Delivery order received for ..."), and one inbox may see both.
+  for (let i = 1; i < m.length; i++) {
+    if (m[i]) return m[i];
+  }
+  return m[0] || null;
 }

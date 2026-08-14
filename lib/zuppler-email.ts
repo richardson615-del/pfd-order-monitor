@@ -107,3 +107,36 @@ export async function extractZupplerOrderUuid(
   }
   return null;
 }
+
+/**
+ * Resolves a Zuppler order uuid from whatever someone has to hand: a bare
+ * uuid, a receipt URL, a wrapped tracking link, or a pasted email body.
+ *
+ * This is how a restaurant's Zuppler ID is discovered without waiting for
+ * their first live order - Zuppler's API exposes only order(id), so there is
+ * no restaurant lookup, but every receipt points at an order and every order
+ * carries its restaurantId.
+ */
+export async function resolveZupplerOrderUuid(
+  input: string,
+  opts: { timeoutMs?: number } = {}
+): Promise<string | null> {
+  const text = String(input ?? "").trim();
+  if (!text) return null;
+
+  // A uuid on its own.
+  const bare = text.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  if (bare) return text.toLowerCase();
+
+  // A single URL. Same allowlist as email links: this is operator-supplied
+  // rather than attacker-supplied, but the server should still only be
+  // making requests to Zuppler and their mail provider.
+  if (/^https?:\/\//i.test(text) && !/\s/.test(text)) {
+    const direct = decodeURIComponent(text).match(RECEIPT_UUID);
+    if (direct) return direct[1].toLowerCase();
+    return extractZupplerOrderUuid(`<a href="${text.replace(/"/g, "&quot;")}">x</a>`, opts);
+  }
+
+  // Anything else: treat it as an email body / pasted blob.
+  return extractZupplerOrderUuid(text, opts);
+}

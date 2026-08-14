@@ -42,6 +42,61 @@ export default function AdminPanel({
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
 
+  const [lookupInput, setLookupInput] = useState("");
+  const [lookingUp, setLookingUp] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookupResult, setLookupResult] = useState<any>(null);
+  const [assignTo, setAssignTo] = useState("");
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+
+  async function lookupZuppler(e: React.FormEvent) {
+    e.preventDefault();
+    setLookingUp(true);
+    setLookupError(null);
+    setLookupResult(null);
+    setAssignMsg(null);
+    try {
+      const res = await fetch("/api/admin/zuppler-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: lookupInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Lookup failed");
+      setLookupResult(data);
+    } catch (err: any) {
+      setLookupError(err.message);
+    } finally {
+      setLookingUp(false);
+    }
+  }
+
+  async function assignLookup() {
+    if (!assignTo || !lookupResult) return;
+    setAssignMsg(null);
+    const res = await fetch("/api/admin/restaurants", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: assignTo,
+        zuppler_restaurant_id: lookupResult.zuppler_restaurant_id,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAssignMsg(data.error || "Failed to assign");
+      return;
+    }
+    setRestaurants((prev) =>
+      prev.map((r) =>
+        r.id === assignTo
+          ? { ...r, zuppler_restaurant_id: data.restaurant.zuppler_restaurant_id }
+          : r
+      )
+    );
+    setAssignMsg(`Mapped to ${data.restaurant.name}`);
+  }
+
   const [editingZuppler, setEditingZuppler] = useState<string | null>(null);
   const [zupplerDraft, setZupplerDraft] = useState("");
   const [zupplerError, setZupplerError] = useState<string | null>(null);
@@ -311,6 +366,74 @@ export default function AdminPanel({
             </button>
             {inviteStatus && <div className="muted">{inviteStatus}</div>}
           </form>
+        </div>
+
+        <div className="card">
+          <h2>Find a Zuppler restaurant ID</h2>
+          <p className="muted">
+            Paste the &ldquo;View your receipt&rdquo; link from any of that
+            restaurant&rsquo;s order emails - or an order ID, or the whole email.
+            Zuppler has no restaurant lookup, but every receipt points at an
+            order and every order carries its restaurant ID.
+          </p>
+          <form className="form" onSubmit={lookupZuppler}>
+            <label>Receipt link, order ID, or pasted email</label>
+            <textarea
+              required
+              rows={3}
+              value={lookupInput}
+              onChange={(e) => setLookupInput(e.target.value)}
+              placeholder="https://u14145.ct.sendgrid.net/ls/click?upn=..."
+              style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 }}
+            />
+            {lookupError && <div className="error-text">{lookupError}</div>}
+            <button className="btn primary" disabled={lookingUp} type="submit">
+              {lookingUp ? "Looking up..." : "Look up"}
+            </button>
+          </form>
+
+          {lookupResult && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <h3 style={{ marginTop: 0 }}>
+                Zuppler ID{" "}
+                <code style={{ fontSize: 20 }}>
+                  {lookupResult.zuppler_restaurant_id}
+                </code>
+              </h3>
+              <p className="muted">
+                From order {lookupResult.order_number}
+                {lookupResult.customer_name ? ` for ${lookupResult.customer_name}` : ""}
+                {lookupResult.order_total != null
+                  ? ` - $${Number(lookupResult.order_total).toFixed(2)}`
+                  : ""}
+              </p>
+              {lookupResult.already_mapped_to ? (
+                <p className="success-text">
+                  Already mapped to {lookupResult.already_mapped_to.name}.
+                </p>
+              ) : (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
+                    <option value="">Assign to restaurant...</option>
+                    {restaurants.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={!assignTo}
+                    onClick={assignLookup}
+                  >
+                    Assign
+                  </button>
+                  {assignMsg && <span className="muted">{assignMsg}</span>}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="card">

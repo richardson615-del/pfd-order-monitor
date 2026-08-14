@@ -412,6 +412,23 @@ BLE-native printer or a WiFi/LAN printer.
   printer can sit on WiFi, since it removes the whole mobile app from the
   critical path.
 
+### One printer per restaurant
+
+`print_jobs` are queued for every active `print_devices` row **belonging to
+that order's restaurant**. Each restaurant has its own printer, registered
+against its own `restaurants` row - confirmed as the intended model, Aug 2026.
+
+Consequences worth knowing:
+
+- A device registered to restaurant A will never print restaurant B's orders.
+  If an order ingests cleanly but nothing prints, check that the restaurant
+  has a device - that is the usual cause, and it is silent.
+- Server Direct Print sends a single `ID`, so one physical printer is exactly
+  one device row, and therefore exactly one restaurant.
+- Central printing (one printer receiving every restaurant's orders) is NOT
+  supported by this model. It would need `print_devices.restaurant_id` to be
+  nullable, meaning "all restaurants", and the queue lookup to match those too.
+
 ### Server Direct Print (recommended for new sites)
 
 **Built and in production.** The printer polls

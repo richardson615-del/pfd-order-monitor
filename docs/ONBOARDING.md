@@ -20,25 +20,22 @@ Two of these come from outside the team - chase them first.
 
 ## 1. Create the restaurant — admin panel
 
-`/admin` → **Add a restaurant**. Name, unique slug, and the Gmail address
-receiving their orders.
+`/admin` → **Add a restaurant**. Name, unique slug, then whichever routes apply:
+the **Gmail address** receiving their orders, the **Zuppler restaurant ID**, or
+both.
 
-**Known gap:** the form requires a Gmail address, so a Zuppler-only restaurant
-cannot be created here yet. Create it directly, then continue at step 2:
+One of the two is required - they are the only ways an order can reach this
+restaurant. A Zuppler-only venue leaves the inbox blank.
 
-```sql
-insert into restaurants (name, slug, is_active) values ('China One', 'china-one', true);
-```
+*Done when* the restaurant appears in the Restaurants table with its Zuppler ID.
 
-*Done when* the restaurant appears in the Restaurants table.
-
-## 2. Map the Zuppler restaurant ID — database
+## 2. Check the Zuppler restaurant ID — admin panel
 
 One webhook covers every venue; orders are routed purely on this number.
 
-```sql
-update restaurants set zuppler_restaurant_id = '29905' where slug = 'china-one';
-```
+If you entered it in step 1, confirm it in the **Restaurants** table. To add or
+correct one, click the ID (or **Set ID**) and type the new value. Digits only -
+a typo is rejected rather than silently dropping orders later.
 
 Skip only if the restaurant takes no Zuppler orders.
 
@@ -47,20 +44,16 @@ Zuppler sees success and never retries; nothing reaches the dashboard and nobody
 is told. The real ID is logged (`no restaurant mapped for zuppler_restaurant_id
 …`) and the order is replayable once mapped - but only if someone looks.
 
-*Done when* the query returns `UPDATE 1`.
+*Done when* the correct five-digit ID shows against the restaurant.
 
 ## 3. Connect their inbox — admin panel
 
 Email venues only. `/admin` → **Connect Gmail** on the restaurant's row. The
 restaurant signs in to their own Gmail; we never see their password.
 
-Then confirm the subject pattern covers both formats PFD sends:
-
-```sql
-update monitored_inboxes
-set subject_pattern = '^(?:Order\s+(\d+)|([0-9a-f]{8})\s*:)'
-where email_address = 'their@gmail.com';
-```
+Nothing else to configure: new inboxes already match both subject formats PFD
+sends. Inboxes created before August 2026 may still be on the older pattern and
+should be checked by an engineer.
 
 *Done when* Gmail status reads **Connected**.
 
@@ -135,5 +128,6 @@ get the order".
 | Logs | Vercel → pfd-order-monitor → Logs |
 | Known Zuppler IDs | `29905` China One · `29974` mapped to Yummy Johns |
 
-Steps 2 and 3 still require database access. Everything else is doable from the
-admin panel by someone non-technical.
+Every step here is doable from the admin panel - no database access needed.
+Escalate to an engineer only for an inbox created before August 2026, or if a
+correctly-configured restaurant still isn't printing.

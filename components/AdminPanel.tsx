@@ -12,6 +12,7 @@ interface Restaurant {
   id: string;
   name: string;
   slug: string;
+  zuppler_restaurant_id: string | null;
   monitored_inboxes: Inbox[];
 }
 interface PrintDevice {
@@ -33,12 +34,39 @@ export default function AdminPanel({
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [email, setEmail] = useState("");
+  const [zupplerId, setZupplerId] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [inviteRestaurantId, setInviteRestaurantId] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+
+  const [editingZuppler, setEditingZuppler] = useState<string | null>(null);
+  const [zupplerDraft, setZupplerDraft] = useState("");
+  const [zupplerError, setZupplerError] = useState<string | null>(null);
+
+  async function saveZupplerId(restaurant: Restaurant) {
+    setZupplerError(null);
+    const res = await fetch("/api/admin/restaurants", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: restaurant.id, zuppler_restaurant_id: zupplerDraft }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setZupplerError(data.error || "Failed to save");
+      return;
+    }
+    setRestaurants((prev) =>
+      prev.map((r) =>
+        r.id === restaurant.id
+          ? { ...r, zuppler_restaurant_id: data.restaurant.zuppler_restaurant_id }
+          : r
+      )
+    );
+    setEditingZuppler(null);
+  }
 
   const [devices, setDevices] = useState<PrintDevice[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
@@ -123,17 +151,23 @@ export default function AdminPanel({
       const res = await fetch("/api/admin/restaurants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, slug, monitored_email: email }),
+        body: JSON.stringify({
+          name,
+          slug,
+          monitored_email: email || undefined,
+          zuppler_restaurant_id: zupplerId || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create");
       setRestaurants((prev) => [
-        { ...data.restaurant, monitored_inboxes: [data.inbox] },
+        { ...data.restaurant, monitored_inboxes: data.inbox ? [data.inbox] : [] },
         ...prev,
       ]);
       setName("");
       setSlug("");
       setEmail("");
+      setZupplerId("");
     } catch (err: any) {
       setCreateError(err.message);
     } finally {
@@ -154,6 +188,48 @@ export default function AdminPanel({
     });
     const data = await res.json();
     setInviteStatus(res.ok ? "Invite sent." : data.error);
+  }
+
+  function ZupplerCell({ r }: { r: Restaurant }) {
+    if (editingZuppler === r.id) {
+      return (
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          <input
+            autoFocus
+            value={zupplerDraft}
+            onChange={(e) => setZupplerDraft(e.target.value)}
+            placeholder="29905"
+            inputMode="numeric"
+            style={{ width: 90, padding: "4px 6px" }}
+          />
+          <button type="button" className="btn small" onClick={() => saveZupplerId(r)}>
+            Save
+          </button>
+          <button
+            type="button"
+            className="btn small"
+            onClick={() => { setEditingZuppler(null); setZupplerError(null); }}
+          >
+            Cancel
+          </button>
+          {zupplerError && <span className="error-text">{zupplerError}</span>}
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="btn small"
+        title="Zuppler routes every order on this number"
+        onClick={() => {
+          setEditingZuppler(r.id);
+          setZupplerDraft(r.zuppler_restaurant_id ?? "");
+          setZupplerError(null);
+        }}
+      >
+        {r.zuppler_restaurant_id ?? "Set ID"}
+      </button>
+    );
   }
 
   return (
@@ -180,14 +256,25 @@ export default function AdminPanel({
               onChange={(e) => setSlug(e.target.value)}
               placeholder="swezeys-pub"
             />
-            <label>Monitored inbox (the Gmail address receiving PFD order emails)</label>
+            <label>Monitored inbox (Gmail address receiving their order emails)</label>
             <input
-              required
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="sweezyspub@gmail.com"
             />
+            <label>Zuppler restaurant ID</label>
+            <input
+              value={zupplerId}
+              onChange={(e) => setZupplerId(e.target.value)}
+              placeholder="29905"
+              inputMode="numeric"
+            />
+            <p className="muted" style={{ margin: "-4px 0 4px", fontSize: 13 }}>
+              Give an inbox, a Zuppler ID, or both - one of them is how orders
+              reach this restaurant. Ask Jerry at Zuppler for the ID; it is five
+              digits and cannot be guessed.
+            </p>
             {createError && <div className="error-text">{createError}</div>}
             <button className="btn primary" disabled={creating} type="submit">
               {creating ? "Creating..." : "Create restaurant"}
@@ -366,6 +453,7 @@ export default function AdminPanel({
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Zuppler ID</th>
                 <th>Monitored inbox</th>
                 <th>Gmail status</th>
                 <th></th>
@@ -374,9 +462,14 @@ export default function AdminPanel({
             <tbody>
               {restaurants.map((r) =>
                 r.monitored_inboxes.length ? (
-                  r.monitored_inboxes.map((inbox) => (
+                  r.monitored_inboxes.map((inbox, i) => (
                     <tr key={inbox.id}>
                       <td>{r.name}</td>
+                      {i === 0 && (
+                        <td rowSpan={r.monitored_inboxes.length}>
+                          <ZupplerCell r={r} />
+                        </td>
+                      )}
                       <td>{inbox.email_address}</td>
                       <td>
                         {inbox.gmail_refresh_token ? (
@@ -398,8 +491,9 @@ export default function AdminPanel({
                 ) : (
                   <tr key={r.id}>
                     <td>{r.name}</td>
+                    <td><ZupplerCell r={r} /></td>
                     <td colSpan={3} className="muted">
-                      No inbox configured
+                      Zuppler only - no inbox
                     </td>
                   </tr>
                 )

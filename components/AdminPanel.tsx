@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Inbox {
   id: string;
@@ -13,6 +13,15 @@ interface Restaurant {
   name: string;
   slug: string;
   monitored_inboxes: Inbox[];
+}
+interface PrintDevice {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  is_active: boolean;
+  last_seen_at: string | null;
+  printer_name: string | null;
+  app_version: string | null;
 }
 
 export default function AdminPanel({
@@ -30,6 +39,81 @@ export default function AdminPanel({
   const [inviteRestaurantId, setInviteRestaurantId] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+
+  const [devices, setDevices] = useState<PrintDevice[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  const [deviceRestaurantId, setDeviceRestaurantId] = useState("");
+  const [deviceName, setDeviceName] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  // Shown once, right after registering. The key is not retrievable again.
+  const [newKey, setNewKey] = useState<{ name: string; key: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/admin/print-devices")
+      .then((r) => r.json())
+      .then((d) => setDevices(d.devices ?? []))
+      .catch(() => {})
+      .finally(() => setDevicesLoaded(true));
+  }, []);
+
+  async function registerDevice(e: React.FormEvent) {
+    e.preventDefault();
+    setRegistering(true);
+    setDeviceError(null);
+    setNewKey(null);
+    setCopied(false);
+    try {
+      const res = await fetch("/api/admin/print-devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ restaurant_id: deviceRestaurantId, name: deviceName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to register device");
+      setDevices((prev) => [{ ...data.device, is_active: true }, ...prev]);
+      setNewKey({ name: data.device.name, key: data.device_key });
+      setDeviceName("");
+    } catch (err: any) {
+      setDeviceError(err.message);
+    } finally {
+      setRegistering(false);
+    }
+  }
+
+  async function toggleDevice(device: PrintDevice) {
+    const next = !device.is_active;
+    if (
+      !next &&
+      !confirm(
+        `Deactivate "${device.name}"? It will stop printing immediately, and its key cannot be recovered - you would register a new device.`
+      )
+    ) {
+      return;
+    }
+    const res = await fetch("/api/admin/print-devices", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: device.id, is_active: next }),
+    });
+    if (res.ok) {
+      setDevices((prev) =>
+        prev.map((d) => (d.id === device.id ? { ...d, is_active: next } : d))
+      );
+    }
+  }
+
+  /** "3 min ago" - a printer that stopped checking in is the thing to notice. */
+  function lastSeen(iso: string | null): { text: string; stale: boolean } {
+    if (!iso) return { text: "never", stale: true };
+    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return { text: "just now", stale: false };
+    if (mins < 60) return { text: `${mins} min ago`, stale: mins > 10 };
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return { text: `${hrs}h ago`, stale: true };
+    return { text: `${Math.floor(hrs / 24)}d ago`, stale: true };
+  }
 
   async function createRestaurant(e: React.FormEvent) {
     e.preventDefault();
@@ -140,6 +224,140 @@ export default function AdminPanel({
             </button>
             {inviteStatus && <div className="muted">{inviteStatus}</div>}
           </form>
+        </div>
+
+        <div className="card">
+          <h2>Print devices</h2>
+          <p className="muted">
+            One printer per restaurant. A restaurant with no active device
+            here will ingest orders but never print them.
+          </p>
+
+          <form className="form" onSubmit={registerDevice}>
+            <label>Restaurant</label>
+            <select
+              required
+              value={deviceRestaurantId}
+              onChange={(e) => setDeviceRestaurantId(e.target.value)}
+            >
+              <option value="">Select a restaurant...</option>
+              {restaurants.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <label>Device name</label>
+            <input
+              required
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+              placeholder="Kitchen printer"
+            />
+            {deviceError && <div className="error-text">{deviceError}</div>}
+            <button className="btn primary" disabled={registering} type="submit">
+              {registering ? "Registering..." : "Register device"}
+            </button>
+          </form>
+
+          {newKey && (
+            <div className="card" style={{ marginTop: 16, borderColor: "#d9531e" }}>
+              <h3 style={{ marginTop: 0 }}>Device key for {newKey.name}</h3>
+              <p className="error-text">
+                Copy this now - it is shown once and cannot be retrieved again.
+              </p>
+              <code
+                style={{
+                  display: "block",
+                  padding: "12px",
+                  fontSize: "18px",
+                  letterSpacing: "1px",
+                  wordBreak: "break-all",
+                  background: "rgba(0,0,0,0.25)",
+                  borderRadius: 6,
+                }}
+              >
+                {newKey.key}
+              </code>
+              <button
+                type="button"
+                className="btn small"
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  navigator.clipboard?.writeText(newKey.key);
+                  setCopied(true);
+                }}
+              >
+                {copied ? "Copied" : "Copy key"}
+              </button>
+              <p className="muted" style={{ marginTop: 12 }}>
+                Epson (Server Direct Print): WebConfig &rarr; Web Service
+                Settings &rarr; Direct Print. Set <strong>ID</strong> to this
+                key, <strong>Server 1 URL</strong> to
+                {" "}
+                <code>https://pfd-order-monitor.vercel.app/api/print/epson</code>,
+                interval 5s. Otherwise set <code>PFD_DEVICE_KEY</code> in the
+                print agent.
+              </p>
+            </div>
+          )}
+
+          <table className="admin-table" style={{ marginTop: 16 }}>
+            <thead>
+              <tr>
+                <th>Restaurant</th>
+                <th>Device</th>
+                <th>Printer</th>
+                <th>Last seen</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {!devicesLoaded && (
+                <tr>
+                  <td colSpan={5} className="muted">Loading devices...</td>
+                </tr>
+              )}
+              {devicesLoaded && devices.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    No print devices yet - orders will not print until one is registered.
+                  </td>
+                </tr>
+              )}
+              {devices.map((d) => {
+                const seen = lastSeen(d.last_seen_at);
+                const restaurant = restaurants.find((r) => r.id === d.restaurant_id);
+                return (
+                  <tr key={d.id} style={{ opacity: d.is_active ? 1 : 0.5 }}>
+                    <td>{restaurant?.name ?? <span className="muted">unknown</span>}</td>
+                    <td>
+                      {d.name}
+                      {!d.is_active && <span className="muted"> (inactive)</span>}
+                    </td>
+                    <td className="muted">
+                      {d.printer_name || "-"}
+                      {d.app_version ? ` / ${d.app_version}` : ""}
+                    </td>
+                    <td>
+                      <span className={seen.stale ? "error-text" : "success-text"}>
+                        {seen.text}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn small"
+                        onClick={() => toggleDevice(d)}
+                      >
+                        {d.is_active ? "Deactivate" : "Reactivate"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
 
         <div className="card">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
+import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -17,29 +18,11 @@ export const maxDuration = 30;
  * quiet. All of it is visible in the admin panel, but only to someone who
  * happens to look. This is what does the looking.
  *
- * Delivery is a webhook (ALERT_WEBHOOK_URL) because that works with Slack,
- * Discord, Zapier or anything else without this project holding new
- * credentials. Unset, it still records state and serves the admin panel -
- * the checks are useful even with nowhere to send them.
+ * Two delivery channels, on purpose. ALERT_WEBHOOK_URL (Slack/Discord) is
+ * free and glanceable so it gets everything; Twilio SMS costs money per
+ * segment and interrupts someone, so it gets criticals only. With neither
+ * configured the checks still run and record state.
  */
-async function notify(text: string): Promise<void> {
-  const url = process.env.ALERT_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // `text` is what Slack and Discord both read; anything else gets the
-      // whole body and can pick out what it wants.
-      body: JSON.stringify({ text, source: "pfd-order-monitor" }),
-      signal: AbortSignal.timeout(10000),
-    });
-  } catch (err) {
-    // A broken alert channel must never break the check that feeds it.
-    console.error("alert webhook failed", err instanceof Error ? err.message : err);
-  }
-}
-
 const line = (i: HealthIssue) =>
   `${i.severity === "critical" ? "\u{1F534}" : "\u{1F7E1}"} ${i.title}\n   ${i.detail}`;
 
@@ -81,14 +64,18 @@ export async function GET(req: NextRequest) {
     await admin.from("monitor_alerts").update({ resolved_at: now }).in("key", resolvedKeys);
   }
 
+  let sms = { sent: 0, failed: 0 };
   if (fresh.length) {
-    await notify(
+    await sendWebhook(
       `*Order Monitor: ${fresh.length} new issue${fresh.length > 1 ? "s" : ""}*\n\n` +
         fresh.map(line).join("\n\n")
     );
+    // Criticals only, and one message however many there are.
+    const text = composeSmsAlert(fresh);
+    if (text) sms = await sendSms(text);
   }
   if (resolvedKeys.length) {
-    await notify(`✅ Order Monitor: ${resolvedKeys.length} issue(s) cleared.`);
+    await sendWebhook(`✅ Order Monitor: ${resolvedKeys.length} issue(s) cleared.`);
   }
 
   return NextResponse.json({
@@ -97,6 +84,12 @@ export async function GET(req: NextRequest) {
     open: issues.length,
     new: fresh.length,
     resolved: resolvedKeys.length,
+    channels: {
+      webhook: !!process.env.ALERT_WEBHOOK_URL,
+      sms: twilioConfigured(),
+      sms_sent: sms.sent,
+      sms_failed: sms.failed,
+    },
     issues,
   });
 }

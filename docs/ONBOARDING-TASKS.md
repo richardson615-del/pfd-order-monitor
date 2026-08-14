@@ -23,18 +23,22 @@ Confirm with the restaurant:
 
 ---
 
-### 2. Request Zuppler restaurant ID
+### 2. Find the Zuppler restaurant ID
 **Owner:** Account manager
 **Blocked by:** Task 1 (only needed if they take Zuppler orders)
 
-Email Jerry Dani at Zuppler and ask for the restaurant ID for this venue. It is
-a five-digit number, e.g. `29905`. It is not in any order email and cannot be
-guessed.
+Find any past order receipt for this venue - our own archive is fine. Copy the
+"View your receipt" link out of the email.
+
+In `/admin` → **Find a Zuppler restaurant ID**, paste the link and press
+**Look up**. The five-digit ID comes back, e.g. `29905`, along with the order it
+came from so you can confirm it is the right venue.
+
+You can do this before the restaurant has ever ordered through us. Only ask
+Jerry Dani at Zuppler if no receipt exists at all - the ID appears nowhere else
+and cannot be guessed.
 
 **Done when:** the five-digit ID is recorded on the CRM record.
-
-**If it stalls:** onboarding can continue through task 6, but the restaurant
-will not receive Zuppler orders until this is filled in. Do not mark them live.
 
 ---
 

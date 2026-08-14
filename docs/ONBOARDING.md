@@ -14,7 +14,7 @@ Two of these come from outside the team - chase them first.
 |---|---|
 | **Restaurant name** | As it should print on the ticket, e.g. `Depot Bar and Grill` |
 | **Order sources** | Zuppler, PFD order emails, or both. Decides steps 2 and 3. |
-| **Zuppler restaurant ID** | Five digits, e.g. `29905`. **Ask Jerry Dani at Zuppler** - not guessable, not in any email. |
+| **Zuppler restaurant ID** | Five digits, e.g. `29905`. Look it up in `/admin` from any past receipt for that venue; ask Jerry Dani at Zuppler only if no receipt exists. |
 | **Gmail address** | Email venues only. The restaurant must sign in to it during step 3. |
 | **Printer** | Epson TM-m30III on their network with power. Not USB-only. |
 
@@ -36,6 +36,11 @@ One webhook covers every venue; orders are routed purely on this number.
 If you entered it in step 1, confirm it in the **Restaurants** table. To add or
 correct one, click the ID (or **Set ID**) and type the new value. Digits only -
 a typo is rejected rather than silently dropping orders later.
+
+Don't have the ID? Use **Find a Zuppler restaurant ID** on the same page: paste
+the "View your receipt" link from any past order email for that venue and it
+returns the ID, with a one-click assign. Zuppler's API has no restaurant
+lookup - every ID comes from an order - so a receipt is the fastest route.
 
 Skip only if the restaurant takes no Zuppler orders.
 
@@ -124,7 +129,7 @@ get the order".
 |---|---|
 | Admin panel | `https://pfd-order-monitor.vercel.app/admin` |
 | Printer endpoint | `https://pfd-order-monitor.vercel.app/api/print/epson` |
-| Zuppler contact | Jerry Dani - restaurant IDs, webhook channels |
+| Zuppler contact | Jerry Dani - webhook channels; restaurant IDs only if no receipt exists |
 | Logs | Vercel → pfd-order-monitor → Logs |
 | Known Zuppler IDs | `29905` China One · `29974` mapped to Yummy Johns |
 

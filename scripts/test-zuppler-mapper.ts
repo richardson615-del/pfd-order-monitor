@@ -176,6 +176,59 @@ console.log("garbage / malformed input:");
   });
 }
 
+// --- address + state (Jerry Dani, Aug 2026) ----------------------------------
+console.log("delivery address and state:");
+{
+  const withAddr = {
+    order: {
+      uuid: "addr-1", shortUuid: "a1", state: "CONFIRMED",
+      totals: { subtotal: 1000, tax: 90, total: 1090, discount: 0 },
+      carts: [{
+        restaurantId: 29905,
+        settings: {
+          service: {
+            id: "DELIVERY",
+            address: {
+              full: "4445 Mount Zion Road, Springfield, TN 37172",
+              street: "4445 Mount Zion Road", city: "Springfield",
+              state: "TN", zip: "37172",
+              deliveryInstructions: "Ring the bell",
+            },
+          },
+        },
+        customer: {}, items: [],
+      }],
+    },
+  };
+  test("delivery address is mapped from settings.service.address", () =>
+    assert.equal(
+      mapZupplerGraphqlOrder(withAddr).canonical.customerAddress,
+      "4445 Mount Zion Road, Springfield, TN 37172 | Ring the bell"
+    ));
+
+  test("address falls back to components when full is absent", () => {
+    const noFull = JSON.parse(JSON.stringify(withAddr));
+    delete noFull.order.carts[0].settings.service.address.full;
+    delete noFull.order.carts[0].settings.service.address.deliveryInstructions;
+    assert.equal(
+      mapZupplerGraphqlOrder(noFull).canonical.customerAddress,
+      "4445 Mount Zion Road, Springfield, TN 37172"
+    );
+  });
+
+  test("a pickup order with no address stays null", () =>
+    assert.equal(mapZupplerGraphqlOrder(resp).canonical.customerAddress, null));
+
+  test("state is exposed lowercased for cancel detection", () =>
+    assert.equal(mapZupplerGraphqlOrder(withAddr).state, "confirmed"));
+
+  test("a cancelled state is detectable", () => {
+    const c = JSON.parse(JSON.stringify(withAddr));
+    c.order.state = "Cancelled";
+    assert.ok(/cancel/.test(mapZupplerGraphqlOrder(c).state!));
+  });
+}
+
 // --- totals sanity check -----------------------------------------------------
 // Numbers below are from a REAL Zuppler order (f9212833): an $84.34 receipt
 // returned by the API as integer cents.

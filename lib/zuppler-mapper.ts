@@ -13,14 +13,16 @@ import type { CanonicalOrderInput } from "./canonical";
  * via graphiql.zuppler.com if more fields are needed - do NOT add guessed
  * field names, GraphQL rejects the whole query on any unknown field.
  *
- * KNOWN GAP: this query has no delivery address field. Until the right field
- * name is confirmed in graphiql (or with Zuppler), delivery tickets print
- * without an address. customerAddress stays null-safe throughout.
+ * The delivery address lives under carts.settings.service.address (confirmed
+ * by Jerry Dani, Aug 2026). Amounts are cents, also per Jerry. The webhook is
+ * channel-level - one hook covers every restaurant - and fires on order CREATE
+ * (at confirmation) and order CANCEL, so a payload may describe an order that
+ * is no longer live.
  */
 
 export const ZUPPLER_GRAPHQL_ENDPOINT = "https://orders-api5.zuppler.com/graphql";
 
-export const LOAD_ORDER_QUERY = `query LoadOrder($order_uuid: ID!) { order(id: $order_uuid) { uuid pickupTime paymentInfo { authorization dateTime } fireTime dueTime deliveryTime createdAt confirmationTime totals { delivery discount hidden includedTax service subtotal tax tip total } shortUuid state workflowId carts { channelId integrationId restaurantId comments instructions settings { service { id } tender { id } } customer { uuid name email phone } discounts { id title promocode } items { id category comments name menu menuId quantity itemTotal servingQty } } } }`;
+export const LOAD_ORDER_QUERY = `query LoadOrder($order_uuid: ID!) { order(id: $order_uuid) { uuid pickupTime paymentInfo { authorization dateTime } fireTime dueTime deliveryTime createdAt confirmationTime totals { delivery discount hidden includedTax service subtotal tax tip total } shortUuid state workflowId carts { channelId integrationId restaurantId comments instructions settings { service { id address { street city state zip full crossStreet deliveryInstructions } } tender { id } } customer { uuid name email phone } discounts { id title promocode } items { id category comments name menu menuId quantity itemTotal servingQty } } } }`;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,6 +57,8 @@ function isoOrNull(v: any): string | null {
 
 export interface MappedZupplerOrder {
   externalId: string | null;
+  /** Zuppler's order state, e.g. "confirmed" / "cancelled". */
+  state: string | null;
   /** Zuppler's numeric restaurantId from the cart - our routing key. */
   zupplerRestaurantId: string | null;
   canonical: Omit<CanonicalOrderInput, "source" | "externalId" | "restaurantId">;
@@ -113,6 +117,7 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
 
   return {
     externalId: str(order.uuid),
+    state: str(order.state)?.toLowerCase() ?? null,
     zupplerRestaurantId:
       cart.restaurantId != null ? String(cart.restaurantId) : null,
     canonical: {
@@ -128,7 +133,21 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       dueTime,
       customerName: str(customer.name),
       customerPhone: str(customer.phone),
-      customerAddress: null, // see KNOWN GAP above
+      customerAddress: (() => {
+        const a = cart.settings?.service?.address;
+        if (!a) return null;
+        // Prefer their preformatted "full"; otherwise assemble the parts.
+        const full = str(a.full);
+        // "street, city, ST zip" - state and zip belong together, not comma
+        // separated, or the address reads wrong on a driver's ticket.
+        const stateZip = [str(a.state), str(a.zip)].filter(Boolean).join(" ");
+        const parts = [str(a.street), str(a.city), stateZip || null]
+          .filter(Boolean)
+          .join(", ");
+        const base = full ?? (parts || null);
+        const extra = [str(a.crossStreet), str(a.deliveryInstructions)].filter(Boolean);
+        return base ? [base, ...extra].join(" | ") : (extra.join(" | ") || null);
+      })(),
       items,
       itemsTotal: money(totals.subtotal),
       tax: money(totals.tax),

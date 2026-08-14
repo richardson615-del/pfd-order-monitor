@@ -73,6 +73,8 @@ export async function POST(req: NextRequest) {
         "- order_uuid", orderUuid, "(replayable once mapped)"
       );
       return NextResponse.json({ ok: false, error: "unmapped restaurant" });
+    case "cancelled":
+      return NextResponse.json({ ok: true, status: "cancelled", orderId: result.orderId });
     default:
       return NextResponse.json({ ok: true, ...result });
   }

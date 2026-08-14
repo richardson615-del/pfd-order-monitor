@@ -7,7 +7,7 @@ import {
 } from "./zuppler-mapper";
 
 export interface ZupplerIngestResult {
-  status: "created" | "updated" | "duplicate" | "unmapped" | "not_found" | "error";
+  status: "created" | "updated" | "duplicate" | "cancelled" | "unmapped" | "not_found" | "error";
   orderId?: string;
   /** Zuppler's numeric restaurant id - logged so an unmapped one is findable. */
   zupplerRestaurantId?: string | null;
@@ -37,6 +37,38 @@ export async function ingestZupplerOrderByUuid(
   }
 
   const admin = supabaseAdmin();
+
+  // The webhook fires on cancel as well as create, so a payload may describe
+  // an order that should NOT be made. Never let one become a fresh ticket.
+  if (mapped.state && /cancel/.test(mapped.state)) {
+    const { data: existing } = await admin
+      .from("orders")
+      .select("id")
+      .eq("source", "zuppler")
+      .eq("external_id", mapped.externalId)
+      .maybeSingle();
+
+    if (existing) {
+      await admin
+        .from("orders")
+        .update({ status: "cancelled" })
+        .eq("id", existing.id);
+      // Pull any ticket that has not been picked up yet. One already printed
+      // cannot be recalled - but nothing should print after a cancellation.
+      await admin
+        .from("print_jobs")
+        .update({ status: "failed", error: "order cancelled", finished_at: new Date().toISOString() })
+        .eq("order_id", existing.id)
+        .in("status", ["queued", "claimed"]);
+      console.log("Zuppler order cancelled", { orderId: existing.id, orderUuid });
+      return { status: "cancelled", orderId: existing.id };
+    }
+
+    // Cancelled before we ever saw it: nothing to make, nothing to record.
+    console.log("Zuppler cancel for an order we never ingested", { orderUuid });
+    return { status: "cancelled" };
+  }
+
   const { data: restaurant } = await admin
     .from("restaurants")
     .select("id, name")

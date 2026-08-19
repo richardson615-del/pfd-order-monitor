@@ -165,6 +165,30 @@ export default function AdminPanel({
     }
   }
 
+  async function moveDevice(device: PrintDevice, restaurantId: string) {
+    if (!restaurantId || restaurantId === device.restaurant_id) return;
+    const to = restaurants.find((r) => r.id === restaurantId);
+    if (
+      !confirm(
+        `Move "${device.name}" to ${to?.name ?? "that restaurant"}? It will stop printing ${
+          restaurants.find((r) => r.id === device.restaurant_id)?.name ?? "its current restaurant"
+        }'s orders immediately. The printer itself needs no reconfiguration - the device key stays the same.`
+      )
+    ) {
+      return;
+    }
+    const res = await fetch("/api/admin/print-devices", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: device.id, restaurant_id: restaurantId }),
+    });
+    if (res.ok) {
+      setDevices((prev) =>
+        prev.map((d) => (d.id === device.id ? { ...d, restaurant_id: restaurantId } : d))
+      );
+    }
+  }
+
   async function toggleDevice(device: PrintDevice) {
     const next = !device.is_active;
     if (
@@ -540,7 +564,21 @@ export default function AdminPanel({
                 const restaurant = restaurants.find((r) => r.id === d.restaurant_id);
                 return (
                   <tr key={d.id} style={{ opacity: d.is_active ? 1 : 0.5 }}>
-                    <td>{restaurant?.name ?? <span className="muted">unknown</span>}</td>
+                    <td>
+                      <select
+                        value={d.restaurant_id}
+                        onChange={(e) => moveDevice(d, e.target.value)}
+                        title="Which restaurant's orders this printer prints"
+                        style={{ maxWidth: 170 }}
+                      >
+                        {!restaurant && <option value={d.restaurant_id}>unknown</option>}
+                        {restaurants.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td>
                       {d.name}
                       {!d.is_active && <span className="muted"> (inactive)</span>}

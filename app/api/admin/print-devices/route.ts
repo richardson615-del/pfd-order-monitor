@@ -64,8 +64,14 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ device: data, device_key: deviceKey });
 }
 
-/** PATCH /api/admin/print-devices - activate/deactivate/rename
- * Body: { id, is_active?, name? } */
+/** PATCH /api/admin/print-devices - activate/deactivate/rename/reassign
+ * Body: { id, is_active?, name?, restaurant_id? }
+ *
+ * Reassigning matters because a printer follows the hardware, not the
+ * paperwork: the same physical unit gets moved to a different restaurant, or
+ * was registered against the wrong one. Moving the device row keeps its
+ * device_key, so the printer's own configuration does not have to be touched
+ * - re-registering would issue a new key and mean a site visit. */
 export async function PATCH(req: NextRequest) {
   if (!(await isCurrentUserAdmin())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -80,8 +86,26 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.name === "string" && body.name.trim())
     updates.name = body.name.trim();
 
-  const admin = supabaseAdmin();
-  const { error } = await admin
+  const admin0 = supabaseAdmin();
+  if (typeof body.restaurant_id === "string" && body.restaurant_id.trim()) {
+    // Verify the target exists: a bad id would otherwise fail as an opaque FK
+    // error, or worse, point a printer at nothing and silently stop printing.
+    const { data: target } = await admin0
+      .from("restaurants")
+      .select("id")
+      .eq("id", body.restaurant_id.trim())
+      .maybeSingle();
+    if (!target) {
+      return NextResponse.json({ error: "restaurant not found" }, { status: 400 });
+    }
+    updates.restaurant_id = body.restaurant_id.trim();
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+  }
+
+  const { error } = await admin0
     .from("print_devices")
     .update(updates)
     .eq("id", body.id);

@@ -43,8 +43,15 @@ export async function GET(req: NextRequest) {
   const currentKeys = new Set(issues.map((i) => i.key));
 
   const fresh = issues.filter((i) => !openKeys.has(i.key));
+
+  // supabase-js reports failures in `error` rather than throwing, so an
+  // unwritable store is silent - and silence here is dangerous in a specific
+  // way: without persisted state every run sees every issue as new, so a
+  // standing problem would alert on every single run. That is the alert
+  // fatigue this table exists to prevent, so treat it as fatal.
+  let storeError: string | null = null;
   for (const i of issues) {
-    await admin.from("monitor_alerts").upsert(
+    const { error } = await admin.from("monitor_alerts").upsert(
       {
         key: i.key,
         severity: i.severity,
@@ -56,12 +63,40 @@ export async function GET(req: NextRequest) {
       },
       { onConflict: "key" }
     );
+    if (error) {
+      storeError = error.message;
+      break;
+    }
   }
 
   // Anything previously open and no longer reported has cleared.
   const resolvedKeys = [...openKeys].filter((k) => !currentKeys.has(k));
-  if (resolvedKeys.length) {
-    await admin.from("monitor_alerts").update({ resolved_at: now }).in("key", resolvedKeys);
+  if (!storeError && resolvedKeys.length) {
+    const { error } = await admin
+      .from("monitor_alerts")
+      .update({ resolved_at: now })
+      .in("key", resolvedKeys);
+    if (error) storeError = error.message;
+  }
+
+  if (storeError) {
+    // Deliberately no notification: with no memory, notifying would repeat
+    // the same alert every run until someone muted the channel. The issues
+    // are still returned here and visible to anyone calling the endpoint,
+    // and this is now loud in the logs and the response.
+    console.error("monitor: alert store unavailable, notifications suppressed", storeError);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `alert store unavailable: ${storeError}`,
+        hint: "monitor_alerts table missing or unwritable - see db/migrations/005_monitor_alerts.sql",
+        checked_at: now,
+        open: issues.length,
+        notifications_suppressed: true,
+        issues,
+      },
+      { status: 500 }
+    );
   }
 
   let sms = { sent: 0, failed: 0 };

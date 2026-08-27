@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
-import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured } from "@/lib/alerts";
+import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -122,6 +122,8 @@ export async function GET(req: NextRequest) {
     channels: {
       webhook: !!process.env.ALERT_WEBHOOK_URL,
       sms: twilioConfigured(),
+      // Names only, never values - so a dead channel says which piece is missing.
+      ...(twilioConfigured() ? {} : { sms_missing: smsConfigGaps() }),
       sms_sent: sms.sent,
       sms_failed: sms.failed,
     },

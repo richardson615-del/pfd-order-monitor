@@ -49,6 +49,24 @@ export function smsRecipients(): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Which SMS settings are absent, by NAME only - never values.
+ *
+ * twilioConfigured() answers "can we text?" with a bare boolean, which is
+ * enough to suppress sending but useless for fixing it: an empty env var and
+ * a missing one look identical, and a var can exist in the dashboard with no
+ * value behind it. Naming the gap turns a redeploy-and-guess loop into one
+ * obvious fix.
+ */
+export function smsConfigGaps(): string[] {
+  const gaps: string[] = [];
+  if (!process.env.TWILIO_ACCOUNT_SID) gaps.push("TWILIO_ACCOUNT_SID");
+  if (!process.env.TWILIO_AUTH_TOKEN) gaps.push("TWILIO_AUTH_TOKEN");
+  if (!process.env.TWILIO_FROM_NUMBER) gaps.push("TWILIO_FROM_NUMBER");
+  if (!smsRecipients().length) gaps.push("ALERT_SMS_TO");
+  return gaps;
+}
+
 export function twilioConfigured(): boolean {
   return !!(
     process.env.TWILIO_ACCOUNT_SID &&

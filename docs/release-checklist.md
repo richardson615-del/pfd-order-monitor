@@ -130,3 +130,31 @@ Written down so they are decisions rather than surprises.
 - **Zuppler's API is read-only.** One query, `order(id)`; no mutations, no
   channel listing. Webhook coverage cannot be audited programmatically - only
   inferred from orders that arrived.
+
+---
+
+## CRM management bridge
+
+Write-scoped surface, authenticated with `CRM_WRITE_KEY` (never the read key).
+All routes take `Authorization: Bearer <key>`.
+
+| method | path | does |
+|---|---|---|
+| GET | `/api/crm/devices` | every printer: restaurant, active, last_seen, model, computed `online` |
+| POST | `/api/crm/devices` | register one; returns `device_key` **once** |
+| POST | `/api/crm/devices/:id` | `{action: activate\|deactivate\|rename\|reassign\|test_print}` |
+| GET | `/api/crm/issues` | live health issues, with `first_seen_at` where known |
+
+Notes that matter operationally:
+
+- **`device_key` is returned once and by no read path.** It is stored in
+  plaintext in `print_devices` (the printer presents it verbatim, so it cannot
+  be hashed), so "unretrievable" is enforced by never selecting the column,
+  not by cryptography. Treat DB access as equivalent to holding every key.
+- **Reassigning keeps the key**, so a printer that physically moves does not
+  need a site visit to be reconfigured.
+- **`test_print` uses the real pipeline** - a real order row with
+  `source = 'test'`, a real `print_jobs` row, claimed on the printer's normal
+  poll. Exclude test orders from reporting with `source <> 'test'`.
+- **`test_print` on an inactive device returns 409** rather than queueing: the
+  poll is rejected while inactive, so the ticket would sit forever.

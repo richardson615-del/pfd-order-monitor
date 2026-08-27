@@ -121,9 +121,28 @@ export async function GET(req: NextRequest) {
             }
             continue;
           }
-          // No uuid recoverable (no receipt link) - fall through and let the
-          // HTML parser have a go rather than dropping the order.
+          // Recognised as a Zuppler order, but no order uuid could be
+          // recovered - the RESTAURANT notification carries only "Accept
+          // Order"/"Reject Order" buttons, which must never be followed, and
+          // no receipt link.
+          //
+          // Do NOT fall through to the PFD HTML parser. It cannot read
+          // Zuppler's markup (proven twice: 80eb0e25 and fa0cda5d both
+          // produced an order with no customer, no items and no totals), and
+          // worse, it files the order against whichever restaurant owns the
+          // INBOX rather than the one the order is for - so a real order
+          // lands on a test restaurant, queues no print job, and prints
+          // nowhere. It also records the Gmail message id, which stops the
+          // message ever being reprocessed once the webhook is fixed.
+          //
+          // Skipping loudly is strictly better: the webhook remains the
+          // ingest path, and this is a signal that it did not fire.
+          console.error(
+            "Zuppler order email with no recoverable uuid - webhook may not cover this channel:",
+            subject.slice(0, 120)
+          );
           note("zuppler_email_no_uuid", subject);
+          continue;
         }
 
         if (!orderNumber) {

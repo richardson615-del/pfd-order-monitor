@@ -57,6 +57,20 @@ export interface HealthSnapshot {
     restaurant_name: string | null;
     error: string | null;
   }[];
+  /**
+   * The inbound order webhook. Nothing watched this until 2026-08-27, when
+   * two receipts arrived, were rejected, and produced no orders - and no
+   * check anywhere could tell that from a quiet morning.
+   */
+  webhook: {
+    /** Newest receipt of any kind, accepted or rejected. */
+    lastReceiptAt: string | null;
+    /** Newest receipt that actually became an order. */
+    lastAcceptedAt: string | null;
+    /** Receipts inside the recent window, and how many were turned away. */
+    recentTotal: number;
+    recentRejected: number;
+  };
 }
 
 export interface HealthThresholds {
@@ -66,6 +80,8 @@ export interface HealthThresholds {
   inboxSilentMinutes: number;
   /** A ticket should print within seconds. This long means it never will. */
   jobPendingMinutes: number;
+  /** No accepted webhook order for this long means the pipe may be dead. */
+  webhookSilentHours: number;
 }
 
 export const DEFAULT_THRESHOLDS: HealthThresholds = {
@@ -74,6 +90,9 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   deviceSilentMinutes: 15,
   inboxSilentMinutes: 15,
   jobPendingMinutes: 10,
+  // Long on purpose. Restaurants close, and a quiet night is not an outage -
+  // an alert that fires every morning at 4am is one nobody reads.
+  webhookSilentHours: 24,
 };
 
 const minutesSince = (iso: string | null, now: Date): number | null => {
@@ -116,6 +135,43 @@ export function evaluateHealth(
         title: `Printer offline: ${d.name}`,
         detail: `${where(d.restaurant_name)} - last checked in ${ago(mins)}. Orders will not print. Check power, network and paper.`,
       });
+    }
+  }
+
+  // --- the inbound webhook ---
+  // Only meaningful once the webhook has ever worked: before go-live,
+  // silence is the expected state, not a fault worth reporting nightly.
+  const w = snap.webhook;
+  if (w.lastReceiptAt) {
+    if (w.recentTotal > 0 && w.recentRejected === w.recentTotal) {
+      // The expensive case. Something IS sending and we are refusing all of
+      // it, which from the outside is indistinguishable from nobody sending -
+      // and every one of those refusals is an order nobody will cook.
+      issues.push({
+        key: "webhook_all_rejected",
+        severity: "critical",
+        title: `Order webhook rejecting everything (${w.recentRejected} received, 0 accepted)`,
+        detail:
+          "Zuppler is delivering and every receipt is being turned away - most likely a token mismatch or an unmapped restaurant. Each one is a live order that will not print. Check webhook_receipts for the reason.",
+      });
+    } else if (w.lastAcceptedAt === null) {
+      issues.push({
+        key: "webhook_never_accepted",
+        severity: "critical",
+        title: "Order webhook has never accepted a delivery",
+        detail:
+          "Receipts have arrived but none has ever become an order. Check webhook_receipts for the rejection reason.",
+      });
+    } else {
+      const mins = minutesSince(w.lastAcceptedAt, now);
+      if (mins !== null && mins >= thresholds.webhookSilentHours * 60) {
+        issues.push({
+          key: "webhook_silent",
+          severity: "warning",
+          title: "No orders via the Zuppler webhook",
+          detail: `Last accepted webhook order ${ago(mins)}. If restaurants are taking orders, the channel may have stopped delivering.`,
+        });
+      }
     }
   }
 
@@ -191,6 +247,7 @@ export function sortIssues(issues: HealthIssue[]): HealthIssue[] {
 // ---------------------------------------------------------------------------
 
 import { supabaseAdmin } from "./supabase-server";
+import { ACCEPTED_STATUSES } from "./webhook-receipts";
 
 /** Reads the current state of the pipeline for evaluateHealth(). */
 export async function collectSnapshot(): Promise<HealthSnapshot> {
@@ -205,6 +262,29 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
       .select("id, status, attempts, queued_at, error, orders(order_number, restaurant_id)")
       .in("status", ["queued", "claimed", "failed"]),
   ]);
+
+  // Recent window for the "arriving but all rejected" check. Wide enough to
+  // survive a quiet stretch, short enough that yesterday's fixed problem does
+  // not keep firing today.
+  const recentSince = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const [lastReceiptRes, lastAcceptedRes, recentRes] = await Promise.all([
+    admin.from("webhook_receipts").select("received_at")
+      .order("received_at", { ascending: false }).limit(1),
+    admin.from("webhook_receipts").select("received_at")
+      .in("status", ACCEPTED_STATUSES)
+      .order("received_at", { ascending: false }).limit(1),
+    admin.from("webhook_receipts").select("status")
+      .gte("received_at", recentSince),
+  ]);
+  const recent = recentRes.data ?? [];
+  const webhook = {
+    lastReceiptAt: lastReceiptRes.data?.[0]?.received_at ?? null,
+    lastAcceptedAt: lastAcceptedRes.data?.[0]?.received_at ?? null,
+    recentTotal: recent.length,
+    recentRejected: recent.filter(
+      (r: any) => !ACCEPTED_STATUSES.includes(r.status)
+    ).length,
+  };
 
   const restaurants = restaurantsRes.data ?? [];
   const nameOf = (id: string | null) =>
@@ -250,6 +330,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   });
 
   return {
+    webhook,
     devices,
     inboxes,
     restaurantsWithoutDevice,

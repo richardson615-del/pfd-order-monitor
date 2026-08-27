@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
+import { recordWebhookReceipt } from "@/lib/webhook-receipts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -35,34 +36,70 @@ function extractOrderUuid(body: any): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  // Read the body FIRST, before the auth check, so a rejected receipt is
+  // recorded with the payload that was refused. Two receipts arrived on
+  // 2026-08-27 and produced no orders, and nothing anywhere could say which
+  // rejection they hit - a live order being dropped left as much evidence as
+  // nothing arriving at all.
+  const userAgent = req.headers.get("user-agent");
+  const rawBody = await req.text().catch(() => "");
+
   const secret = process.env.ZUPPLER_WEBHOOK_SECRET;
   const authHeader = req.headers.get("authorization");
   const ok =
     !!secret && (authHeader === secret || authHeader === `Bearer ${secret}`);
   if (!ok) {
+    // Loud. A 401 here means an order was dropped on the floor, which is
+    // exactly the failure that once killed every live webhook silently while
+    // Vercel held a token Zuppler did not have.
+    console.error(
+      "Zuppler webhook REJECTED (401) - a live order may have been dropped.",
+      secret ? "Token mismatch." : "ZUPPLER_WEBHOOK_SECRET is not set.",
+      "user-agent:", userAgent ?? "(none)"
+    );
+    await recordWebhookReceipt({
+      status: "unauthorized", httpStatus: 401, rawBody, userAgent,
+      detail: secret ? "token mismatch" : "ZUPPLER_WEBHOOK_SECRET not set",
+    });
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   let body: any;
   try {
-    body = await req.json();
+    body = JSON.parse(rawBody);
   } catch {
+    console.error("Zuppler webhook: body was not valid JSON - order dropped.");
+    await recordWebhookReceipt({
+      status: "invalid_json", httpStatus: 400, rawBody, userAgent,
+    });
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
   const orderUuid = extractOrderUuid(body);
   if (!orderUuid) {
+    console.error("Zuppler webhook: no order_uuid in payload - order dropped.");
+    await recordWebhookReceipt({
+      status: "no_order_uuid", httpStatus: 422, rawBody, userAgent,
+    });
     return NextResponse.json({ error: "no order_uuid in payload" }, { status: 422 });
   }
 
   const result = await ingestZupplerOrderByUuid(orderUuid);
+  const receipt = { orderUuid, rawBody, userAgent };
 
   switch (result.status) {
     case "error":
       // 500 so Zuppler retries - transient API failures self-heal.
       console.error("Zuppler ingest failed for", orderUuid, result.error);
+      await recordWebhookReceipt({
+        ...receipt, status: "ingest_error", httpStatus: 500, detail: result.error,
+      });
       return NextResponse.json({ error: result.error }, { status: 500 });
     case "not_found":
+      console.error("Zuppler webhook: order not found at Zuppler -", orderUuid);
+      await recordWebhookReceipt({
+        ...receipt, status: "not_found", httpStatus: 422,
+      });
       return NextResponse.json({ error: "order not found at Zuppler" }, { status: 422 });
     case "unmapped":
       // 200 so retries stop; the mapping just needs adding in admin. The id is
@@ -72,10 +109,23 @@ export async function POST(req: NextRequest) {
         result.zupplerRestaurantId,
         "- order_uuid", orderUuid, "(replayable once mapped)"
       );
+      await recordWebhookReceipt({
+        ...receipt, status: "unmapped", httpStatus: 200,
+        detail: `zuppler_restaurant_id ${result.zupplerRestaurantId}`,
+      });
       return NextResponse.json({ ok: false, error: "unmapped restaurant" });
     case "cancelled":
+      await recordWebhookReceipt({
+        ...receipt, status: "cancelled", httpStatus: 200, orderId: result.orderId,
+      });
       return NextResponse.json({ ok: true, status: "cancelled", orderId: result.orderId });
     default:
+      await recordWebhookReceipt({
+        ...receipt,
+        status: (result.status as any) === "updated" ? "updated"
+              : (result.status as any) === "duplicate" ? "duplicate" : "created",
+        httpStatus: 200, orderId: result.orderId,
+      });
       return NextResponse.json({ ok: true, ...result });
   }
 }

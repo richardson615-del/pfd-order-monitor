@@ -28,6 +28,12 @@ const healthy: HealthSnapshot = {
   restaurantsWithoutDevice: [],
   pendingJobs: [],
   failedJobs: [],
+  webhook: {
+    lastReceiptAt: minsAgo(5),
+    lastAcceptedAt: minsAgo(5),
+    recentTotal: 3,
+    recentRejected: 0,
+  },
 };
 
 console.log("healthy system:");
@@ -146,6 +152,62 @@ test("a malformed timestamp does not crash or silently pass", () => {
   assert.equal(issues.length, 1, "unreadable last_seen must be treated as never seen");
   assert.match(issues[0].key, /device_never_seen/);
 });
+
+console.log("inbound webhook:");
+{
+  const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOString();
+
+  test("a webhook that has never delivered is not flagged", () => {
+    // Before go-live, silence is the expected state. Alerting on it nightly
+    // would train someone to ignore the channel before it ever matters.
+    const s = { ...healthy, webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0 } };
+    assert.deepEqual(evaluateHealth(s, NOW), []);
+  });
+
+  test("receipts arriving and ALL being rejected is critical", () => {
+    // The 2026-08-27 case: two POSTs, no orders, and nothing able to tell
+    // that apart from nobody sending.
+    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: hoursAgo(30), recentTotal: 2, recentRejected: 2 } };
+    const issues = evaluateHealth(s, NOW);
+    const i = issues.find((x) => x.key === "webhook_all_rejected");
+    assert.ok(i, "must flag a webhook refusing everything");
+    assert.equal(i!.severity, "critical");
+    assert.match(i!.title, /2 received, 0 accepted/);
+  });
+
+  test("a partial rejection is not flagged as total failure", () => {
+    // One unmapped restaurant among live traffic is a different, quieter
+    // problem than the pipe being shut.
+    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: minsAgo(10), recentTotal: 5, recentRejected: 2 } };
+    assert.equal(evaluateHealth(s, NOW).find((x) => x.key === "webhook_all_rejected"), undefined);
+  });
+
+  test("receipts that have never once been accepted is critical", () => {
+    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: null, recentTotal: 0, recentRejected: 0 } };
+    const i = evaluateHealth(s, NOW).find((x) => x.key === "webhook_never_accepted");
+    assert.ok(i);
+    assert.equal(i!.severity, "critical");
+  });
+
+  test("silence past the threshold is a warning, not a critical", () => {
+    // Nobody should be woken because a restaurant had a slow Tuesday.
+    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(30), lastAcceptedAt: hoursAgo(30), recentTotal: 0, recentRejected: 0 } };
+    const i = evaluateHealth(s, NOW).find((x) => x.key === "webhook_silent");
+    assert.ok(i, "must flag a pipe with no orders for over a day");
+    assert.equal(i!.severity, "warning");
+  });
+
+  test("silence just under the threshold is not flagged", () => {
+    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(23), lastAcceptedAt: hoursAgo(23), recentTotal: 0, recentRejected: 0 } };
+    assert.equal(evaluateHealth(s, NOW).find((x) => x.key === "webhook_silent"), undefined);
+  });
+
+  test("an overnight gap does not fire", () => {
+    // 10pm close to 8am open is 10 hours of legitimate quiet.
+    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(10), lastAcceptedAt: hoursAgo(10), recentTotal: 0, recentRejected: 0 } };
+    assert.deepEqual(evaluateHealth(s, NOW), []);
+  });
+}
 
 console.log(
   process.exitCode

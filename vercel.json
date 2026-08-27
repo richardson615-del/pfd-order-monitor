@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/gmail/poll",
-      "schedule": "0 6 * * *"
+      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/monitor/check",

@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_THRESHOLDS } from "@/lib/health";
+import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 
 export const dynamic = "force-dynamic";
 
@@ -75,37 +76,38 @@ export async function POST(req: NextRequest) {
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 
   const body = await req.json().catch(() => null);
-  const restaurantId = String(body?.restaurant_id ?? "").trim();
   const name = String(body?.name ?? "").trim();
-  if (!restaurantId || !name) {
-    return NextResponse.json(
-      { error: "restaurant_id and name are required" },
-      { status: 400 }
-    );
+  if (!name) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
-  const admin = supabaseAdmin();
-  // Verify the restaurant first: an unknown id would otherwise surface as an
-  // opaque foreign-key error the CRM cannot show anyone useful.
-  const { data: restaurant } = await admin
-    .from("restaurants")
-    .select("id, name")
-    .eq("id", restaurantId)
-    .maybeSingle();
-  if (!restaurant) {
-    return NextResponse.json({ error: "restaurant not found" }, { status: 400 });
+  // The CRM knows about restaurants this database has never heard of, so an
+  // unknown id is a gap to close rather than a request to reject.
+  const resolved = await resolveOrCreateRestaurant({
+    restaurantId: body?.restaurant_id,
+    crmRestaurantId: body?.crm_restaurant_id,
+    restaurantName: body?.restaurant_name ?? body?.restaurant?.name,
+  });
+  if (!resolved.restaurant) {
+    return NextResponse.json({ error: resolved.error }, { status: 400 });
   }
+  const restaurant = resolved.restaurant;
+
+  const admin = supabaseAdmin();
 
   const deviceKey = generateDeviceKey();
   const { data, error } = await admin
     .from("print_devices")
-    .insert({ restaurant_id: restaurantId, name, device_key: deviceKey })
+    .insert({ restaurant_id: restaurant.id, name, device_key: deviceKey })
     .select("id, name, is_active, created_at")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({
     device: { ...data, restaurant: { id: restaurant.id, name: restaurant.name } },
+    // So the console can say "created Torino's" rather than silently
+    // inventing a restaurant nobody asked for.
+    restaurant_created: resolved.created,
     device_key: deviceKey,
     note: "Shown once. Type it into the printer's WebConfig ID field - it cannot be retrieved again.",
   });

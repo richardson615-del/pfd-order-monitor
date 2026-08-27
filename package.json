@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "gen:vapid": "web-push generate-vapid-keys",
-    "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts && tsx scripts/test-ticket.ts && tsx scripts/test-adjustments.ts && tsx scripts/test-zuppler-email.ts && tsx scripts/test-health.ts && tsx scripts/test-alerts.ts && tsx scripts/test-crm-auth.ts"
+    "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts && tsx scripts/test-ticket.ts && tsx scripts/test-adjustments.ts && tsx scripts/test-zuppler-email.ts && tsx scripts/test-health.ts && tsx scripts/test-alerts.ts && tsx scripts/test-crm-auth.ts && tsx scripts/test-restaurant-resolve.ts"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

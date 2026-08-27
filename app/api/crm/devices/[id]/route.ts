@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
+import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 
 export const dynamic = "force-dynamic";
 
@@ -67,18 +68,17 @@ export async function POST(
   }
 
   if (action === "reassign") {
-    const restaurantId = String(body?.restaurant_id ?? "").trim();
-    if (!restaurantId) {
-      return NextResponse.json({ error: "restaurant_id is required" }, { status: 400 });
+    // Same assumption as create: the restaurant being moved TO may equally
+    // not exist here yet, and refusing the move would be the same dead end.
+    const resolved = await resolveOrCreateRestaurant({
+      restaurantId: body?.restaurant_id,
+      crmRestaurantId: body?.crm_restaurant_id,
+      restaurantName: body?.restaurant_name ?? body?.restaurant?.name,
+    });
+    if (!resolved.restaurant) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
-    const { data: target } = await admin
-      .from("restaurants")
-      .select("id, name")
-      .eq("id", restaurantId)
-      .maybeSingle();
-    if (!target) {
-      return NextResponse.json({ error: "restaurant not found" }, { status: 400 });
-    }
+    const target = resolved.restaurant;
     // The device_key deliberately survives a move: the printer follows the
     // hardware, and re-registering would issue a new key and mean a site visit.
     const { error } = await admin
@@ -89,6 +89,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       device: { id: device.id, restaurant: { id: target.id, name: target.name } },
+      restaurant_created: resolved.created,
     });
   }
 

@@ -7,6 +7,7 @@ import {
   extractZupplerOrderUuid,
   followableLinks,
   isZupplerOrderEmail,
+  safeToFetchLinks,
 } from "@/lib/zuppler-email";
 
 let passed = 0;
@@ -73,6 +74,38 @@ async function main() {
     const links = followableLinks('<a href="https://web5.zuppler.com/x?a=1&amp;b=2">l</a>');
     assert.equal(links[0], "https://web5.zuppler.com/x?a=1&b=2");
   });
+
+  console.log("never act on an order:");
+
+  // Zuppler's RESTAURANT notification contains exactly these two buttons.
+  // Following either one accepts or rejects a real customer's order.
+  const RESTAURANT_NOTIFICATION = `
+    <a href="https://u14145.ct.sendgrid.net/ls/click?upn=accept123"><p>Accept Order</p></a>
+    <a href="https://u14145.ct.sendgrid.net/ls/click?upn=reject456"><p>Reject Order</p></a>`;
+
+  await test("Accept/Reject links are never fetchable", () =>
+    assert.deepEqual(safeToFetchLinks(RESTAURANT_NOTIFICATION), [],
+      "following these would accept or reject a live order"));
+
+  await test("a restaurant notification yields no uuid rather than clicking", async () =>
+    assert.equal(await extractZupplerOrderUuid(RESTAURANT_NOTIFICATION, { timeoutMs: 1000 }), null));
+
+  await test("a 'View your receipt' link IS fetchable", () =>
+    assert.equal(
+      safeToFetchLinks('<a href="https://u14145.ct.sendgrid.net/ls/click?upn=x">View your receipt</a>').length,
+      1));
+
+  await test("unlabelled links are not followed - allow-list, not deny-list", () =>
+    assert.deepEqual(safeToFetchLinks('<a href="https://web5.zuppler.com/x">Click here</a>'), [],
+      "an opaque tracking link with no receipt-ish text must not be fetched"));
+
+  await test("action wording beats receipt wording", () =>
+    assert.deepEqual(
+      safeToFetchLinks('<a href="https://web5.zuppler.com/x">View and accept order</a>'), [],
+      "any hint of an action disqualifies the link"));
+
+  await test("an untrusted host is still excluded even when labelled a receipt", () =>
+    assert.deepEqual(safeToFetchLinks('<a href="https://evil.example.com/x">View your receipt</a>'), []));
 
   console.log("uuid extraction:");
 

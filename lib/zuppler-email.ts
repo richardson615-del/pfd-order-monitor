@@ -58,12 +58,51 @@ export function isZupplerOrderEmail(subject: string, html?: string | null): bool
   return mentionsZuppler && /\breceipt\b/i.test(html!);
 }
 
+/**
+ * Anchor text that means "this link DOES something" - accepting, rejecting or
+ * cancelling an order. Zuppler's restaurant notification contains exactly
+ * these two buttons and nothing else, so fetching its links to hunt for a
+ * uuid would accept or reject a live order.
+ */
+const ACTION_TEXT = /\b(accept|reject|decline|approve|confirm|cancel|void|refund|delete|remove|unsubscribe)\b/i;
+
+/** Anchor text that means "this link SHOWS something" - safe to follow. */
+const RECEIPT_TEXT = /\b(receipt|view|details?)\b/i;
+
 /** Extracts hrefs from an HTML body, de-duplicated, allowlisted hosts only. */
 export function followableLinks(html: string): string[] {
   const hrefs = [...String(html ?? "").matchAll(/href\s*=\s*["']([^"']+)["']/gi)]
     .map((m) => m[1].replace(/&amp;/g, "&"))
     .filter(isFollowable);
   return [...new Set(hrefs)];
+}
+
+/**
+ * Links that are safe to FETCH, judged by their visible text.
+ *
+ * The host allowlist stops us calling a stranger's server; it says nothing
+ * about what a link does on a trusted one. Zuppler's own emails carry
+ * "Accept Order" and "Reject Order" buttons, and following those would act on
+ * a real order - irreversibly, on someone's dinner.
+ *
+ * Tracking links are opaque before they are followed, so the visible text is
+ * the only signal available in advance. The rule is therefore allow-list, not
+ * deny-list: follow a link only if its text positively says it shows a
+ * receipt, and never if it reads like an action. An email with no clearly
+ * safe link yields nothing, which is the correct outcome - failing to read a
+ * uuid costs a fallback, clicking Accept costs an order.
+ */
+export function safeToFetchLinks(html: string): string[] {
+  const out: string[] = [];
+  for (const m of String(html ?? "").matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = m[1].replace(/&amp;/g, "&");
+    const text = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (!isFollowable(href)) continue;
+    if (ACTION_TEXT.test(text)) continue;
+    if (!RECEIPT_TEXT.test(text)) continue;
+    out.push(href);
+  }
+  return [...new Set(out)];
 }
 
 /**
@@ -90,7 +129,9 @@ export async function extractZupplerOrderUuid(
     if (m) return m[1].toLowerCase();
   }
 
-  for (const link of links.slice(0, maxLinks)) {
+  // Only links whose visible text says they show a receipt get fetched. An
+  // "Accept Order" button is allowlisted by host but must never be followed.
+  for (const link of safeToFetchLinks(html).slice(0, maxLinks)) {
     try {
       const res = await fetch(link, {
         redirect: "follow",

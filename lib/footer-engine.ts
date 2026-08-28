@@ -25,6 +25,101 @@ export type TemplateId =
 
 export const ENABLED_TEMPLATES: TemplateId[] = ["direct_coupon", "scan_reward"];
 
+export interface TemplateField {
+  key: string;
+  type: "string" | "number" | "url";
+  required: boolean;
+  default?: string | number | null;
+  label: string;
+  help?: string;
+}
+
+export interface TemplateSpec {
+  id: TemplateId;
+  label: string;
+  enabled: boolean;
+  /** Why it is off, when it is. Shown by the picker rather than a bare "no". */
+  disabled_reason?: string;
+  description: string;
+  prints_qr: boolean;
+  config: TemplateField[];
+  sample_footer: string;
+}
+
+/**
+ * The catalogue the CRM picker is built from.
+ *
+ * Served rather than duplicated, so a template added here appears in the
+ * console without a second edit in another repo - which is exactly how the
+ * printer bridge client drifted out of step with this app once already.
+ */
+export const TEMPLATE_CATALOG: TemplateSpec[] = [
+  {
+    id: "direct_coupon",
+    label: "Direct-order coupon",
+    enabled: true,
+    description:
+      "Prints a unique discount code for the customer's next order placed direct, with an expiry date. The QR opens the restaurant's own site; the code is on the paper, so nothing needs looking up.",
+    prints_qr: true,
+    config: [
+      { key: "percent", type: "number", required: true, default: 10,
+        label: "Discount %", help: "1-100. This comes out of the restaurant's margin." },
+      { key: "expiry_days", type: "number", required: false, default: 30,
+        label: "Valid for (days)" },
+      { key: "site_url", type: "url", required: false, default: null,
+        label: "Ordering site", help: "Defaults to the restaurant's footer URL." },
+    ],
+    sample_footer:
+      "15% off your next direct order\nariellarestaurant.net\nCode QRCWBS\nExpires Sep 26",
+  },
+  {
+    id: "scan_reward",
+    label: "Scan reward",
+    enabled: true,
+    description:
+      "A QR the customer scans for an unconditional reward. The page can also offer the restaurant's review link, with nothing attached to it - rewarding reviews breaches Google's policies and the penalty falls on the restaurant's listing.",
+    prints_qr: true,
+    config: [
+      { key: "reward", type: "string", required: true, default: "a treat on your next visit",
+        label: "Reward", help: "Shown on the page and honoured by staff." },
+      { key: "review_url", type: "url", required: false, default: null,
+        label: "Review link (optional)",
+        help: "Offered on the page. Never a condition of the reward." },
+    ],
+    sample_footer: "Thanks, Sam!\nScan for a free dessert on your next visit",
+  },
+  {
+    id: "milestone_counter",
+    label: "Milestone prize",
+    enabled: false,
+    disabled_reason:
+      "Prize promotions carry registration and disclosure duties that vary by state. Disabled until the promotional rules have been reviewed by a lawyer.",
+    description: "Counts a restaurant's orders and awards a prize on a chosen number.",
+    prints_qr: false,
+    config: [
+      { key: "milestone", type: "number", required: true, default: 1000, label: "Winning order number" },
+      { key: "prize", type: "string", required: true, default: null, label: "Prize" },
+      { key: "fine_print", type: "string", required: true, default: null, label: "Fine print" },
+    ],
+    sample_footer: "You're order #847 this year. Order #1000 wins a free meal.",
+  },
+  {
+    id: "mystery_qr",
+    label: "Mystery prize QR",
+    enabled: false,
+    disabled_reason:
+      "A game of chance tied to a purchase. Needs a genuine no-purchase route and honest odds disclosure, reviewed by a lawyer, before it can run.",
+    description: "A scannable one-in-N chance of a prize.",
+    prints_qr: true,
+    config: [
+      { key: "odds", type: "number", required: true, default: 100, label: "Odds (1 in N)" },
+      { key: "prize", type: "string", required: true, default: null, label: "Prize" },
+      { key: "fine_print", type: "string", required: true, default: null, label: "Fine print" },
+    ],
+    sample_footer: "SCAN ME - 1 in 100 wins a free entree.",
+  },
+];
+
 export interface ResolvedFooter {
   text: string;
   url: string | null;

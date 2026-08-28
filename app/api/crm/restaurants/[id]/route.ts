@@ -155,7 +155,7 @@ export async function POST(
   }
   if (!Object.keys(updates).length) {
     return NextResponse.json(
-      { error: "send at least one of: footer_text, footer_url, footer_mode, text_scale, design_style, logo_image, footer_image" },
+      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image" },
       { status: 400 }
     );
   }

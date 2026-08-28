@@ -81,7 +81,8 @@ async function handleGetRequest(deviceKey: string) {
        orders ( order_number, source, ticket_restaurant_name, order_type, due_time,
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
-                notes, received_at )`
+                notes, received_at,
+                restaurants ( ticket_footer_text, ticket_footer_url ) )`
     )
     .eq("device_id", device.id)
     .eq("status", "queued")
@@ -107,7 +108,11 @@ async function handleGetRequest(deviceKey: string) {
   const cols = Number(process.env.TICKET_COLS || 48);
   const blocks = printable
     .map((job: any) => {
-      const data = toEposPrintXml(buildTicket(job.orders, cols), cols);
+      const r = job.orders?.restaurants;
+      const data = toEposPrintXml(
+        buildTicket(job.orders, cols, { text: r?.ticket_footer_text, url: r?.ticket_footer_url }),
+        cols
+      );
       return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout></Parameter><PrintData>${data}</PrintData></ePOSPrint>`;
     })
     .join("");

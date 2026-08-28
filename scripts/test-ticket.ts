@@ -74,7 +74,7 @@ test("a due time before the order is marked (PAST), not shown as urgent", () => 
     { ...ORDER, received_at: "2026-08-13T02:00:00Z", due_time: "2026-08-10T22:30:00Z" },
     48
   ).map((l) => l.text).join("\n");
-  assert.match(t, /DUE:.*\(PAST\)/);
+  assert.match(t, /DUE .*\(PAST\)/);
 });
 
 test("a normal future due time is not marked", () => {
@@ -82,7 +82,7 @@ test("a normal future due time is not marked", () => {
     { ...ORDER, received_at: "2026-08-13T02:00:00Z", due_time: "2026-08-13T02:45:00Z" },
     48
   ).map((l) => l.text).join("\n");
-  assert.ok(/DUE:/.test(t));
+  assert.ok(/DUE /.test(t));
   assert.ok(!/\(PAST\)/.test(t));
 });
 
@@ -108,11 +108,18 @@ test("xml is well-formed and cuts once", () => {
 });
 
 test("double-width falls back when the line would overflow", () => {
-  const long = buildTicket({ ...ORDER, ticket_restaurant_name: "A Very Long Restaurant Name Indeed" }, 48);
-  const x = toEposPrintXml(long, 48);
-  const header = x.match(/<text[^>]*>A Very Long[^<]*<\/text>/)?.[0] ?? "";
-  assert.match(header, /width="1"/, "long heading must not stay double-width");
-  assert.match(header, /height="2"/, "but should still be emphasised");
+  // Tested against the renderer directly. buildTicket no longer emits any
+  // double-WIDTH line - the restaurant name that used to be one was demoted
+  // when the type/DUE block took the headline - but the primitive is still
+  // part of the renderer's contract and still protects any caller using it.
+  const x = toEposPrintXml(
+    [{ text: "A Very Long Restaurant Name Indeed", size: "double", align: "center" }],
+    48
+  );
+  assert.match(x, /width="1"/, "long heading must not stay double-width");
+  assert.match(x, /height="2"/, "but should still be emphasised");
+  const short = toEposPrintXml([{ text: "Short", size: "double" }], 48);
+  assert.match(short, /width="2"/, "a short line keeps double width");
 });
 
 console.log(

@@ -45,9 +45,21 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text().catch(() => "");
 
   const secret = process.env.ZUPPLER_WEBHOOK_SECRET;
+  // Zuppler sends the token in `api-token`, not `Authorization` - confirmed
+  // from a real rejected receipt on 2026-08-28, whose recorded header list
+  // named it. Until then every live order 401'd and the message said "token
+  // mismatch", so the token was reset twice on both sides while the actual
+  // cause was that nothing ever read the header carrying it.
+  //
+  // `authorization` stays accepted: it is what our own replays and any
+  // manual curl use, and dropping it would break them for no gain.
   const authHeader = req.headers.get("authorization");
-  const ok =
-    !!secret && (authHeader === secret || authHeader === `Bearer ${secret}`);
+  const apiTokenHeader = req.headers.get("api-token");
+  const presentedTokens = [
+    apiTokenHeader?.trim(),
+    authHeader?.replace(/^Bearer\s+/i, "").trim(),
+  ].filter(Boolean) as string[];
+  const ok = !!secret && presentedTokens.some((t) => t === secret);
   if (!ok) {
     // Loud. A 401 here means an order was dropped on the floor, which is
     // exactly the failure that once killed every live webhook silently while
@@ -61,9 +73,7 @@ export async function POST(req: NextRequest) {
     // chased both blind: a stale secret on one side, or the token arriving
     // in a header we never look at. Record the header NAMES present and
     // fingerprints of each side - never the values.
-    const presented = authHeader
-      ? authHeader.replace(/^Bearer\s+/i, "").trim()
-      : null;
+    const presented = presentedTokens[0] ?? null;
     const headerNames = [...req.headers.keys()].sort().join(", ");
     await recordWebhookReceipt({
       status: "unauthorized", httpStatus: 401, rawBody, userAgent,

@@ -99,7 +99,7 @@ async function handleGetRequest(deviceKey: string) {
        orders ( order_number, source, ticket_restaurant_name, order_type, due_time,
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
-                notes, received_at,
+                notes, received_at, footer_resolved,
                 restaurants ( name, ticket_footer_text, ticket_footer_url, ticket_text_scale,
                               ticket_design_style, ticket_logo_b64 ) )`
     )
@@ -137,11 +137,16 @@ async function handleGetRequest(deviceKey: string) {
           footerUrl: r?.ticket_footer_url,
         };
 
-        const lines = buildTicket(
-          job.orders, cols,
-          { text: r?.ticket_footer_text, url: r?.ticket_footer_url },
-          { scale }
-        );
+        // A footer resolved at ingest wins over the static columns. Printing
+        // never computes one - it only reads what was already decided.
+        const resolved = job.orders?.footer_resolved as
+          | { text?: string; url?: string | null }
+          | null;
+        const footerContent = resolved?.text
+          ? { text: resolved.text, url: resolved.url ?? null }
+          : { text: r?.ticket_footer_text, url: r?.ticket_footer_url };
+
+        const lines = buildTicket(job.orders, cols, footerContent, { scale });
 
         // The raster blocks own the header and footer, so the text renderer's
         // versions are dropped rather than printed twice.
@@ -159,8 +164,8 @@ async function handleGetRequest(deviceKey: string) {
           });
           head = toEposImageXml(header);
           const footer = await renderFooter({
-            text: (r?.ticket_footer_text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
-            url: r?.ticket_footer_url, design,
+            text: (footerContent.text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
+            url: footerContent.url, design,
           });
           foot = toEposImageXml(footer);
         } catch (err) {

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
 import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-image";
+import { ENABLED_TEMPLATES } from "@/lib/footer-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,45 @@ export async function POST(
     }
     updates.ticket_footer_url = v || null;
   }
+  if ("footer_engine" in body) {
+    const v = String(body.footer_engine ?? "");
+    if (v !== "static" && v !== "dynamic") {
+      return NextResponse.json(
+        { error: "footer_engine must be 'static' or 'dynamic'" },
+        { status: 400 }
+      );
+    }
+    updates.footer_engine = v;
+  }
+
+  if ("footer_template_id" in body) {
+    const v = body.footer_template_id === null ? null : String(body.footer_template_id ?? "");
+    if (v !== null && !ENABLED_TEMPLATES.includes(v as any)) {
+      // Milestone and mystery templates exist in the engine but are refused
+      // here: prize promotions carry registration and disclosure duties that
+      // vary by state, and none of that has been reviewed yet.
+      return NextResponse.json(
+        {
+          error: `footer_template_id must be one of: ${ENABLED_TEMPLATES.join(", ")}`,
+          note: "prize-based templates are disabled pending promotional-rules review",
+        },
+        { status: 400 }
+      );
+    }
+    updates.footer_template_id = v;
+  }
+
+  if ("footer_template_config" in body) {
+    const v = body.footer_template_config;
+    if (v === null) updates.footer_template_config = {};
+    else if (typeof v !== "object" || Array.isArray(v)) {
+      return NextResponse.json(
+        { error: "footer_template_config must be a JSON object" },
+        { status: 400 }
+      );
+    } else updates.footer_template_config = v;
+  }
+
   if ("design_style" in body) {
     const v = String(body.design_style ?? "");
     if (!["classic", "bold", "editorial"].includes(v)) {
@@ -124,7 +164,7 @@ export async function POST(
     .from("restaurants")
     .update(updates)
     .eq("id", restaurant.id)
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

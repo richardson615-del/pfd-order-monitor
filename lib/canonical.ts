@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant } from "./push";
+import { resolveFooter } from "./footer-engine";
 
 /**
  * The canonical order: the single contract every ingestion source must
@@ -8,7 +9,10 @@ import { notifyRestaurant } from "./push";
  * this shape. Adding a new order source = writing one mapper to this type.
  */
 export interface CanonicalOrderInput {
-  source: "email" | "zuppler";
+  /** "test" is a real source in the database (migration 006) - a CRM-issued
+   *  test print. It never reaches ingestOrder today, since test prints insert
+   *  directly, but the type should not claim otherwise. */
+  source: "email" | "zuppler" | "test";
   /** The source system's own id (Gmail message id, Zuppler order uuid). */
   externalId: string;
   restaurantId: string;
@@ -245,6 +249,32 @@ export async function ingestOrder(
     // Unique-index race (two pollers/webhook retries): treat as duplicate
     if (insertError.code === "23505") return { status: "duplicate" };
     return { status: "error", error: insertError.message };
+  }
+
+  // --- Resolve this order's footer, ONCE, here ---
+  // At ingest rather than at print: printing must not run queries while a
+  // cook waits, and a reprint has to say what the customer is holding.
+  // Test orders are excluded - a test print should not mint a coupon or burn
+  // a token.
+  if (input.source !== "test") {
+    const { data: restaurantRow } = await admin
+      .from("restaurants")
+      .select("id, footer_engine, footer_template_id, footer_template_config, ticket_footer_url")
+      .eq("id", input.restaurantId)
+      .maybeSingle();
+    if (restaurantRow?.footer_engine === "dynamic") {
+      const resolved = await resolveFooter(restaurantRow, {
+        restaurantId: input.restaurantId,
+        orderId: inserted.id,
+        customerName: input.customerName,
+      });
+      if (resolved) {
+        await admin
+          .from("orders")
+          .update({ footer_resolved: resolved })
+          .eq("id", inserted.id);
+      }
+    }
   }
 
   // --- Notify dashboard users (existing web push) ---

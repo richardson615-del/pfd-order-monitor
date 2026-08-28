@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * single call to authorise and audit.
  */
 
-const ACTIONS = ["activate", "deactivate", "rename", "reassign", "test_print"] as const;
+const ACTIONS = ["activate", "deactivate", "rename", "reassign", "test_print", "set_text_scale"] as const;
 type Action = (typeof ACTIONS)[number];
 
 export async function POST(
@@ -39,7 +39,7 @@ export async function POST(
   const admin = supabaseAdmin();
   const { data: device } = await admin
     .from("print_devices")
-    .select("id, name, is_active, restaurant_id")
+    .select("id, name, is_active, restaurant_id, text_scale")
     .eq("id", params.id)
     .maybeSingle();
   if (!device) {
@@ -54,6 +54,23 @@ export async function POST(
       .eq("id", device.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, device: { id: device.id, is_active: isActive } });
+  }
+
+  if (action === "set_text_scale") {
+    // null is a real value here - "stop overriding, follow the restaurant" -
+    // and is not the same as omitting the field.
+    const raw = body?.text_scale;
+    const scale = raw === null || raw === "" ? null : String(raw);
+    if (scale !== null && scale !== "normal" && scale !== "large") {
+      return NextResponse.json(
+        { error: "text_scale must be 'normal', 'large', or null to inherit" },
+        { status: 400 }
+      );
+    }
+    const { error } = await admin
+      .from("print_devices").update({ text_scale: scale }).eq("id", device.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, device: { id: device.id, text_scale: scale } });
   }
 
   if (action === "rename") {

@@ -50,9 +50,19 @@ export async function POST(
     }
     updates.ticket_footer_url = v || null;
   }
+  if ("text_scale" in body) {
+    const v = String(body.text_scale ?? "");
+    if (v !== "normal" && v !== "large") {
+      return NextResponse.json(
+        { error: "text_scale must be 'normal' or 'large'" },
+        { status: 400 }
+      );
+    }
+    updates.ticket_text_scale = v;
+  }
   if (!Object.keys(updates).length) {
     return NextResponse.json(
-      { error: "send footer_text and/or footer_url" },
+      { error: "send footer_text, footer_url and/or text_scale" },
       { status: 400 }
     );
   }
@@ -61,7 +71,7 @@ export async function POST(
     .from("restaurants")
     .update(updates)
     .eq("id", restaurant.id)
-    .select("id, name, ticket_footer_text, ticket_footer_url")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

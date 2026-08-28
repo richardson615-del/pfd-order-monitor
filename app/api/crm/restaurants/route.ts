@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("restaurants")
-    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url")
+    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale")
     .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

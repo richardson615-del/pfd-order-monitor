@@ -11,11 +11,13 @@
     "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts && tsx scripts/test-ticket.ts && tsx scripts/test-adjustments.ts && tsx scripts/test-zuppler-email.ts && tsx scripts/test-health.ts && tsx scripts/test-alerts.ts && tsx scripts/test-crm-auth.ts && tsx scripts/test-restaurant-resolve.ts && tsx scripts/test-ticket-layout.ts"
   },
   "dependencies": {
-    "cheerio": "^1.0.0",
+    "@napi-rs/canvas": "^1.0.8",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.4",
+    "cheerio": "^1.0.0",
     "googleapis": "^144.0.0",
     "next": "14.2.15",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "web-push": "^3.6.7"

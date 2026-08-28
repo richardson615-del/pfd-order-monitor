@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("print_devices")
-    .select("id, name, is_active, last_seen_at, printer_name, app_version, created_at, restaurants(id, name)")
+    .select("id, name, is_active, last_seen_at, printer_name, app_version, created_at, text_scale, restaurants(id, name, ticket_text_scale)")
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -56,6 +56,11 @@ export async function GET(req: NextRequest) {
         // rather than each screen inventing its own idea of "online".
         online: seen !== null && now - seen < silentMs,
         created_at: d.created_at,
+        text_scale: d.text_scale ?? null,
+        // What this station will actually print at, so the console does not
+        // have to re-implement the inheritance rule.
+        effective_text_scale:
+          d.text_scale || d.restaurants?.ticket_text_scale || "normal",
         restaurant: d.restaurants
           ? { id: d.restaurants.id, name: d.restaurants.name }
           : null,

@@ -22,6 +22,18 @@ export interface TicketLine {
   qr?: string;
 }
 
+export type TextScale = "normal" | "large";
+
+export interface TicketOptions {
+  /**
+   * "large" doubles the parts a cook reads: quantities, item names,
+   * modifiers, the customer name and the due time. Double width halves the
+   * usable columns, so those lines are laid out at 24 rather than 48 - the
+   * layout changes, it is not the same ticket scaled up.
+   */
+  scale?: TextScale;
+}
+
 /** Footer block, resolved per restaurant with a global fallback. */
 export interface TicketFooter {
   text?: string | null;
@@ -103,8 +115,13 @@ function localTime(iso?: string | null): string | null {
 export function buildTicket(
   order: TicketOrder,
   cols = 48,
-  footer: TicketFooter = {}
+  footer: TicketFooter = {},
+  opts: TicketOptions = {}
 ): TicketLine[] {
+  const large = opts.scale === "large";
+  // Double WIDTH halves the columns. Everything enlarged is laid out against
+  // this, so a wrapped item name still lands inside the paper.
+  const bigCols = Math.floor(cols / 2);
   const rule = "-".repeat(cols);
   const heavy = "=".repeat(cols);
   const lines: TicketLine[] = [];
@@ -127,8 +144,12 @@ export function buildTicket(
     const dueMs = order.due_time ? new Date(order.due_time).getTime() : NaN;
     const recvMs = order.received_at ? new Date(order.received_at).getTime() : NaN;
     const stale = Number.isFinite(dueMs) && Number.isFinite(recvMs) && dueMs < recvMs;
-    lines.push(L(`DUE  ${due}${stale ? "  (PAST)" : ""}`, {
-      align: "center", size: "double-h", bold: true,
+    const dueText = `DUE  ${due}${stale ? "  (PAST)" : ""}`;
+    lines.push(L(dueText, {
+      align: "center", bold: true,
+      // Double WIDTH only if it fits the halved column count; the renderer
+      // falls back on its own, but choosing here keeps the intent explicit.
+      size: large && dueText.length <= bigCols ? "double" : "double-h",
     }));
   }
   lines.push(L(heavy));
@@ -141,7 +162,11 @@ export function buildTicket(
   lines.push(L(rule));
 
   // --- Who it is for -------------------------------------------------------
-  if (order.customer_name) lines.push(L(order.customer_name, { bold: true }));
+  if (order.customer_name) {
+    lines.push(L(order.customer_name, large
+      ? { bold: true, size: "double" }
+      : { bold: true }));
+  }
   if (order.customer_phone) lines.push(L(order.customer_phone));
   if (order.customer_address) {
     // The address gets its own block. A driver reads this under time
@@ -171,25 +196,60 @@ export function buildTicket(
   const items = Array.isArray(order.items) ? order.items : [];
   if (!items.length) lines.push(L("(no itemization available)"));
 
-  const QTY_W = 3;
-  const NAME_INDENT = QTY_W + 3;
+  // Narrower gutter in large mode: at 24 columns a 3-wide quantity field
+  // plus a 3-space gap would eat a quarter of the line before the name starts.
+  const QTY_W = large ? 2 : 3;
+  const NAME_INDENT = large ? QTY_W + 2 : QTY_W + 3;
+  const W = large ? bigCols : cols;
+  const itemAttrs: Partial<TicketLine> = large
+    ? { bold: true, size: "double" }
+    : { bold: true };
+
   items.forEach((it, idx) => {
+    let trailingPrice: string | null = null;
     if (idx > 0) lines.push(L(""));   // items must not read as one block
     const { qty, name } = splitQuantity(it?.name ?? "Item", it as any);
     const price = typeof it?.price === "string" ? it.price : fmt(it?.price);
-    const nameW = cols - NAME_INDENT - (price ? price.length + 1 : 0);
-    const wrapped = wrap(name.toUpperCase(), Math.max(8, nameW));
     const qtyCell = String(qty).padStart(QTY_W);
-    lines.push(L(pad(`${qtyCell}   ${wrapped[0]}`, price ?? "", cols), { bold: true }));
-    for (const extra of wrapped.slice(1)) {
-      lines.push(L(" ".repeat(NAME_INDENT) + extra, { bold: true }));
+    const gap = large ? "  " : "   ";
+
+    if (large) {
+      // The name gets the full width; the price joins the LAST line of it if
+      // there is room. A price on a line of its own sits between the item and
+      // its modifiers and reads as belonging to them - which is worse than
+      // slightly tighter setting.
+      const wrapped = wrap(name.toUpperCase(), Math.max(6, W - NAME_INDENT));
+      const rendered = wrapped.map((part, i) =>
+        i === 0 ? `${qtyCell}${gap}${part}` : " ".repeat(NAME_INDENT) + part
+      );
+      const last = rendered[rendered.length - 1];
+      if (price && last.length + 1 + price.length <= W) {
+        rendered[rendered.length - 1] = pad(last, price, W);
+      }
+      for (const line of rendered) lines.push(L(line, itemAttrs));
+      // Only when it genuinely did not fit, and then AFTER the modifiers so
+      // it never separates an item from its instructions.
+      trailingPrice = price && rendered[rendered.length - 1] === last ? price : null;
+    } else {
+      const nameW = cols - NAME_INDENT - (price ? price.length + 1 : 0);
+      const wrapped = wrap(name.toUpperCase(), Math.max(8, nameW));
+      lines.push(L(pad(`${qtyCell}${gap}${wrapped[0]}`, price ?? "", cols), itemAttrs));
+      for (const extra of wrapped.slice(1)) {
+        lines.push(L(" ".repeat(NAME_INDENT) + extra, itemAttrs));
+      }
     }
+
     for (const mod of it?.modifiers ?? []) {
       // Bold, because the modifier is the part that ruins a plate if missed -
       // it used to print lighter than the item it modifies, which is backwards.
-      for (const l of wrap(mod, cols - NAME_INDENT - 3)) {
-        lines.push(L(`${" ".repeat(NAME_INDENT)}>> ${l}`, { bold: true }));
+      // In large mode it stays the same size as the item and keeps the arrow,
+      // so it reads as attached to the item rather than as another item.
+      for (const l of wrap(mod, W - NAME_INDENT - 3)) {
+        lines.push(L(`${" ".repeat(NAME_INDENT)}>> ${l}`, itemAttrs));
       }
+    }
+    if (large && typeof trailingPrice === "string" && trailingPrice) {
+      lines.push(L(pad("", trailingPrice, cols)));
     }
   });
   lines.push(L(rule));
@@ -211,7 +271,8 @@ export function buildTicket(
   const total = fmt(order.customer_total);
   if (total !== null) {
     lines.push(L(rule));
-    lines.push(L(pad("TOTAL", total, cols), { bold: true, size: "double-h" }));
+    const totalLine = large ? pad("TOTAL", total, bigCols) : pad("TOTAL", total, cols);
+    lines.push(L(totalLine, { bold: true, size: large ? "double" : "double-h" }));
   }
   if (order.payment_type) lines.push(L(pad("Paid", String(order.payment_type), cols)));
 
@@ -266,7 +327,11 @@ export function xmlEscape(s: unknown): string {
 }
 
 /** The <epos-print> element - embedded in <PrintData> for Server Direct Print. */
-export function toEposPrintXml(lines: TicketLine[], cols = 48): string {
+export function toEposPrintXml(
+  lines: TicketLine[],
+  cols = 48,
+  opts: { wrap?: boolean } = {}
+): string {
   const body = lines
     .map((line) => {
       const align = line.align === "center" ? "center" : line.align === "right" ? "right" : "left";
@@ -297,5 +362,8 @@ export function toEposPrintXml(lines: TicketLine[], cols = 48): string {
     })
     .join("");
 
+  // wrap:false returns just the elements, so the caller can sandwich them
+  // between raster blocks inside a single <epos-print> document.
+  if (opts.wrap === false) return body;
   return `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body}<feed line="3"/><cut type="feed"/></epos-print>`;
 }

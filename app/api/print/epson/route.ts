@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { buildTicket, toEposPrintXml } from "@/lib/ticket";
+import { renderHeader, renderFooter, toEposImageXml, DEFAULT_FOOTER_TEXT_MARK } from "@/lib/ticket-raster";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -43,7 +44,7 @@ async function findDevice(deviceKey: string) {
   const admin = supabaseAdmin();
   const { data: device } = await admin
     .from("print_devices")
-    .select("id, restaurant_id, name")
+    .select("id, restaurant_id, name, text_scale")
     .eq("device_key", deviceKey)
     .eq("is_active", true)
     .maybeSingle();
@@ -57,6 +58,23 @@ async function findDevice(deviceKey: string) {
     .eq("id", device.id);
 
   return device;
+}
+
+/** The DUE line, lifted for the raster header so it is not printed twice. */
+function dueLineOf(lines: any[]): string | null {
+  const l = lines.find((x: any) => /^DUE /.test(x.text ?? ""));
+  return l ? l.text : null;
+}
+
+/**
+ * The body between the header and footer blocks, which the raster now owns.
+ * Bounded by the ORDER # line and the heavy rule that opens the footer.
+ */
+function sliceBody(lines: any[]): any[] {
+  const start = lines.findIndex((l: any) => /^ORDER #/.test(l.text ?? ""));
+  const end = lines.findIndex((l: any, i: number) => i > start && /^=+$/.test(l.text ?? ""));
+  if (start === -1) return lines;
+  return lines.slice(start, end === -1 ? lines.length : end);
 }
 
 async function handleGetRequest(deviceKey: string) {
@@ -82,7 +100,8 @@ async function handleGetRequest(deviceKey: string) {
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
                 notes, received_at,
-                restaurants ( ticket_footer_text, ticket_footer_url ) )`
+                restaurants ( name, ticket_footer_text, ticket_footer_url, ticket_text_scale,
+                              ticket_design_style, ticket_logo_b64 ) )`
     )
     .eq("device_id", device.id)
     .eq("status", "queued")
@@ -106,16 +125,60 @@ async function handleGetRequest(deviceKey: string) {
     .eq("status", "queued");
 
   const cols = Number(process.env.TICKET_COLS || 48);
-  const blocks = printable
-    .map((job: any) => {
-      const r = job.orders?.restaurants;
-      const data = toEposPrintXml(
-        buildTicket(job.orders, cols, { text: r?.ticket_footer_text, url: r?.ticket_footer_url }),
-        cols
-      );
-      return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout></Parameter><PrintData>${data}</PrintData></ePOSPrint>`;
-    })
-    .join("");
+  const blocks = (
+    await Promise.all(
+      printable.map(async (job: any) => {
+        const r = job.orders?.restaurants;
+        // Device setting wins; null means inherit the restaurant's default.
+        const scale = (device as any).text_scale || r?.ticket_text_scale || "normal";
+        const design = {
+          style: r?.ticket_design_style || "bold",
+          footerText: r?.ticket_footer_text,
+          footerUrl: r?.ticket_footer_url,
+        };
+
+        const lines = buildTicket(
+          job.orders, cols,
+          { text: r?.ticket_footer_text, url: r?.ticket_footer_url },
+          { scale }
+        );
+
+        // The raster blocks own the header and footer, so the text renderer's
+        // versions are dropped rather than printed twice.
+        const bodyLines = sliceBody(lines);
+
+        let head = "";
+        let foot = "";
+        try {
+          const logo = r?.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null;
+          const header = await renderHeader({
+            restaurantName: r?.name || job.orders?.ticket_restaurant_name || "PFD ORDER",
+            orderType: job.orders?.order_type || "order",
+            dueText: dueLineOf(lines),
+            design, logo,
+          });
+          head = toEposImageXml(header);
+          const footer = await renderFooter({
+            text: (r?.ticket_footer_text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
+            url: r?.ticket_footer_url, design,
+          });
+          foot = toEposImageXml(footer);
+        } catch (err) {
+          // A design that will not render must never cost the kitchen its
+          // ticket - fall back to the all-text layout, loudly.
+          console.error("ticket raster failed, printing text-only:", err instanceof Error ? err.message : err);
+          return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout></Parameter><PrintData>${toEposPrintXml(lines, cols)}</PrintData></ePOSPrint>`;
+        }
+
+        const body = toEposPrintXml(bodyLines, cols, { wrap: false });
+        const data =
+          `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">` +
+          head + body + foot +
+          `<feed line="3"/><cut type="feed"/></epos-print>`;
+        return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>20000</timeout></Parameter><PrintData>${data}</PrintData></ePOSPrint>`;
+      })
+    )
+  ).join("");
 
   // Version 1.00: supported by every TM-i firmware. 2.00 adds printjobid but
   // needs firmware 4.1+, and this printer answers it with SchemaError - which

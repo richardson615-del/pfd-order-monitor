@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
-import { recordWebhookReceipt } from "@/lib/webhook-receipts";
+import { recordWebhookReceipt, fingerprint } from "@/lib/webhook-receipts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -57,9 +57,22 @@ export async function POST(req: NextRequest) {
       secret ? "Token mismatch." : "ZUPPLER_WEBHOOK_SECRET is not set.",
       "user-agent:", userAgent ?? "(none)"
     );
+    // Two things a bare "token mismatch" cannot tell apart, and we have now
+    // chased both blind: a stale secret on one side, or the token arriving
+    // in a header we never look at. Record the header NAMES present and
+    // fingerprints of each side - never the values.
+    const presented = authHeader
+      ? authHeader.replace(/^Bearer\s+/i, "").trim()
+      : null;
+    const headerNames = [...req.headers.keys()].sort().join(", ");
     await recordWebhookReceipt({
       status: "unauthorized", httpStatus: 401, rawBody, userAgent,
-      detail: secret ? "token mismatch" : "ZUPPLER_WEBHOOK_SECRET not set",
+      detail: [
+        secret ? "token mismatch" : "ZUPPLER_WEBHOOK_SECRET not set",
+        `presented=${fingerprint(presented) ?? "NO AUTH HEADER"}`,
+        `expected=${fingerprint(secret) ?? "unset"}`,
+        `headers=[${headerNames}]`,
+      ].join(" | "),
     });
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

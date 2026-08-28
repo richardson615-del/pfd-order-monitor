@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { supabaseAdmin } from "./supabase-server";
 
 /**
@@ -32,6 +33,20 @@ export const ACCEPTED_STATUSES: ReceiptStatus[] = [
   "updated",
   "cancelled",
 ];
+
+/**
+ * A short, non-reversible fingerprint of a credential.
+ *
+ * We have now chased the same "token mismatch" three times without being able
+ * to tell WHICH side is stale, because neither value can be read: ours is
+ * Secret-typed in Vercel, theirs lives in Zuppler's portal. Comparing
+ * fingerprints settles it without either value being stored or displayed -
+ * run the same hash over the portal token and see which one it matches.
+ */
+export function fingerprint(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return `len${value.length}:${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
 
 export interface ReceiptInput {
   status: ReceiptStatus;

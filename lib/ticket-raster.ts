@@ -263,11 +263,16 @@ export async function renderHeader(input: HeaderInput): Promise<Canvas> {
   return crop(canvas, y + 6);
 }
 
+export type FooterMode = "qr_with_text" | "text_only" | "image";
+
 export interface FooterInput {
   text: string;
   url?: string | null;
   design?: TicketDesign;
   mark?: string;
+  mode?: FooterMode;
+  /** Pre-normalised 576px mono PNG, for mode "image". */
+  image?: Buffer | null;
 }
 
 export async function renderFooter(input: FooterInput): Promise<Canvas> {
@@ -282,15 +287,37 @@ export async function renderFooter(input: FooterInput): Promise<Canvas> {
   let y = 8;
   y = t.ruleTop(ctx, y) + 26;
 
-  ctx.fillStyle = "#000";
-  ctx.font = t.bodyFont(30);
-  for (const line of wrapToWidth(ctx, input.text, PAPER_WIDTH - 70)) {
-    tracked(ctx, line, PAPER_WIDTH / 2, y + 26, 1);
-    y += 40;
-  }
-  y += 12;
+  const mode: FooterMode = input.mode ?? "qr_with_text";
 
-  if (input.url) {
+  if (mode === "image" && input.image) {
+    try {
+      const img = await loadImage(input.image);
+      const scale = Math.min((PAPER_WIDTH - 40) / img.width, 1);
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      ctx.drawImage(img, Math.round((PAPER_WIDTH - w) / 2), y, w, h);
+      y += h + 20;
+    } catch {
+      // Fall through to text: an undecodable footer image is a branding
+      // problem, not a reason to print a ticket with nothing at the bottom.
+      ctx.fillStyle = "#000";
+      ctx.font = t.bodyFont(30);
+      for (const line of wrapToWidth(ctx, input.text, PAPER_WIDTH - 70)) {
+        tracked(ctx, line, PAPER_WIDTH / 2, y + 26, 1);
+        y += 40;
+      }
+      y += 12;
+    }
+  } else {
+    ctx.fillStyle = "#000";
+    ctx.font = t.bodyFont(30);
+    for (const line of wrapToWidth(ctx, input.text, PAPER_WIDTH - 70)) {
+      tracked(ctx, line, PAPER_WIDTH / 2, y + 26, 1);
+      y += 40;
+    }
+    y += 12;
+  }
+
+  if (input.url && mode === "qr_with_text") {
     const png = await QRCode.toBuffer(input.url, {
       errorCorrectionLevel: "M", margin: 1, width: 240, color: { dark: "#000000", light: "#FFFFFF" },
     });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
+import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-image";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,58 @@ export async function POST(
     }
     updates.ticket_footer_url = v || null;
   }
+  if ("design_style" in body) {
+    const v = String(body.design_style ?? "");
+    if (!["classic", "bold", "editorial"].includes(v)) {
+      return NextResponse.json(
+        { error: "design_style must be 'classic', 'bold' or 'editorial'" },
+        { status: 400 }
+      );
+    }
+    updates.ticket_design_style = v;
+  }
+
+  if ("footer_mode" in body) {
+    const v = String(body.footer_mode ?? "");
+    if (!["qr_with_text", "text_only", "image"].includes(v)) {
+      return NextResponse.json(
+        { error: "footer_mode must be 'qr_with_text', 'text_only' or 'image'" },
+        { status: 400 }
+      );
+    }
+    updates.ticket_footer_mode = v;
+  }
+
+  // Images: converted here, once, so the print path never does image work.
+  const imageMode = (typeof body.image_mode === "string" ? body.image_mode : "auto") as ImageMode;
+  const conversions: Record<string, unknown> = {};
+  for (const [field, column] of [
+    ["logo_image", "ticket_logo_b64"],
+    ["footer_image", "ticket_footer_image_b64"],
+  ] as const) {
+    if (!(field in body)) continue;
+    if (body[field] === null || body[field] === "") {
+      updates[column] = null;            // clearing is a real intention
+      conversions[field] = "cleared";
+      continue;
+    }
+    const { buffer, error } = decodeUpload(body[field]);
+    if (error) return NextResponse.json({ error: `${field}: ${error}` }, { status: 400 });
+    try {
+      const out = await normaliseTicketImage(buffer!, imageMode);
+      updates[column] = out.base64;
+      conversions[field] = {
+        width: out.width, height: out.height, mode: out.mode, reason: out.reason,
+        stored_bytes: Buffer.from(out.base64, "base64").length,
+      };
+    } catch (err) {
+      return NextResponse.json(
+        { error: `${field}: could not decode image (${err instanceof Error ? err.message : "unknown"})` },
+        { status: 400 }
+      );
+    }
+  }
+
   if ("text_scale" in body) {
     const v = String(body.text_scale ?? "");
     if (v !== "normal" && v !== "large") {
@@ -62,7 +115,7 @@ export async function POST(
   }
   if (!Object.keys(updates).length) {
     return NextResponse.json(
-      { error: "send footer_text, footer_url and/or text_scale" },
+      { error: "send at least one of: footer_text, footer_url, footer_mode, text_scale, design_style, logo_image, footer_image" },
       { status: 400 }
     );
   }
@@ -71,16 +124,19 @@ export async function POST(
     .from("restaurants")
     .update(updates)
     .eq("id", restaurant.id)
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({
     ok: true,
+    // What the server did to each upload, so the console can explain the
+    // result rather than just showing it.
+    ...(Object.keys(conversions).length ? { conversions } : {}),
     restaurant: {
       ...data,
       effective_footer_text: (data.ticket_footer_text ?? "").trim() || DEFAULT_FOOTER_TEXT,
-      prints_qr: Boolean(data.ticket_footer_url),
+      prints_qr: data.ticket_footer_mode === "qr_with_text" && Boolean(data.ticket_footer_url),
     },
   });
 }

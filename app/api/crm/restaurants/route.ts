@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("restaurants")
-    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale")
+    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64")
     .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -26,10 +26,19 @@ export async function GET(req: NextRequest) {
     // So the console can show what will actually print, rather than an empty
     // box that silently becomes the PFD line at print time.
     default_footer_text: DEFAULT_FOOTER_TEXT,
-    restaurants: (data ?? []).map((r: any) => ({
-      ...r,
-      effective_footer_text: (r.ticket_footer_text ?? "").trim() || DEFAULT_FOOTER_TEXT,
-      prints_qr: Boolean(r.ticket_footer_url),
-    })),
+    restaurants: (data ?? []).map((r: any) => {
+      // Images are returned as presence + size, never inline. A roster call
+      // that shipped every logo would be megabytes for a list view, and the
+      // console only needs to know whether one is set.
+      const { ticket_logo_b64, ticket_footer_image_b64, ...rest } = r;
+      return {
+        ...rest,
+        has_logo: Boolean(ticket_logo_b64),
+        logo_bytes: ticket_logo_b64 ? Buffer.from(ticket_logo_b64, "base64").length : 0,
+        has_footer_image: Boolean(ticket_footer_image_b64),
+        effective_footer_text: (r.ticket_footer_text ?? "").trim() || DEFAULT_FOOTER_TEXT,
+        prints_qr: r.ticket_footer_mode === "qr_with_text" && Boolean(r.ticket_footer_url),
+      };
+    }),
   });
 }

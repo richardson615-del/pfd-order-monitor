@@ -101,7 +101,8 @@ async function handleGetRequest(deviceKey: string) {
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
                 notes, received_at, footer_resolved,
                 restaurants ( name, ticket_footer_text, ticket_footer_url, ticket_text_scale,
-                              ticket_design_style, ticket_logo_b64 ) )`
+                              ticket_design_style, ticket_logo_b64,
+                              ticket_footer_mode, ticket_footer_image_b64 ) )`
     )
     .eq("device_id", device.id)
     .eq("status", "queued")
@@ -163,9 +164,21 @@ async function handleGetRequest(deviceKey: string) {
             design, logo,
           });
           head = toEposImageXml(header);
+          // A dynamic template supplies text and a QR target, so forcing the
+          // footer to "image" would throw its coupon code away. Image mode is
+          // therefore a STATIC-engine choice only.
+          const footerMode =
+            resolved?.text ? "qr_with_text" : (r?.ticket_footer_mode || "qr_with_text");
+          const footerImage =
+            footerMode === "image" && r?.ticket_footer_image_b64
+              ? Buffer.from(r.ticket_footer_image_b64, "base64")
+              : null;
+
           const footer = await renderFooter({
             text: (footerContent.text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
             url: footerContent.url, design,
+            mode: footerMode as any,
+            image: footerImage,
           });
           foot = toEposImageXml(footer);
         } catch (err) {

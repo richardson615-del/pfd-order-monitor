@@ -63,4 +63,20 @@ test("printing reads the stored footer and computes nothing", () => {
   assert.ok(!/resolveFooter/.test(src), "the print path must not resolve footers");
 });
 
+test("printing honours ticket_footer_mode and the footer image", () => {
+  // The mode was settable over the bridge for a while without the print path
+  // reading it - the CRM could have configured a footer that never changed.
+  const src = require("fs").readFileSync("app/api/print/epson/route.ts", "utf8");
+  assert.match(src, /ticket_footer_mode/, "print path must read the mode");
+  assert.match(src, /ticket_footer_image_b64/, "print path must read the footer image");
+  assert.match(src, /mode: footerMode/);
+});
+
+test("a dynamic template is never overridden by image mode", () =>
+  // Otherwise a coupon code would be replaced by a static picture.
+  assert.match(
+    require("fs").readFileSync("app/api/print/epson/route.ts", "utf8"),
+    /resolved\?\.text \? "qr_with_text"/
+  ));
+
 console.log(process.exitCode ? "\nSOME TESTS FAILED" : `\nAll assertions passed (${passed} checks).`);

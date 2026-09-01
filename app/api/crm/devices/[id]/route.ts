@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
+import { randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ export const dynamic = "force-dynamic";
  * single call to authorise and audit.
  */
 
-const ACTIONS = ["activate", "deactivate", "rename", "reassign", "test_print", "set_text_scale"] as const;
+const ACTIONS = ["activate", "deactivate", "rename", "reassign", "test_print", "set_text_scale",
+  "reveal_key", "reissue_key"] as const;
 type Action = (typeof ACTIONS)[number];
 
 export async function POST(
@@ -54,6 +56,64 @@ export async function POST(
       .eq("id", device.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, device: { id: device.id, is_active: isActive } });
+  }
+
+  // --- key handling -------------------------------------------------------
+  // Both actions are audited. The bridge is authenticated by a single shared
+  // key, so it cannot know WHO asked - the CRM passes `actor`, and a null
+  // actor is recorded as such rather than guessed at.
+  if (action === "reveal_key" || action === "reissue_key") {
+    const actor = typeof body?.actor === "string" && body.actor.trim()
+      ? body.actor.trim().slice(0, 200)
+      : null;
+
+    if (action === "reveal_key") {
+      const { data: row, error } = await admin
+        .from("print_devices").select("device_key").eq("id", device.id).single();
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      await admin.from("device_key_audit").insert({
+        device_id: device.id, action: "revealed", actor,
+        note: "key returned to the CRM bridge",
+      });
+
+      return NextResponse.json({
+        ok: true,
+        device: { id: device.id, name: device.name },
+        device_key: row.device_key,
+        audited: true,
+        note: "This key is a device credential. It was stored in plaintext because the printer presents it verbatim on every poll and cannot hash it. This reveal has been logged.",
+      });
+    }
+
+    // Reissue. The consequence is the important part of this response.
+    const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const chunk = () =>
+      Array.from(randomBytes(4)).map((b) => alphabet[b % alphabet.length]).join("");
+    const newKey = `PFD-${chunk()}-${chunk()}-${chunk()}`;
+
+    const { error } = await admin
+      .from("print_devices").update({ device_key: newKey }).eq("id", device.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await admin.from("device_key_audit").insert({
+      device_id: device.id, action: "reissued", actor,
+      note: "previous key invalidated immediately",
+    });
+
+    return NextResponse.json({
+      ok: true,
+      device: { id: device.id, name: device.name },
+      device_key: newKey,
+      audited: true,
+      // Stated plainly, because the printer is now offline and nothing else
+      // will say so until someone notices tickets are not coming out.
+      impact: {
+        old_key_valid: false,
+        printer_offline_until_reconfigured: true,
+        summary: `The previous key stopped working the moment this returned. ${device.name} will not authenticate, and its tickets will queue unprinted, until someone enters the new key in the printer's WebConfig (Web Service Settings -> Server Direct Print -> ID) and reboots it.`,
+      },
+    });
   }
 
   if (action === "set_text_scale") {

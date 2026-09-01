@@ -209,6 +209,28 @@ console.log("inbound webhook:");
   });
 }
 
+console.log("no-printer at channel scale:");
+{
+  // Mapping the delivery channel brings in hundreds of restaurants that will
+  // never print. The alert must stay a short list of real gaps.
+  test("a no-printer issue is a WARNING, never a critical", () => {
+    const s2 = { ...healthy, restaurantsWithoutDevice: [{ id: "r1", name: "Torinos" }] };
+    const i = evaluateHealth(s2, NOW).find((x) => x.key.startsWith("restaurant_no_device"));
+    assert.ok(i);
+    assert.equal(i!.severity, "warning", "must never page anyone");
+  });
+
+  test("warnings alone never produce a text", async () => {
+    // SMS is criticals-only; this is what keeps 38 mapped restaurants quiet.
+    const { composeSmsAlert } = await import("@/lib/alerts");
+    const warnings = Array.from({ length: 38 }, (_, n) => ({
+      key: `restaurant_no_device:${n}`, severity: "warning" as const,
+      title: `No printer: Restaurant ${n}`, detail: "x",
+    }));
+    assert.equal(composeSmsAlert(warnings), null);
+  });
+}
+
 console.log(
   process.exitCode
     ? "\nSOME TESTS FAILED"

@@ -69,12 +69,9 @@ export async function ingestZupplerOrderByUuid(
     return { status: "cancelled" };
   }
 
-  const { data: restaurant } = await admin
-    .from("restaurants")
-    .select("id, name")
-    .eq("zuppler_restaurant_id", mapped.zupplerRestaurantId)
-    .eq("is_active", true)
-    .maybeSingle();
+  const restaurant = await resolveRestaurantByZupplerId(
+    admin, mapped.zupplerRestaurantId
+  );
 
   if (!restaurant) {
     return { status: "unmapped", zupplerRestaurantId: mapped.zupplerRestaurantId };
@@ -111,4 +108,30 @@ export async function ingestZupplerOrderByUuid(
     orderId: result.orderId,
     zupplerRestaurantId: mapped.zupplerRestaurantId,
   };
+}
+
+/**
+ * Finds the restaurant owning a Zuppler location id.
+ *
+ * Checks restaurant_zuppler_ids first, which allows one restaurant to own
+ * several ids - Zuppler treats a pickup menu, a catering menu and a delivery
+ * menu as separate locations, and all of them belong to one kitchen with one
+ * printer. Falls back to the legacy single column so nothing regresses while
+ * both are populated.
+ */
+async function resolveRestaurantByZupplerId(admin: any, zupplerId: string | null) {
+  if (!zupplerId) return null;
+  const { data: link } = await admin
+    .from("restaurant_zuppler_ids")
+    .select("restaurant_id, restaurants(id, name)")
+    .eq("zuppler_restaurant_id", zupplerId)
+    .maybeSingle();
+  if (link?.restaurants) return link.restaurants;
+
+  const { data: legacy } = await admin
+    .from("restaurants")
+    .select("id, name")
+    .eq("zuppler_restaurant_id", zupplerId)
+    .maybeSingle();
+  return legacy ?? null;
 }

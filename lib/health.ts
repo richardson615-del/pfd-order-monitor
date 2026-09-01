@@ -256,7 +256,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const [devicesRes, inboxesRes, restaurantsRes, jobsRes] = await Promise.all([
     admin.from("print_devices").select("id, name, is_active, last_seen_at, restaurant_id"),
     admin.from("monitored_inboxes").select("id, email_address, is_active, gmail_refresh_token, gmail_last_poll_at, restaurant_id"),
-    admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id"),
+    admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected"),
     admin
       .from("print_jobs")
       .select("id, status, attempts, queued_at, error, orders(order_number, restaurant_id)")
@@ -307,9 +307,16 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     last_poll_at: i.gmail_last_poll_at,
   }));
 
-  // A restaurant only needs a printer if orders can actually reach it: an
-  // active inbox, or a Zuppler mapping. Flagging one with neither would be
-  // noise about a restaurant nothing is routed to.
+  // A restaurant is only MISSING a printer if it was meant to have one.
+  //
+  // Mapping the delivery channel brings in hundreds of restaurants - chains,
+  // liquor stores, grocery pickup - that take orders through PFD and will
+  // never print a ticket. Flagging each of them would put dozens of standing
+  // warnings in front of whoever is looking for the one that matters, which
+  // is how a monitoring surface stops being read at all.
+  //
+  // printer_expected is set when a restaurant is being onboarded for
+  // printing, so this stays a short list of real gaps.
   const activeDeviceRestaurantIds = new Set(
     (devicesRes.data ?? []).filter((d: any) => d.is_active).map((d: any) => d.restaurant_id)
   );
@@ -318,7 +325,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   );
   const restaurantsWithoutDevice = restaurants
     .filter((r: any) => r.is_active)
-    .filter((r: any) => r.zuppler_restaurant_id || inboxRestaurantIds.has(r.id))
+    .filter((r: any) => r.printer_expected)
     .filter((r: any) => !activeDeviceRestaurantIds.has(r.id))
     .map((r: any) => ({ id: r.id, name: r.name }));
 

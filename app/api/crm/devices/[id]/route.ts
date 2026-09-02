@@ -167,6 +167,7 @@ export async function POST(
       ok: true,
       device: { id: device.id, restaurant: { id: target.id, name: target.name } },
       restaurant_created: resolved.created,
+      ...(resolved.warning ? { warning: resolved.warning } : {}),
     });
   }
 

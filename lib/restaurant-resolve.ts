@@ -29,10 +29,25 @@ export interface ResolveInput {
  * result type that only type-checks under strict is a trap for the next
  * person. `restaurant` is present exactly when `error` is not.
  */
+export interface NameCollision {
+  code: "name_collision";
+  message: string;
+  /** Existing rows whose name matches. Enough for the console to offer
+   *  "link to this one instead" rather than just saying "careful". */
+  candidates: {
+    id: string;
+    name: string;
+    crm_restaurant_id: string | null;
+    zuppler_restaurant_id: string | null;
+  }[];
+}
+
 export interface ResolveResult {
   restaurant?: { id: string; name: string };
   created?: boolean;
   error?: string;
+  /** Present when a row was created despite an existing same-name row. */
+  warning?: NameCollision;
 }
 
 const str = (v: unknown): string | null => {
@@ -42,6 +57,17 @@ const str = (v: unknown): string | null => {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Loose comparison for spotting the same business written two ways -
+ * punctuation, case and spacing differences only.
+ *
+ * Deliberately NOT used to match automatically. Two venues really can share a
+ * name, and silently merging them would put one kitchen's tickets on another
+ * restaurant's printer. It is only used to warn.
+ */
+const normaliseName = (n: string): string =>
+  n.toLowerCase().replace(/['\u2019.,&-]/g, "").replace(/\s+/g, " ").trim();
 
 /** URL-safe slug; restaurants.slug is expected to be unique. */
 function slugify(name: string): string {
@@ -96,6 +122,42 @@ export async function resolveOrCreateRestaurant(
     return { error: "restaurant_id or crm_restaurant_id is required" };
   }
 
+  // Before creating: is there already a row that looks like this business?
+  //
+  // This has now caused two silent routing failures. The CRM created a second
+  // "Roundies Rock Cafe" and a second "Willie Mae's" because neither existing
+  // row carried the crm id it matched on - and in Roundies' case the printer
+  // ended up on the row WITHOUT the Zuppler mapping, so orders would have
+  // resolved to one row and printed from the other. Nothing would have
+  // reported that; the printer simply had nothing to collect.
+  //
+  // The create still proceeds - refusing would block a legitimately
+  // same-named venue - but the caller is told, with enough detail to offer
+  // linking instead.
+  let warning: NameCollision | undefined;
+  const { data: sameName } = await admin
+    .from("restaurants")
+    .select("id, name, crm_restaurant_id, zuppler_restaurant_id");
+  const matches = (sameName ?? []).filter(
+    (r: any) => normaliseName(r.name) === normaliseName(name)
+  );
+  if (matches.length) {
+    warning = {
+      code: "name_collision",
+      message: `A restaurant named "${matches[0].name}" already exists. Creating a second row anyway. If this is the same business, link the device to the existing restaurant instead - two rows for one business split its orders and its printers, and neither side reports it.`,
+      candidates: matches.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        crm_restaurant_id: r.crm_restaurant_id ?? null,
+        zuppler_restaurant_id: r.zuppler_restaurant_id ?? null,
+      })),
+    };
+    console.error(
+      "restaurant name collision - creating a duplicate row:",
+      name, "existing:", matches.map((r: any) => r.id).join(", ")
+    );
+  }
+
   const insert = async (slug: string) =>
     admin
       .from("restaurants")
@@ -123,5 +185,5 @@ export async function resolveOrCreateRestaurant(
   }
   if (error) return { error: error.message };
 
-  return { restaurant: data!, created: true };
+  return { restaurant: data!, created: true, ...(warning ? { warning } : {}) };
 }

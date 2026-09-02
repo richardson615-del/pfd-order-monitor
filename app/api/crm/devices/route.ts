@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
     // So the console can say "created Torino's" rather than silently
     // inventing a restaurant nobody asked for.
     restaurant_created: resolved.created,
+    ...(resolved.warning ? { warning: resolved.warning } : {}),
     device_key: deviceKey,
     note: "Shown once. Type it into the printer's WebConfig ID field - it cannot be retrieved again.",
   });

@@ -154,6 +154,13 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       serviceFee: money(totals.service),
       deliveryFee: money(totals.delivery),
       tip: money(totals.tip),
+      // All nine keys Zuppler returns in totals are now captured. Six had
+      // columns; discount lived only in a notes string written for the
+      // kitchen ticket, and 30% of orders failed to reconcile because of it.
+      discount: money(totals.discount),
+      includedTax: money(totals.includedTax),
+      hiddenFee: money(totals.hidden),
+      channelId: cart.channelId != null ? String(cart.channelId) : null,
       customerTotal: money(totals.total),
       paymentType: str(cart.settings?.tender?.id),
       notes:

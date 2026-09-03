@@ -41,6 +41,14 @@ export interface CanonicalOrderInput {
   deliveryFee?: number | null;
   /** Customer tip - the driver's money. Printed on the ticket. */
   tip?: number | null;
+  /** Promotional discount. Reduces the total; not part of the component sum. */
+  discount?: number | null;
+  /** Tax already inside subtotal. Recorded, never added when reconciling. */
+  includedTax?: number | null;
+  /** Zuppler's "hidden" total. Zero everywhere so far; captured regardless. */
+  hiddenFee?: number | null;
+  /** Zuppler channel the order arrived on - accounting groups by this. */
+  channelId?: string | null;
   customerTotal?: number | null;
   paymentType?: string | null;
   /** Free-text order/customer notes - printed in the ticket NOTE box. */
@@ -62,8 +70,34 @@ export interface IngestResult {
 const MUTABLE_FIELDS = [
   "order_type", "due_time", "customer_name", "customer_phone",
   "customer_address", "items", "items_total", "tax", "service_fee",
-  "delivery_fee", "tip", "customer_total", "payment_type", "notes",
+  "delivery_fee", "tip", "discount", "included_tax", "hidden_fee",
+  "customer_total", "payment_type", "notes",
 ] as const;
+
+/**
+ * total - (subtotal + tax + service + delivery + tip - discount)
+ *
+ * Zero when every money field is captured. Anything else means one is not -
+ * and the whole reason this is computed at ingest rather than in a report is
+ * that a report is written months later by someone who assumes the columns
+ * are complete.
+ *
+ * includedTax is deliberately excluded: it is tax already inside subtotal, so
+ * adding it would double-count. hidden is excluded for the same reason until
+ * an order appears where it is non-zero and its meaning can be established.
+ */
+export function moneyVariance(input: {
+  itemsTotal?: number | null; tax?: number | null; serviceFee?: number | null;
+  deliveryFee?: number | null; tip?: number | null; discount?: number | null;
+  customerTotal?: number | null;
+}): number | null {
+  if (input.customerTotal == null) return null;
+  const n = (v: unknown) => Number(v ?? 0);
+  const components =
+    n(input.itemsTotal) + n(input.tax) + n(input.serviceFee) +
+    n(input.deliveryFee) + n(input.tip) - n(input.discount);
+  return Math.round((Number(input.customerTotal) - components) * 100) / 100;
+}
 
 const sameMoney = (a: unknown, b: unknown) => {
   const na = a == null ? null : Number(a);
@@ -100,7 +134,8 @@ export function orderUpdateFields(
       if (JSON.stringify(from ?? []) !== JSON.stringify(to)) changes[key] = to;
       continue;
     }
-    if (["items_total", "tax", "service_fee", "delivery_fee", "tip", "customer_total"].includes(key)) {
+    if (["items_total", "tax", "service_fee", "delivery_fee", "tip", "discount",
+         "included_tax", "hidden_fee", "customer_total"].includes(key)) {
       if (!sameMoney(from, to)) changes[key] = to;
       continue;
     }
@@ -153,6 +188,9 @@ export async function ingestOrder(
       service_fee: input.serviceFee ?? null,
       delivery_fee: input.deliveryFee ?? null,
       tip: input.tip ?? null,
+      discount: input.discount ?? null,
+      included_tax: input.includedTax ?? null,
+      hidden_fee: input.hiddenFee ?? null,
       customer_total: input.customerTotal ?? null,
       payment_type: input.paymentType ?? null,
       notes: input.notes ?? null,
@@ -171,7 +209,13 @@ export async function ingestOrder(
 
     const { error: updateError } = await admin
       .from("orders")
-      .update({ ...changes, raw_payload: input.rawPayload ?? null })
+      .update({
+        ...changes,
+        // An amended order changes the arithmetic, so the tripwire is
+        // recomputed rather than left describing the original figures.
+        money_variance: moneyVariance(input),
+        raw_payload: input.rawPayload ?? null,
+      })
       .eq("id", existing.id);
 
     if (updateError) return { status: "error", error: updateError.message };
@@ -233,7 +277,12 @@ export async function ingestOrder(
       service_fee: input.serviceFee ?? null,
       delivery_fee: input.deliveryFee ?? null,
       tip: input.tip ?? null,
+      discount: input.discount ?? null,
+      included_tax: input.includedTax ?? null,
+      hidden_fee: input.hiddenFee ?? null,
+      channel_id: input.channelId ?? null,
       customer_total: input.customerTotal ?? null,
+      money_variance: moneyVariance(input),
       payment_type: input.paymentType ?? null,
       notes: input.notes ?? null,
       raw_html: input.rawHtml ?? null,

@@ -62,6 +62,13 @@ export interface HealthSnapshot {
    * two receipts arrived, were rejected, and produced no orders - and no
    * check anywhere could tell that from a quiet morning.
    */
+  /** Orders whose captured money fields do not sum to the charged total. */
+  unreconciledOrders: {
+    id: string;
+    order_number: string | null;
+    restaurant_name: string | null;
+    variance: number;
+  }[];
   webhook: {
     /** Newest receipt of any kind, accepted or rejected. */
     lastReceiptAt: string | null;
@@ -136,6 +143,25 @@ export function evaluateHealth(
         detail: `${where(d.restaurant_name)} - last checked in ${ago(mins)}. Orders will not print. Check power, network and paper.`,
       });
     }
+  }
+
+  // --- money that does not add up ---
+  // A warning, never a page: nothing is broken for the kitchen, and the
+  // customer was charged what Zuppler says. What it means is that a money
+  // field is arriving that we are not capturing - which stays invisible
+  // until someone disputes a statement months later.
+  if (snap.unreconciledOrders.length) {
+    const worst = snap.unreconciledOrders
+      .slice()
+      .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))[0];
+    issues.push({
+      key: "orders_unreconciled",
+      severity: "warning",
+      title: `${snap.unreconciledOrders.length} order(s) with unexplained money`,
+      detail:
+        `Components do not sum to the charged total - largest gap $${Math.abs(worst.variance).toFixed(2)} on order ${worst.order_number ?? worst.id} (${worst.restaurant_name ?? "unknown"}). ` +
+        `Zuppler is likely sending a money field we do not capture. Accounting figures built on the component columns will be wrong by this amount.`,
+    });
   }
 
   // --- the inbound webhook ---
@@ -286,6 +312,23 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     ).length,
   };
 
+  // Recent window only: a historic gap that has been explained should not
+  // keep warning, and the tripwire exists to catch NEW capture failures.
+  const varianceSince = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const { data: unreconciled } = await admin
+    .from("orders")
+    .select("id, order_number, money_variance, restaurants(name)")
+    .neq("money_variance", 0)
+    .not("money_variance", "is", null)
+    .gte("received_at", varianceSince)
+    .limit(50);
+  const unreconciledOrders = (unreconciled ?? []).map((o: any) => ({
+    id: o.id,
+    order_number: o.order_number ?? null,
+    restaurant_name: o.restaurants?.name ?? null,
+    variance: Number(o.money_variance),
+  }));
+
   const restaurants = restaurantsRes.data ?? [];
   const nameOf = (id: string | null) =>
     restaurants.find((r: any) => r.id === id)?.name ?? null;
@@ -337,6 +380,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   });
 
   return {
+    unreconciledOrders,
     webhook,
     devices,
     inboxes,

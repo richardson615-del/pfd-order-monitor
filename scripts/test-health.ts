@@ -28,6 +28,7 @@ const healthy: HealthSnapshot = {
   restaurantsWithoutDevice: [],
   pendingJobs: [],
   failedJobs: [],
+  unreconciledOrders: [],
   webhook: {
     lastReceiptAt: minsAgo(5),
     lastAcceptedAt: minsAgo(5),
@@ -228,6 +229,25 @@ console.log("no-printer at channel scale:");
       title: `No printer: Restaurant ${n}`, detail: "x",
     }));
     assert.equal(composeSmsAlert(warnings), null);
+  });
+}
+
+console.log("money reconciliation tripwire:");
+{
+  test("balanced orders raise nothing", () =>
+    assert.equal(evaluateHealth(healthy, NOW).find(i => i.key === "orders_unreconciled"), undefined));
+
+  test("an unexplained gap is a WARNING naming the largest one", () => {
+    const s2 = { ...healthy, unreconciledOrders: [
+      { id: "o1", order_number: "abc123", restaurant_name: "Torino's", variance: -6.79 },
+      { id: "o2", order_number: "def456", restaurant_name: "Ichiban", variance: -1.99 },
+    ]};
+    const i = evaluateHealth(s2, NOW).find(x => x.key === "orders_unreconciled");
+    assert.ok(i);
+    assert.equal(i!.severity, "warning", "money arithmetic must never page anyone at 3am");
+    assert.match(i!.title, /2 order/);
+    assert.match(i!.detail, /\$6\.79/, "must name the LARGEST gap, not the first");
+    assert.match(i!.detail, /Torino's/);
   });
 }
 

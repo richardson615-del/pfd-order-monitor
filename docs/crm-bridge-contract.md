@@ -89,10 +89,86 @@ that quietly differs from the paper is worse than no preview.
 
 `test_print` remains the physical confirmation after saving.
 
+## Email delivery (Automatic Email Manager restaurants)
+
+Some restaurants print by watching a mailbox with AEM on a local PC rather
+than with an Epson. For them the ticket travels as email; AEM prints whatever
+arrives.
+
+Writable on `POST /api/crm/restaurants/:id`:
+
+| field | values |
+|---|---|
+| `print_method` | `printer` (default) \| `email` |
+| `ticket_email_to` | the AEM-watched inbox; must be a valid address |
+
+`print_method: "email"` is **refused with 400** unless `ticket_email_to` is
+already set or sent in the same request. That configuration would silently
+stop every ticket reaching the restaurant, and a refusal at the point of
+change is cheaper than discovering it during service.
+
+`GET /api/crm/restaurants` adds `print_method`, `ticket_email_to`, and
+`email_delivery_ready` - false when a restaurant is set to email with no
+address, so the console can show the problem before an order arrives.
+
+### Test send
+
+```
+POST /api/crm/restaurants/:id/test-email
+{ "to": "someone@example.com", "order_id": "<uuid>" }
+```
+
+Both optional. `to` overrides the destination - this is how a test reaches a
+PFD address during setup instead of the kitchen. `order_id` renders a REAL
+stored order rather than the built-in sample, which is what proves this
+restaurant's own modifiers and totals survive the trip.
+
+Response includes **`sent_to_restaurant`**. Surface it: without `to`, this
+sends a real email to a real kitchen, and that should never be ambiguous in
+the UI.
+
+### Device test print
+
+`POST /api/crm/devices/:id { "action": "test_print" }` returns **409** on a
+device belonging to an email restaurant, pointing at the endpoint above. An
+email restaurant has no printer to test.
+
+### What the ticket looks like
+
+Text only - no logo, raster header or QR. Those are bitmaps inside an ePOS
+document and have no meaning in a mail body. Sent as `multipart/alternative`:
+plain text, plus the same text in a monospace `<pre>`.
+
+Always rendered at **normal** scale even when the restaurant is set to large
+print. Enlarged lines lay out at 24 columns because the thermal head draws
+them double-width; plain text cannot, so the ticket would come out ragged.
+
+Subject format is a contract with the AEM rule at the restaurant:
+
+```
+PFD ORDER #{order_number} - {PICKUP|DELIVERY} {due time}
+CANCELLED - ORDER #{order_number}
+```
+
+The cancellation subject deliberately does NOT start with `PFD ORDER`, so a
+cancellation cannot print as though it were a new order.
+
+### Monitoring
+
+`email_send_failed` is **critical and pages**: an email job older than 5
+minutes with no `sent_at`. For an AEM restaurant the email IS the ticket -
+there is no queued job waiting on a printer that might come back, and nobody
+at the restaurant sees anything at all.
+
+Email restaurants never raise the printer-silence, never-checked-in or
+no-printer checks.
+
 ## Standing rules
 
 - **QR points at the restaurant's own website.** The Zuppler ordering page is
   fallback-only, for restaurants with no site of their own.
+- Email delivery is an interim bridge. These sites still move to Epson
+  printers later; the printer path is not weakened to support it.
 - Large print is a per-station accessibility setting. It is the default for
   all restaurants; a station that wants standard sets `text_scale` on the
   device.

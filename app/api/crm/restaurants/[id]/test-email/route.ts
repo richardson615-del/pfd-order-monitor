@@ -65,6 +65,24 @@ export async function POST(
   });
 
   const result = await sendTicketEmail(to, email);
+
+  // Logged on BOTH paths. A send leaves no row behind - correct, since a test
+  // is not a ticket owed - which means the response is otherwise the only
+  // evidence it happened, and a response that never reaches whoever is
+  // watching makes the send unverifiable after the fact.
+  console.log(
+    result.ok ? "test-email SENT" : "test-email FAILED",
+    JSON.stringify({
+      restaurant: r.name,
+      to,
+      to_restaurant_inbox: !override,
+      subject: email.subject,
+      order: renderedOrder ?? "(sample)",
+      message_id: result.messageId ?? null,
+      error: result.error ?? null,
+    })
+  );
+
   if (!result.ok) {
     return NextResponse.json({ error: result.error, from: SENDER_ADDRESS, to }, { status: 502 });
   }

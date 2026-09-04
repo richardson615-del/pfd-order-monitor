@@ -431,6 +431,13 @@ async function deliverByEmail(args: {
   const now = new Date().toISOString();
 
   if (result.ok) {
+    // A successful delivery should be as visible in the log as a failed one -
+    // otherwise the only way to answer "did that order actually reach them?"
+    // is to query the database.
+    console.log(
+      "email delivery SENT",
+      JSON.stringify({ order: args.orderId, to, subject: email.subject, message_id: result.messageId ?? null })
+    );
     await admin.from("print_jobs")
       .update({ status: "printed", sent_at: now, finished_at: now })
       .eq("id", job.id);

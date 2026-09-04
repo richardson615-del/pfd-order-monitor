@@ -18,6 +18,11 @@ export const maxDuration = 30;
  * instead of the restaurant during setup. Without it, the restaurant's own
  * configured inbox is used - and that is a real email to a real kitchen, so
  * the response says plainly which one it went to.
+ *
+ * `order_id` renders a REAL stored order instead of the sample. A sample
+ * proves the transport; a real order proves the thing that actually matters -
+ * that this restaurant's own modifiers, comments and totals survive the trip
+ * and print correctly under their AEM rule.
  */
 export async function POST(
   req: NextRequest,
@@ -45,12 +50,19 @@ export async function POST(
     );
   }
 
-  const email = composeTicketEmail(
-    { ...SAMPLE_ORDER, ticket_restaurant_name: r.name },
-    {
-      footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
-    }
-  );
+  let source: any = { ...SAMPLE_ORDER, ticket_restaurant_name: r.name };
+  let renderedOrder: string | null = null;
+  if (typeof body?.order_id === "string" && body.order_id.trim()) {
+    const { data: o } = await admin
+      .from("orders").select("*").eq("id", body.order_id.trim()).maybeSingle();
+    if (!o) return NextResponse.json({ error: "order not found" }, { status: 404 });
+    source = o;
+    renderedOrder = o.order_number ?? o.id;
+  }
+
+  const email = composeTicketEmail(source, {
+    footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
+  });
 
   const result = await sendTicketEmail(to, email);
   if (!result.ok) {
@@ -65,6 +77,8 @@ export async function POST(
     // different things to have just done.
     sent_to_restaurant: !override && to === (r.ticket_email_to ?? "").trim(),
     subject: email.subject,
+    rendered_order: renderedOrder,
+    sample: renderedOrder === null,
     message_id: result.messageId,
   });
 }

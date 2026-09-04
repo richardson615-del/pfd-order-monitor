@@ -1,6 +1,30 @@
 import { google } from "googleapis";
 
+/**
+ * Read scope for the inboxes we poll.
+ *
+ * gmail.send is NOT here on purpose: every restaurant that connects an inbox
+ * grants these scopes, and none of them should be granting us the ability to
+ * send as them. The outbound leg uses its own grant - see SEND_SCOPES.
+ */
 const SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
+
+/**
+ * Send scope, for the single PFD sending identity (info@pfdworks.com).
+ * Separate consent, separate stored token, so read access and send access are
+ * never bundled into one grant a restaurant is asked to approve.
+ */
+export const SEND_SCOPES = ["https://www.googleapis.com/auth/gmail.send"];
+
+export function getGoogleSendAuthUrl(state: string) {
+  const client = getOAuthClient();
+  return client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: SEND_SCOPES,
+    state,
+  });
+}
 
 export function getOAuthClient() {
   return new google.auth.OAuth2(

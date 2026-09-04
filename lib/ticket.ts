@@ -367,3 +367,46 @@ export function toEposPrintXml(
   if (opts.wrap === false) return body;
   return `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body}<feed line="3"/><cut type="feed"/></epos-print>`;
 }
+
+/**
+ * Renders ticket lines as plain text.
+ *
+ * For the email delivery leg, where Automatic Email Manager prints whatever
+ * arrives. The spec called this renderTicket(); no such function existed -
+ * the renderer produced ePOS XML and nothing else - so this is new.
+ *
+ * Emphasis attributes are dropped rather than simulated. A thermal printer
+ * has bold and double-height; a monospace mail body has neither, and markers
+ * like **NO ONIONS** would print literally on the kitchen's paper. Layout
+ * carries the meaning instead: the modifier arrows and the quantity column
+ * survive, which is what a cook actually scans for.
+ *
+ * Double-width lines are laid out at half the column count, matching what the
+ * printer would do, so a large-print restaurant's ticket wraps the same way.
+ */
+export function toPlainText(lines: TicketLine[], cols = 48): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.qr) {
+      // A QR is meaningless in text. The URL is not.
+      out.push(line.qr);
+      continue;
+    }
+    const text = line.text ?? "";
+    if (!text) { out.push(""); continue; }
+    const width = line.size === "double" && text.length <= Math.floor(cols / 2)
+      ? Math.floor(cols / 2)
+      : cols;
+    if (line.align === "center") {
+      const pad = Math.max(0, Math.floor((width - text.length) / 2));
+      out.push(" ".repeat(pad) + text);
+    } else if (line.align === "right") {
+      out.push(" ".repeat(Math.max(0, width - text.length)) + text);
+    } else {
+      out.push(text);
+    }
+  }
+  // Trailing blank lines are the ticket's feed-before-cut; they are noise here.
+  while (out.length && out[out.length - 1].trim() === "") out.pop();
+  return out.join("\n");
+}

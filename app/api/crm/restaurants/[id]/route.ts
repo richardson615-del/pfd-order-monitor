@@ -29,7 +29,7 @@ export async function POST(
   const admin = supabaseAdmin();
   const { data: restaurant } = await admin
     .from("restaurants")
-    .select("id, name")
+    .select("id, name, print_method, ticket_email_to")
     .eq("id", params.id)
     .maybeSingle();
   if (!restaurant) {
@@ -52,6 +52,41 @@ export async function POST(
     }
     updates.ticket_footer_url = v || null;
   }
+  if ("print_method" in body) {
+    const v = String(body.print_method ?? "");
+    if (v !== "printer" && v !== "email") {
+      return NextResponse.json(
+        { error: "print_method must be 'printer' or 'email'" },
+        { status: 400 }
+      );
+    }
+    // Switching to email without an address would silently stop every ticket
+    // reaching this restaurant - refuse rather than accept a config that
+    // cannot work.
+    const addr =
+      "ticket_email_to" in body
+        ? String(body.ticket_email_to ?? "").trim()
+        : String(restaurant.ticket_email_to ?? "").trim();
+    if (v === "email" && !addr) {
+      return NextResponse.json(
+        { error: "ticket_email_to is required before print_method can be 'email'" },
+        { status: 400 }
+      );
+    }
+    updates.print_method = v;
+  }
+
+  if ("ticket_email_to" in body) {
+    const v = String(body.ticket_email_to ?? "").trim();
+    if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
+      return NextResponse.json(
+        { error: "ticket_email_to must be a valid email address" },
+        { status: 400 }
+      );
+    }
+    updates.ticket_email_to = v || null;
+  }
+
   if ("footer_engine" in body) {
     const v = String(body.footer_engine ?? "");
     if (v !== "static" && v !== "dynamic") {
@@ -155,7 +190,7 @@ export async function POST(
   }
   if (!Object.keys(updates).length) {
     return NextResponse.json(
-      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image" },
+      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image, print_method, ticket_email_to" },
       { status: 400 }
     );
   }
@@ -164,7 +199,7 @@ export async function POST(
     .from("restaurants")
     .update(updates)
     .eq("id", restaurant.id)
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

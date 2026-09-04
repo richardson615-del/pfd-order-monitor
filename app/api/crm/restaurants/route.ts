@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("restaurants")
-    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter")
+    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to")
     .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -38,6 +38,10 @@ export async function GET(req: NextRequest) {
         has_footer_image: Boolean(ticket_footer_image_b64),
         effective_footer_text: (r.ticket_footer_text ?? "").trim() || DEFAULT_FOOTER_TEXT,
         prints_qr: r.ticket_footer_mode === "qr_with_text" && Boolean(r.ticket_footer_url),
+        // Surfaced so the console can show a misconfiguration before an order
+        // arrives, rather than after a ticket fails to reach anyone.
+        email_delivery_ready:
+          r.print_method !== "email" || Boolean((r.ticket_email_to ?? "").trim()),
       };
     }),
   });

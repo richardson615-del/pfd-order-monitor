@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "./supabase-server";
-import { ingestOrder } from "./canonical";
+import { ingestOrder, sendCancellationEmail } from "./canonical";
 import {
   fetchZupplerOrder,
   implausibleTotalReason,
@@ -60,6 +60,11 @@ export async function ingestZupplerOrderByUuid(
         .update({ status: "failed", error: "order cancelled", finished_at: new Date().toISOString() })
         .eq("order_id", existing.id)
         .in("status", ["queued", "claimed"]);
+      // An email restaurant has no queued job to kill - the ticket is already
+      // printed and sitting on their spike. They get a second email instead,
+      // which is the only way to reach them at all.
+      await sendCancellationEmail(existing.id);
+
       console.log("Zuppler order cancelled", { orderId: existing.id, orderUuid });
       return { status: "cancelled", orderId: existing.id };
     }

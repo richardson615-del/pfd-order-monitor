@@ -335,18 +335,130 @@ export async function ingestOrder(
     orderId: inserted.id,
   });
 
-  // --- Queue a print job for every active device at this restaurant ---
-  const { data: devices } = await admin
-    .from("print_devices")
-    .select("id")
-    .eq("restaurant_id", input.restaurantId)
-    .eq("is_active", true);
+  // --- Deliver the ticket: printer or email ---
+  // Branch on the restaurant's print_method. An email restaurant gets exactly
+  // ONE print_jobs row with delivery='email' and no device - print_jobs stays
+  // the single record of "a ticket was meant to reach this restaurant", so
+  // the monitor and the Printers console keep working on one shape.
+  const { data: deliveryRow } = await admin
+    .from("restaurants")
+    .select("print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale")
+    .eq("id", input.restaurantId)
+    .maybeSingle();
 
-  if (devices?.length) {
-    await admin.from("print_jobs").insert(
-      devices.map((d) => ({ order_id: inserted.id, device_id: d.id }))
-    );
+  if (deliveryRow?.print_method === "email") {
+    await deliverByEmail({
+      orderId: inserted.id,
+      restaurant: deliveryRow,
+      order: inserted,
+    });
+  } else {
+    // Unchanged: one job per active device.
+    const { data: devices } = await admin
+      .from("print_devices")
+      .select("id")
+      .eq("restaurant_id", input.restaurantId)
+      .eq("is_active", true);
+
+    if (devices?.length) {
+      await admin.from("print_jobs").insert(
+        devices.map((d) => ({ order_id: inserted.id, device_id: d.id }))
+      );
+    }
   }
 
   return { status: "created", orderId: inserted.id };
+}
+
+/**
+ * Emails the ticket for one order, recording the attempt on a print_jobs row.
+ *
+ * The row is written BEFORE the send, so a crash mid-send leaves evidence
+ * that a ticket was owed rather than nothing at all - the monitor then
+ * reports an email job with no sent_at, which is exactly the condition worth
+ * knowing about.
+ *
+ * Never throws. A restaurant that cannot be emailed is a serious problem, but
+ * it is not a reason to fail an order that has otherwise been ingested
+ * correctly - the order still reaches the dashboard, and the monitor raises
+ * the failure.
+ */
+async function deliverByEmail(args: {
+  orderId: string;
+  restaurant: {
+    ticket_email_to?: string | null;
+    ticket_footer_text?: string | null;
+    ticket_footer_url?: string | null;
+    ticket_text_scale?: string | null;
+  };
+  order: Record<string, any>;
+}): Promise<void> {
+  const admin = supabaseAdmin();
+  const to = (args.restaurant.ticket_email_to ?? "").trim();
+
+  const { data: job, error: jobError } = await admin
+    .from("print_jobs")
+    .insert({ order_id: args.orderId, device_id: null, delivery: "email" })
+    .select("id")
+    .single();
+
+  if (jobError) {
+    // 23505 = the partial unique index; this order already has an email job,
+    // which is the idempotency guarantee doing its work on a retried webhook.
+    if (jobError.code === "23505") return;
+    console.error("email delivery: could not record job", jobError.message);
+    return;
+  }
+
+  if (!to) {
+    const err = "print_method is 'email' but ticket_email_to is empty";
+    console.error("email delivery:", err, "order", args.orderId);
+    await admin.from("print_jobs")
+      .update({ status: "failed", send_error: err, finished_at: new Date().toISOString() })
+      .eq("id", job.id);
+    return;
+  }
+
+  const { composeTicketEmail, sendTicketEmail } = await import("./email-out");
+  const email = composeTicketEmail(args.order as any, {
+    footer: {
+      text: args.restaurant.ticket_footer_text,
+      url: args.restaurant.ticket_footer_url,
+    },
+  });
+
+  const result = await sendTicketEmail(to, email);
+  const now = new Date().toISOString();
+
+  if (result.ok) {
+    await admin.from("print_jobs")
+      .update({ status: "printed", sent_at: now, finished_at: now })
+      .eq("id", job.id);
+    await admin.from("orders")
+      .update({ status: "printed", printed_at: now })
+      .eq("id", args.orderId);
+  } else {
+    console.error("email delivery FAILED for order", args.orderId, "-", result.error);
+    await admin.from("print_jobs")
+      .update({ status: "failed", send_error: result.error ?? "unknown", finished_at: now })
+      .eq("id", job.id);
+  }
+}
+
+/** Sends the cancellation notice for an email-delivery restaurant. */
+export async function sendCancellationEmail(orderId: string): Promise<void> {
+  const admin = supabaseAdmin();
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, order_number, customer_name, customer_total, restaurant_id, restaurants(print_method, ticket_email_to)")
+    .eq("id", orderId)
+    .maybeSingle();
+  const r = (order as any)?.restaurants;
+  if (!order || r?.print_method !== "email" || !r?.ticket_email_to) return;
+
+  const { composeCancellationEmail, sendTicketEmail } = await import("./email-out");
+  const result = await sendTicketEmail(r.ticket_email_to, composeCancellationEmail(order as any));
+  if (!result.ok) {
+    console.error("cancellation email FAILED for order", orderId, "-", result.error);
+  }
 }

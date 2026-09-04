@@ -176,6 +176,23 @@ export async function POST(
   // claimed by the printer on its ordinary poll. A separate "just print this"
   // path would prove that path works and tell us nothing about the one that
   // carries actual orders.
+  // An email restaurant has no device to test, so a device-scoped test print
+  // makes no sense there. The console tests those from the restaurant, not
+  // from a printer that does not exist.
+  {
+    const { data: r } = await admin
+      .from("restaurants").select("print_method").eq("id", device.restaurant_id).maybeSingle();
+    if (r?.print_method === "email") {
+      return NextResponse.json(
+        {
+          error:
+            "this restaurant delivers tickets by email, not to a printer - use POST /api/crm/restaurants/:id/test-email",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   if (!device.is_active) {
     return NextResponse.json(
       {

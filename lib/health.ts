@@ -62,6 +62,14 @@ export interface HealthSnapshot {
    * two receipts arrived, were rejected, and produced no orders - and no
    * check anywhere could tell that from a quiet morning.
    */
+  /** Email-delivery tickets that were never actually sent. */
+  unsentEmailJobs: {
+    id: string;
+    order_number: string | null;
+    restaurant_name: string | null;
+    queued_at: string;
+    send_error: string | null;
+  }[];
   /** Orders whose captured money fields do not sum to the charged total. */
   unreconciledOrders: {
     id: string;
@@ -89,6 +97,8 @@ export interface HealthThresholds {
   jobPendingMinutes: number;
   /** No accepted webhook order for this long means the pipe may be dead. */
   webhookSilentHours: number;
+  /** An email ticket unsent this long has not been delayed, it has failed. */
+  emailUnsentMinutes: number;
 }
 
 export const DEFAULT_THRESHOLDS: HealthThresholds = {
@@ -100,6 +110,9 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   // Long on purpose. Restaurants close, and a quiet night is not an outage -
   // an alert that fires every morning at 4am is one nobody reads.
   webhookSilentHours: 24,
+  // The send is synchronous with ingest, so anything still unsent after this
+  // is not slow - it never went.
+  emailUnsentMinutes: 5,
 };
 
 const minutesSince = (iso: string | null, now: Date): number | null => {
@@ -143,6 +156,31 @@ export function evaluateHealth(
         detail: `${where(d.restaurant_name)} - last checked in ${ago(mins)}. Orders will not print. Check power, network and paper.`,
       });
     }
+  }
+
+  // --- email tickets that never sent ---
+  // CRITICAL, and the only check here that pages. For an AEM restaurant the
+  // email IS the ticket: no queued job waits on a printer that might come
+  // back, and nobody at the restaurant sees anything at all. It is the exact
+  // equivalent of a printer being offline mid-service.
+  const unsent = snap.unsentEmailJobs.filter((j) => {
+    const mins = minutesSince(j.queued_at, now);
+    return mins !== null && mins >= thresholds.emailUnsentMinutes;
+  });
+  if (unsent.length) {
+    const oldest = unsent.reduce((a, b) =>
+      new Date(a.queued_at) <= new Date(b.queued_at) ? a : b
+    );
+    const reason = unsent.find((j) => j.send_error)?.send_error;
+    issues.push({
+      key: "email_send_failed",
+      severity: "critical",
+      title: `${unsent.length} ticket(s) not emailed to the restaurant`,
+      detail:
+        `Order ${oldest.order_number ?? oldest.id} for ${oldest.restaurant_name ?? "unknown"} has been waiting ${ago(minutesSince(oldest.queued_at, now))} and never sent. ` +
+        `This restaurant prints by email - nobody there has seen this order.` +
+        (reason ? ` Last error: ${reason}` : ""),
+    });
   }
 
   // --- money that does not add up ---
@@ -282,7 +320,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const [devicesRes, inboxesRes, restaurantsRes, jobsRes] = await Promise.all([
     admin.from("print_devices").select("id, name, is_active, last_seen_at, restaurant_id"),
     admin.from("monitored_inboxes").select("id, email_address, is_active, gmail_refresh_token, gmail_last_poll_at, restaurant_id"),
-    admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected"),
+    admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected, print_method"),
     admin
       .from("print_jobs")
       .select("id, status, attempts, queued_at, error, orders(order_number, restaurant_id)")
@@ -314,6 +352,22 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
 
   // Recent window only: a historic gap that has been explained should not
   // keep warning, and the tripwire exists to catch NEW capture failures.
+  const { data: unsentRows } = await admin
+    .from("print_jobs")
+    .select("id, queued_at, send_error, orders(order_number, restaurants(name))")
+    .eq("delivery", "email")
+    .is("sent_at", null)
+    .neq("status", "failed_acknowledged")
+    .order("queued_at", { ascending: true })
+    .limit(50);
+  const unsentEmailJobs = (unsentRows ?? []).map((j: any) => ({
+    id: j.id,
+    order_number: j.orders?.order_number ?? null,
+    restaurant_name: j.orders?.restaurants?.name ?? null,
+    queued_at: j.queued_at,
+    send_error: j.send_error ?? null,
+  }));
+
   const varianceSince = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const { data: unreconciled } = await admin
     .from("orders")
@@ -369,6 +423,10 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const restaurantsWithoutDevice = restaurants
     .filter((r: any) => r.is_active)
     .filter((r: any) => r.printer_expected)
+    // An email restaurant has no printer BY DESIGN. printer_expected already
+    // gates this, but print_method makes the intent explicit and survives
+    // someone setting printer_expected by hand.
+    .filter((r: any) => r.print_method !== "email")
     .filter((r: any) => !activeDeviceRestaurantIds.has(r.id))
     .map((r: any) => ({ id: r.id, name: r.name }));
 
@@ -380,6 +438,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   });
 
   return {
+    unsentEmailJobs,
     unreconciledOrders,
     webhook,
     devices,

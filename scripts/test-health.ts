@@ -29,6 +29,7 @@ const healthy: HealthSnapshot = {
   pendingJobs: [],
   failedJobs: [],
   unreconciledOrders: [],
+  unsentEmailJobs: [],
   webhook: {
     lastReceiptAt: minsAgo(5),
     lastAcceptedAt: minsAgo(5),
@@ -248,6 +249,75 @@ console.log("money reconciliation tripwire:");
     assert.match(i!.title, /2 order/);
     assert.match(i!.detail, /\$6\.79/, "must name the LARGEST gap, not the first");
     assert.match(i!.detail, /Torino's/);
+  });
+}
+
+console.log("email delivery leg:");
+{
+  const job = (over: Partial<any> = {}) => ({
+    id: "j1", order_number: "134d542b", restaurant_name: "Greek Style Gyro",
+    queued_at: minsAgo(DEFAULT_THRESHOLDS.emailUnsentMinutes + 1),
+    send_error: null, ...over,
+  });
+
+  test("an email ticket that never sent is CRITICAL", () => {
+    // For an AEM restaurant the email IS the ticket - no queued job waits on
+    // a printer that might come back, and nobody there sees anything.
+    const s2 = { ...healthy, unsentEmailJobs: [job()] };
+    const i = evaluateHealth(s2, NOW).find(x => x.key === "email_send_failed");
+    assert.ok(i, "must be raised");
+    assert.equal(i!.severity, "critical", "this pages, like a printer going offline");
+  });
+
+  test("it names the order, the restaurant, and how long", () => {
+    const i = evaluateHealth({ ...healthy, unsentEmailJobs: [job()] }, NOW)
+      .find(x => x.key === "email_send_failed")!;
+    assert.match(i.detail, /134d542b/);
+    assert.match(i.detail, /Greek Style Gyro/);
+    assert.match(i.detail, /nobody there has seen this order/);
+  });
+
+  test("a send error is surfaced when there is one", () => {
+    const i = evaluateHealth({ ...healthy, unsentEmailJobs: [job({ send_error: "invalid_grant" })] }, NOW)
+      .find(x => x.key === "email_send_failed")!;
+    assert.match(i.detail, /invalid_grant/);
+  });
+
+  test("a just-queued email is NOT flagged", () => {
+    // The send is synchronous with ingest; a few seconds is normal.
+    const s2 = { ...healthy, unsentEmailJobs: [job({ queued_at: minsAgo(1) })] };
+    assert.equal(evaluateHealth(s2, NOW).find(x => x.key === "email_send_failed"), undefined);
+  });
+
+  test("the threshold boundary is not off by one", () => {
+    const under = { ...healthy, unsentEmailJobs: [job({ queued_at: minsAgo(DEFAULT_THRESHOLDS.emailUnsentMinutes - 1) })] };
+    const over  = { ...healthy, unsentEmailJobs: [job({ queued_at: minsAgo(DEFAULT_THRESHOLDS.emailUnsentMinutes) })] };
+    assert.equal(evaluateHealth(under, NOW).find(x => x.key === "email_send_failed"), undefined);
+    assert.ok(evaluateHealth(over, NOW).find(x => x.key === "email_send_failed"));
+  });
+
+  test("it reports the OLDEST unsent, not the first in the list", () => {
+    const s2 = { ...healthy, unsentEmailJobs: [
+      job({ id: "recent", order_number: "newer", queued_at: minsAgo(10) }),
+      job({ id: "old", order_number: "older", queued_at: minsAgo(90) }),
+    ]};
+    const i = evaluateHealth(s2, NOW).find(x => x.key === "email_send_failed")!;
+    assert.match(i.title, /2 ticket/);
+    assert.match(i.detail, /older/, "the longest-waiting order is the one to name");
+  });
+
+  test("an email restaurant never trips the no-printer warning", async () => {
+    // It has no printer by design; warning about that would be noise
+    // forever, and noise is how a monitoring surface stops being read.
+    const src = await import("fs").then(fs => fs.readFileSync("lib/health.ts", "utf8"));
+    assert.match(src, /print_method !== "email"/);
+  });
+
+  test("a critical email failure DOES produce a text", async () => {
+    const { composeSmsAlert } = await import("@/lib/alerts");
+    const i = evaluateHealth({ ...healthy, unsentEmailJobs: [job()] }, NOW)
+      .find(x => x.key === "email_send_failed")!;
+    assert.ok(composeSmsAlert([i]), "criticals must reach a phone");
   });
 }
 

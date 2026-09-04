@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "gen:vapid": "web-push generate-vapid-keys",
-    "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts && tsx scripts/test-ticket.ts && tsx scripts/test-adjustments.ts && tsx scripts/test-zuppler-email.ts && tsx scripts/test-health.ts && tsx scripts/test-alerts.ts && tsx scripts/test-crm-auth.ts && tsx scripts/test-restaurant-resolve.ts && tsx scripts/test-ticket-layout.ts && tsx scripts/test-footer-engine.ts && tsx scripts/test-middleware.ts && tsx scripts/test-device-keys.ts && tsx scripts/test-name-collision.ts && tsx scripts/test-email-out.ts"
+    "test": "tsx scripts/test-zuppler-mapper.ts && tsx scripts/test-subject.ts && tsx scripts/test-ticket.ts && tsx scripts/test-adjustments.ts && tsx scripts/test-zuppler-email.ts && tsx scripts/test-health.ts && tsx scripts/test-alerts.ts && tsx scripts/test-crm-auth.ts && tsx scripts/test-restaurant-resolve.ts && tsx scripts/test-ticket-layout.ts && tsx scripts/test-footer-engine.ts && tsx scripts/test-middleware.ts && tsx scripts/test-device-keys.ts && tsx scripts/test-name-collision.ts && tsx scripts/test-email-out.ts && tsx scripts/test-sender-connect.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.8",

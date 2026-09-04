@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGoogleSendAuthUrl } from "@/lib/gmail";
+import { getGoogleSendAuthUrl, SENDER_STATE } from "@/lib/gmail";
 import { supabaseServer } from "@/lib/supabase-server";
 import { isCurrentUserAdmin } from "@/lib/authz";
 import { SENDER_ADDRESS } from "@/lib/email-out";
 
 export const dynamic = "force-dynamic";
-
-/** Marks the callback as a sender grant rather than an inbox connection. */
-export const SENDER_STATE = "pfd-sender";
 
 /**
  * GET /api/gmail/connect-sender

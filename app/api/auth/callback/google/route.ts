@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeCodeForTokens } from "@/lib/gmail";
+import { exchangeCodeForTokens, SENDER_STATE } from "@/lib/gmail";
 import { supabaseAdmin } from "@/lib/supabase-server";
-import { SENDER_STATE } from "@/app/api/gmail/connect-sender/route";
 import { SENDER_ADDRESS } from "@/lib/email-out";
 
 const esc = (s: unknown) =>

@@ -16,6 +16,14 @@ const SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
  */
 export const SEND_SCOPES = ["https://www.googleapis.com/auth/gmail.send"];
 
+/**
+ * Marks an OAuth callback as a sender grant rather than an inbox connection.
+ * Lives here rather than in the route: a Next.js route file may only export
+ * its handlers and a fixed set of config fields, and exporting anything else
+ * fails the BUILD rather than typecheck.
+ */
+export const SENDER_STATE = "pfd-sender";
+
 export function getGoogleSendAuthUrl(state: string) {
   const client = getOAuthClient();
   return client.generateAuthUrl({

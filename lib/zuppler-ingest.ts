@@ -43,16 +43,34 @@ export async function ingestZupplerOrderByUuid(
   if (mapped.state && /cancel/.test(mapped.state)) {
     const { data: existing } = await admin
       .from("orders")
-      .select("id")
+      .select("id, printed_at")
       .eq("source", "zuppler")
       .eq("external_id", mapped.externalId)
       .maybeSingle();
 
     if (existing) {
+      const now = new Date().toISOString();
+      // printed_at is NEVER cleared. A ticket that came out of a printer is a
+      // fact about the world, and overwriting the record of it is how a
+      // cancelled-after-printing order becomes indistinguishable from one
+      // that never reached the kitchen.
       await admin
         .from("orders")
-        .update({ status: "cancelled" })
+        .update({ status: "cancelled", cancelled_at: now })
         .eq("id", existing.id);
+
+      if (existing.printed_at) {
+        // The loud case. The food may already be made, and the money question
+        // is open - this is not the same as a cancellation that arrived in
+        // time to stop anything.
+        console.error(
+          "Zuppler order CANCELLED AFTER PRINTING - the kitchen may have made this:",
+          JSON.stringify({
+            orderId: existing.id, orderUuid,
+            printed_at: existing.printed_at, cancelled_at: now,
+          })
+        );
+      }
       // Pull any ticket that has not been picked up yet. One already printed
       // cannot be recalled - but nothing should print after a cancellation.
       await admin

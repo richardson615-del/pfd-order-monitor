@@ -178,3 +178,42 @@ export async function sendTicketEmail(to: string, email: TicketEmail): Promise<S
     return { ok: false, error: String(detail).slice(0, 400) };
   }
 }
+
+/**
+ * A readable plain-text fallback derived from HTML.
+ *
+ * Every message goes out multipart/alternative. An HTML-only email is more
+ * likely to be filtered, and unreadable to anyone whose client shows text -
+ * which for a financial document sent to a restaurant owner is a bad way to
+ * find out. The CRM may supply its own `text`; this is what happens when it
+ * does not.
+ *
+ * Deliberately crude. It exists so the message is not empty in a text client,
+ * not to reproduce a statement's layout - and pretending otherwise would
+ * invite someone to rely on it.
+ */
+export function htmlToPlainText(html: string): string {
+  return String(html ?? "")
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/t[dh]>/gi, "\t")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Sends an arbitrary composed email as the PFD identity. */
+export async function sendComposedEmail(
+  to: string,
+  email: TicketEmail
+): Promise<SendResult> {
+  return sendTicketEmail(to, email);
+}

@@ -4,7 +4,7 @@
  * Exits non-zero on the first failing suite so CI catches regressions.
  */
 import assert from "node:assert/strict";
-import { implausibleTotalReason, mapZupplerGraphqlOrder } from "@/lib/zuppler-mapper";
+import { implausibleTotalReason, mapZupplerGraphqlOrder, LOAD_ORDER_QUERY } from "@/lib/zuppler-mapper";
 
 // Make money() deterministic regardless of the ambient shell/CI env.
 // (money() reads process.env.ZUPPLER_AMOUNTS on every call.)
@@ -274,6 +274,103 @@ console.log("totals sanity check:");
 
   test("an ordinary order passes", () =>
     assert.equal(implausibleTotalReason({ customerTotal: 42.5, itemsTotal: 35 }), null));
+}
+
+// --- nested option groups (Roundies 61642f71, Sep 4 2026) -------------------
+// The live bug: this order printed with every modifier missing - eggs over
+// easy, biscuit choice, hash brown casserole, and a PAID "Add Gravy" at
+// $1.00. The renderer was fine; LOAD_ORDER_QUERY never selected
+// items.modifiers, so the mapper received no option data at all.
+//
+// Shapes below follow the live schema introspected from
+// orders-api5.zuppler.com (Item.modifiers -> [Modifier], Modifier.options ->
+// [ModifierOption], option price/total are Int cents), not invented fields.
+console.log("nested option groups:");
+{
+  const nested = {
+    data: {
+      order: {
+        uuid: "61642f71-0000-4000-8000-000000000000",
+        shortUuid: "61642f71",
+        state: "confirmed",
+        createdAt: "2026-09-04T13:02:00Z",
+        totals: { subtotal: 1400, tax: 0, total: 1400, discount: 0 },
+        carts: [{
+          restaurantId: 29905,
+          settings: { service: { id: "PICKUP" } },
+          customer: { name: "Test" },
+          items: [{
+            id: 1,
+            name: "Country Breakfast",
+            quantity: 1,
+            // Already includes the $1.00 gravy - which is exactly why correct
+            // totals were NOT evidence the modifier names had arrived.
+            itemTotal: 1400,
+            comments: null,
+            modifiers: [
+              { name: "Choice of Eggs", priority: 1, options: [{ name: "Over Easy", price: 0, quantity: 1, total: 0 }] },
+              { name: "Choice of Bread", priority: 2, options: [{ name: "Biscuit", price: 0, quantity: 1, total: 0 }] },
+              { name: "Choice of Side", priority: 3, options: [{ name: "Hash Brown Casserole", price: 0, quantity: 1, total: 0 }] },
+              { name: "Extras", priority: 4, options: [{ name: "Add Gravy", price: 100, quantity: 1, total: 100 }] },
+            ],
+          }],
+        }],
+      },
+    },
+  };
+
+  const c = mapZupplerGraphqlOrder(nested).canonical;
+
+  test("every nested option group reaches modifiers (the actual bug)", () =>
+    assert.deepEqual(c.items?.[0]?.modifiers, [
+      "Over Easy",
+      "Biscuit",
+      "Hash Brown Casserole",
+      "Add Gravy +$1.00",
+    ]));
+
+  test("a paid option shows its price, free ones stay bare", () => {
+    const mods = c.items?.[0]?.modifiers ?? [];
+    assert.equal(mods.filter((m) => m.includes("+$")).length, 1);
+    assert.ok(mods.includes("Add Gravy +$1.00"));
+  });
+
+  test("the query actually selects the modifier fields", () => {
+    // Guards the real regression: the mapper below can be perfect and still
+    // print nothing if the fields are absent from the GraphQL selection.
+    assert.match(LOAD_ORDER_QUERY, /modifiers\s*\{[^}]*options\s*\{/);
+  });
+
+  test("an option quantity above 1 is shown", () => {
+    const two = JSON.parse(JSON.stringify(nested));
+    two.data.order.carts[0].items[0].modifiers = [
+      { name: "Extras", options: [{ name: "Add Gravy", price: 100, quantity: 2, total: 200 }] },
+    ];
+    assert.deepEqual(mapZupplerGraphqlOrder(two).canonical.items?.[0]?.modifiers, ["2x Add Gravy +$2.00"]);
+  });
+
+  test("nested options and a free-text comment coexist, options first", () => {
+    const both = JSON.parse(JSON.stringify(nested));
+    both.data.order.carts[0].items[0].comments = "no butter";
+    assert.deepEqual(mapZupplerGraphqlOrder(both).canonical.items?.[0]?.modifiers, [
+      "Over Easy", "Biscuit", "Hash Brown Casserole", "Add Gravy +$1.00", "no butter",
+    ]);
+  });
+
+  test("flat comment-only modifiers still work (Ariella's, unchanged)", () => {
+    const flat = JSON.parse(JSON.stringify(nested));
+    delete flat.data.order.carts[0].items[0].modifiers;
+    flat.data.order.carts[0].items[0].comments = "No onions, add bacon";
+    assert.deepEqual(mapZupplerGraphqlOrder(flat).canonical.items?.[0]?.modifiers, ["No onions, add bacon"]);
+  });
+
+  test("null / malformed modifier shapes do not throw", () => {
+    for (const bad of [null, "nope", [null], [{ options: null }], [{ options: [{ name: null }] }]]) {
+      const g = JSON.parse(JSON.stringify(nested));
+      g.data.order.carts[0].items[0].modifiers = bad;
+      assert.deepEqual(mapZupplerGraphqlOrder(g).canonical.items?.[0]?.modifiers, []);
+    }
+  });
 }
 
 console.log(

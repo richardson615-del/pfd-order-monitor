@@ -1,0 +1,54 @@
+# Runs the typecheck and the test suite on every PR and every push to main.
+#
+# Added 2026-09-09. Until now the only automated check on this repo was
+# Vercel's build, which proves the app COMPILES and nothing else. The 18
+# assertion suites under scripts/test-*.ts only ever ran when someone
+# remembered to run them locally - so a change could reach production, which
+# is the live print pipeline, with none of them executed.
+#
+# That gap had teeth: `main` is not branch-protected here, so a merge (or a
+# direct push) ships straight to the printers with no gate in front of it.
+# This workflow does not add a gate on its own - making it required is a
+# branch-protection setting, which only a repo admin can turn on - but it at
+# least makes a red result visible on the PR before someone clicks merge.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same PR makes the previous run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # package.json pins no `engines.node`, so nothing in the repo says which
+      # Node version this is meant to run on. 22 is the current LTS and is
+      # what the suites were verified against; Node 20 is deliberately not
+      # used, having reached end-of-life on 2026-04-30. If Vercel's project
+      # setting differs, add `engines.node` to package.json so both sides read
+      # the same number instead of agreeing by luck.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `ci`, not `install`: fails loudly if package-lock.json has drifted from
+      # package.json rather than quietly rewriting the lockfile.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # 18 suites, 241 assertions. No database, no network, no secrets - they
+      # are pure assertion tests over the mappers, renderers and auth guards,
+      # which is why this workflow needs no environment at all.
+      - name: Tests
+        run: npm test

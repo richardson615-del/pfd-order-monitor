@@ -22,7 +22,28 @@ import type { CanonicalOrderInput } from "./canonical";
 
 export const ZUPPLER_GRAPHQL_ENDPOINT = "https://orders-api5.zuppler.com/graphql";
 
-export const LOAD_ORDER_QUERY = `query LoadOrder($order_uuid: ID!) { order(id: $order_uuid) { uuid pickupTime paymentInfo { authorization dateTime } fireTime dueTime deliveryTime createdAt confirmationTime totals { delivery discount hidden includedTax service subtotal tax tip total } shortUuid state workflowId carts { channelId integrationId restaurantId comments instructions settings { service { id address { street city state zip full crossStreet deliveryInstructions } } tender { id } } customer { uuid name email phone } discounts { id title promocode } items { id category comments name menu menuId quantity itemTotal servingQty } } } }`;
+/**
+ * `items.modifiers` was missing here until 2026-09-09, which is why nested
+ * option groups never printed (Roundies order 61642f71, Sep 4: eggs over
+ * easy, biscuit choice, hash brown casserole, paid Add Gravy $1.00 - none
+ * of them on the paper). GraphQL returns only what you select, so this was
+ * never a renderer or parser bug: lib/ticket.ts renders every entry of
+ * item.modifiers as a ">> " line and was handed an empty array.
+ *
+ * Note the misleading evidence: item totals were correct ($13 + $1 = $14),
+ * which looks like proof the modifier data arrived. It isn't - `itemTotal`
+ * is computed by Zuppler server-side and already includes paid options
+ * whether or not we ask for their names. Flat modifiers kept printing
+ * throughout because those travel in `comments`, a field we did select.
+ *
+ * Field names below are NOT guessed (this file's own warning). They were
+ * taken from live introspection of orders-api5.zuppler.com on 2026-09-09:
+ *   Item.modifiers    -> LIST of Modifier
+ *   Modifier          -> { name, priority, options: LIST of ModifierOption }
+ *   ModifierOption    -> { name, price, quantity, total, side, priority }
+ * and confirmed by the live API accepting this exact selection set.
+ */
+export const LOAD_ORDER_QUERY = `query LoadOrder($order_uuid: ID!) { order(id: $order_uuid) { uuid pickupTime paymentInfo { authorization dateTime } fireTime dueTime deliveryTime createdAt confirmationTime totals { delivery discount hidden includedTax service subtotal tax tip total } shortUuid state workflowId carts { channelId integrationId restaurantId comments instructions settings { service { id address { street city state zip full crossStreet deliveryInstructions } } tender { id } } customer { uuid name email phone } discounts { id title promocode } items { id category comments name menu menuId quantity itemTotal servingQty modifiers { name priority options { name price quantity total } } } } } }`;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -90,6 +111,30 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
     const name = str(it.name) ?? str(it.menu) ?? "Item";
     const priceNum = money(it.itemTotal);
     const modifiers: string[] = [];
+    // Nested option groups first, then the free-text comment, so the
+    // structured choices a cook must honour lead and the customer's own
+    // note trails them.
+    //
+    // Only the OPTION name prints, not its group. Zuppler's option names
+    // are already self-describing ("Over Easy", "Add Gravy") while group
+    // names are menu-builder scaffolding ("Choose your eggs"); printing
+    // both doubles the line count and wraps badly at 24 columns in large
+    // mode. Change here if a real menu turns up ambiguous option names.
+    for (const group of Array.isArray(it.modifiers) ? it.modifiers : []) {
+      for (const opt of Array.isArray(group?.options) ? group.options : []) {
+        const optName = str(opt?.name);
+        if (!optName) continue;
+        const optQty = typeof opt?.quantity === "number" && opt.quantity > 1 ? `${opt.quantity}x ` : "";
+        // `total` is the extended amount for this option and `price` the
+        // per-unit one, so total is what belongs on the line next to a
+        // quantity. Falls back to price when total is absent.
+        const amount = money(opt?.total ?? opt?.price);
+        // Most options are free; a "+$0.00" on every line would bury the
+        // one that actually costs money.
+        const suffix = amount != null && amount !== 0 ? ` +$${amount.toFixed(2)}` : "";
+        modifiers.push(`${optQty}${optName}${suffix}`);
+      }
+    }
     const comment = str(it.comments);
     if (comment) modifiers.push(comment);
     return {

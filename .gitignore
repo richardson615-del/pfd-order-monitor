@@ -8,3 +8,5 @@ node_modules
 .env*
 *.tsbuildinfo
 send-test-email.sh
+# Local ticket renders from scripts/preview-ticket.ts - regenerate, never commit
+preview-out

@@ -6,9 +6,17 @@ export interface OrderItem {
   modifiers: string[];
 }
 
+/**
+ * Where the order came from. Staff need this operationally and for disputes -
+ * "which platform was this on?" is the first question asked about a wrong
+ * order, and until now the answer was stored and never shown.
+ */
+export type OrderSource = "email" | "zuppler" | "test";
+
 export interface Order {
   id: string;
   restaurant_id: string;
+  source: OrderSource | null;
   order_number: string;
   ticket_restaurant_name: string | null;
   order_type: "pickup" | "delivery" | null;

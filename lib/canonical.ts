@@ -300,18 +300,23 @@ export async function ingestOrder(
     return { status: "error", error: insertError.message };
   }
 
+  // One read, not two. The footer block and the delivery block each used to
+  // fetch this row separately, which was two round trips for one answer.
+  const { data: restaurantRow } = await admin
+    .from("restaurants")
+    .select(
+      "id, footer_engine, footer_template_id, footer_template_config, print_method, app_expected, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale"
+    )
+    .eq("id", input.restaurantId)
+    .maybeSingle();
+
   // --- Resolve this order's footer, ONCE, here ---
   // At ingest rather than at print: printing must not run queries while a
   // cook waits, and a reprint has to say what the customer is holding.
   // Test orders are excluded - a test print should not mint a coupon or burn
   // a token.
-  if (input.source !== "test") {
-    const { data: restaurantRow } = await admin
-      .from("restaurants")
-      .select("id, footer_engine, footer_template_id, footer_template_config, ticket_footer_url")
-      .eq("id", input.restaurantId)
-      .maybeSingle();
-    if (restaurantRow?.footer_engine === "dynamic") {
+  if (input.source !== "test" && restaurantRow?.footer_engine === "dynamic") {
+    await attempt("footer resolution", inserted.id, async () => {
       const resolved = await resolveFooter(restaurantRow, {
         restaurantId: input.restaurantId,
         orderId: inserted.id,
@@ -323,36 +328,35 @@ export async function ingestOrder(
           .update({ footer_resolved: resolved })
           .eq("id", inserted.id);
       }
-    }
+    });
   }
 
-  // --- Notify dashboard users (existing web push) ---
-  await notifyRestaurant(input.restaurantId, {
-    title: `New Order #${input.orderNumber}`,
-    body: input.customerTotal
-      ? `${input.customerName || "Customer"} - $${input.customerTotal.toFixed(2)}`
-      : "Tap to view the order",
-    orderId: inserted.id,
-  });
-
-  // --- Deliver the ticket: printer or email ---
-  // Branch on the restaurant's print_method. An email restaurant gets exactly
-  // ONE print_jobs row with delivery='email' and no device - print_jobs stays
-  // the single record of "a ticket was meant to reach this restaurant", so
-  // the monitor and the Printers console keep working on one shape.
-  const { data: deliveryRow } = await admin
-    .from("restaurants")
-    .select("print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale")
-    .eq("id", input.restaurantId)
-    .maybeSingle();
-
-  if (deliveryRow?.print_method === "email") {
-    await deliverByEmail({
-      orderId: inserted.id,
-      restaurant: deliveryRow,
-      order: inserted,
-    });
-  } else {
+  // --- Deliver the order to every destination this restaurant has ---
+  //
+  // Two destinations, not one choice: the paper ticket (a printer, or an
+  // email to a PC running AEM - those two ARE exclusive, they are two ways of
+  // producing the same piece of paper) and the tablet app. A restaurant can
+  // have either or both, and they do not know about each other.
+  //
+  // Each runs inside its own attempt(). Before this, everything from the
+  // insert to the queueing ran unguarded in one sequence, so a throw anywhere
+  // in it meant the ticket was never queued at all -- and because the order
+  // row already existed, the webhook retry that should have healed it
+  // de-duplicated instead and returned early. A push notification failing
+  // could permanently stop a kitchen printing. Nothing here may throw.
+  // Paper first. The push used to run ahead of this, and while the two are
+  // now isolated they are still sequential - a handful of push endpoints
+  // answering slowly would hold the ticket out of the print queue for as long
+  // as they took. Queueing costs one insert; the printer is polling already.
+  await attempt("ticket delivery", inserted.id, async () => {
+    if (restaurantRow?.print_method === "email") {
+      await deliverByEmail({
+        orderId: inserted.id,
+        restaurant: restaurantRow,
+        order: inserted,
+      });
+      return;
+    }
     // Unchanged: one job per active device.
     const { data: devices } = await admin
       .from("print_devices")
@@ -365,9 +369,225 @@ export async function ingestOrder(
         devices.map((d) => ({ order_id: inserted.id, device_id: d.id }))
       );
     }
-  }
+  });
+
+  await attempt("app alert", inserted.id, () =>
+    deliverToApp({
+      orderId: inserted.id,
+      restaurantId: input.restaurantId,
+      appExpected: !!restaurantRow?.app_expected,
+      orderNumber: input.orderNumber,
+      customerName: input.customerName,
+      customerTotal: input.customerTotal,
+    })
+  );
 
   return { status: "created", orderId: inserted.id };
+}
+
+/**
+ * Runs one destination's delivery and absorbs anything it throws.
+ *
+ * The order already exists by the time any of these run, so a throw here is
+ * never recoverable by retrying the ingest: de-duplication would see the
+ * order and return before reaching this code again. Failing loudly in the log
+ * and letting the other destinations proceed is the only behaviour that does
+ * not turn one destination's problem into every destination's problem.
+ */
+async function attempt(
+  what: string,
+  orderId: string,
+  fn: () => Promise<void>
+): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(
+      `order ${orderId}: ${what} FAILED -`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+export type OrderDestination = "printer" | "email" | "app";
+
+/**
+ * Where a restaurant's orders will actually reach someone.
+ *
+ * Three configurations are in real use and all are legitimate: a printer
+ * only, a tablet only, or both. That is why this returns a list rather than
+ * answering a single "which one" - for a growing number of sites there is no
+ * single one.
+ *
+ * Paper is the either/or: print_method chooses between an Epson and an email
+ * to a PC running AEM, which are two ways of producing the same ticket. The
+ * tablet sits alongside whichever of those is in play, or on its own.
+ *
+ * Note what decides the printer entry: an ACTIVE DEVICE, not
+ * printer_expected. printer_expected records an intention, and nothing in the
+ * code has ever written it - only migration 014's one-off backfill - so a
+ * restaurant onboarded through the CRM console since then has a working
+ * printer and that flag still false. Anything reasoning about whether paper
+ * actually comes out has to ask about devices.
+ *
+ * An empty list is the answer worth acting on: orders will arrive and nobody
+ * at that restaurant will be told, in any form.
+ */
+export function orderDestinations(r: {
+  print_method?: string | null;
+  app_expected?: boolean | null;
+  hasActivePrinter?: boolean | null;
+}): OrderDestination[] {
+  const out: OrderDestination[] = [];
+  if (r.print_method === "email") out.push("email");
+  else if (r.hasActivePrinter) out.push("printer");
+  if (r.app_expected) out.push("app");
+  return out;
+}
+
+/** True when a paper ticket reaches this restaurant as well as the tablet. */
+export const producesPaper = (d: OrderDestination[]): boolean =>
+  d.includes("printer") || d.includes("email");
+
+/** The print_jobs columns describing how an app alert turned out. */
+export interface AppDeliveryOutcome {
+  status: "printed" | "failed";
+  delivered_count: number;
+  sent_at: string | null;
+  send_error: string | null;
+}
+
+/**
+ * Turns a push result into the row that records it.
+ *
+ * Three outcomes worth telling apart, because they need three different
+ * responses from whoever is looking:
+ *
+ *  - reached at least one device            -> delivered, nothing to do
+ *  - no subscriptions at all                -> the app is installed but
+ *    nobody turned notifications on. Not an outage; a setup step never done.
+ *  - subscriptions exist and all of them
+ *    failed, or the send never happened     -> a real failure
+ *
+ * `sent_at` is only stamped when something actually arrived somewhere, which
+ * is what makes "queued long ago and still no sent_at" a usable tripwire -
+ * the same shape migration 017 gave the email leg.
+ */
+export function appDeliveryOutcome(
+  push: { subscriptions: number; sent: number; failed: number; error?: string },
+  now: string
+): AppDeliveryOutcome {
+  if (push.sent > 0) {
+    return {
+      status: "printed",
+      delivered_count: push.sent,
+      sent_at: now,
+      send_error: null,
+    };
+  }
+  if (push.error) {
+    return { status: "failed", delivered_count: 0, sent_at: null, send_error: push.error };
+  }
+  if (push.subscriptions === 0) {
+    return {
+      status: "failed",
+      delivered_count: 0,
+      sent_at: null,
+      send_error: "no device has notifications enabled for this restaurant",
+    };
+  }
+  return {
+    status: "failed",
+    delivered_count: 0,
+    sent_at: null,
+    send_error: `all ${push.failed} push attempt(s) failed`,
+  };
+}
+
+/**
+ * Alerts the restaurant's tablet, and - when the app is a destination this
+ * restaurant is meant to have - records that it was owed the alert.
+ *
+ * The push itself is unconditional, exactly as it has always been: every
+ * restaurant with a subscription gets one, whether or not anyone has declared
+ * the app their order screen. Gating that on app_expected would have gone
+ * live as a silent regression for every restaurant already watching the
+ * dashboard.
+ *
+ * What app_expected buys is the print_jobs row, and through it the health
+ * checks. A restaurant nobody onboarded onto the app is not owed an alert, so
+ * a mute tablet there is not a fault worth anyone's attention - the same
+ * judgement printer_expected already makes for printers.
+ */
+async function deliverToApp(args: {
+  orderId: string;
+  restaurantId: string;
+  appExpected: boolean;
+  orderNumber: string;
+  customerName?: string | null;
+  customerTotal?: number | null;
+}): Promise<void> {
+  const admin = supabaseAdmin();
+
+  // Written BEFORE the send, same as the email leg: a crash mid-send should
+  // leave evidence that an alert was owed rather than nothing at all.
+  let jobId: string | null = null;
+  if (args.appExpected) {
+    const { data: job, error: jobError } = await admin
+      .from("print_jobs")
+      .insert({ order_id: args.orderId, device_id: null, delivery: "app" })
+      .select("id")
+      .single();
+
+    if (jobError) {
+      // 23505 = print_jobs_one_app_per_order; this order has already been
+      // alerted, which is the idempotency guarantee doing its job on a
+      // retried webhook. Do not push again - a second alert for one order
+      // reads to staff as a second order.
+      if (jobError.code === "23505") return;
+      console.error("app alert: could not record job", jobError.message);
+    } else {
+      jobId = job.id;
+    }
+  }
+
+  const push = await notifyRestaurant(args.restaurantId, {
+    title: `New Order #${args.orderNumber}`,
+    body: args.customerTotal
+      ? `${args.customerName || "Customer"} - $${args.customerTotal.toFixed(2)}`
+      : "Tap to view the order",
+    orderId: args.orderId,
+  });
+
+  if (!jobId) return;
+
+  const now = new Date().toISOString();
+  const outcome = appDeliveryOutcome(push, now);
+
+  if (outcome.status === "printed") {
+    console.log(
+      "app alert SENT",
+      JSON.stringify({ order: args.orderId, devices: outcome.delivered_count })
+    );
+  } else {
+    console.error("app alert NOT DELIVERED for order", args.orderId, "-", outcome.send_error);
+  }
+
+  // Note what is deliberately absent: orders.status is never touched here.
+  // 'printed' on an order means a ticket physically exists, and an alert on a
+  // screen is not that. An app-only restaurant's orders stay 'new' until
+  // somebody opens one, which is exactly what the dashboard needs to keep
+  // chiming.
+  await admin
+    .from("print_jobs")
+    .update({
+      status: outcome.status,
+      delivered_count: outcome.delivered_count,
+      sent_at: outcome.sent_at,
+      send_error: outcome.send_error,
+      finished_at: now,
+    })
+    .eq("id", jobId);
 }
 
 /**

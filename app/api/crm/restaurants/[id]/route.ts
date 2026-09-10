@@ -4,6 +4,7 @@ import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
 import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-image";
 import { ENABLED_TEMPLATES } from "@/lib/footer-engine";
+import { orderDestinations } from "@/lib/canonical";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export async function POST(
   const admin = supabaseAdmin();
   const { data: restaurant } = await admin
     .from("restaurants")
-    .select("id, name, print_method, ticket_email_to")
+    .select("id, name, print_method, ticket_email_to, app_expected")
     .eq("id", params.id)
     .maybeSingle();
   if (!restaurant) {
@@ -74,6 +75,20 @@ export async function POST(
       );
     }
     updates.print_method = v;
+  }
+
+  // The tablet as a destination. Deliberately independent of print_method:
+  // paper is an either/or (an Epson, or an email to a PC running AEM), and
+  // the tablet is not part of that choice. A site runs a printer, a tablet,
+  // or both.
+  if ("app_expected" in body) {
+    if (typeof body.app_expected !== "boolean") {
+      return NextResponse.json(
+        { error: "app_expected must be true or false" },
+        { status: 400 }
+      );
+    }
+    updates.app_expected = body.app_expected;
   }
 
   if ("ticket_email_to" in body) {
@@ -190,7 +205,7 @@ export async function POST(
   }
   if (!Object.keys(updates).length) {
     return NextResponse.json(
-      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image, print_method, ticket_email_to" },
+      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image, print_method, ticket_email_to, app_expected" },
       { status: 400 }
     );
   }
@@ -199,19 +214,43 @@ export async function POST(
     .from("restaurants")
     .update(updates)
     .eq("id", restaurant.id)
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, app_expected")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const { count } = await admin
+    .from("print_devices")
+    .select("id", { count: "exact", head: true })
+    .eq("restaurant_id", restaurant.id)
+    .eq("is_active", true);
+  const destinations = orderDestinations({
+    print_method: data.print_method,
+    app_expected: data.app_expected,
+    hasActivePrinter: (count ?? 0) > 0,
+  });
 
   return NextResponse.json({
     ok: true,
     // What the server did to each upload, so the console can explain the
     // result rather than just showing it.
     ...(Object.keys(conversions).length ? { conversions } : {}),
+    // Warned, not refused. "No destination yet" is the normal state halfway
+    // through onboarding - the restaurant exists before its printer is
+    // registered - so refusing would break the sequence people actually work
+    // in. Saying it out loud is what stops it being discovered by an order
+    // arriving and nobody hearing about it.
+    ...(destinations.length
+      ? {}
+      : {
+          warning:
+            "This restaurant now has nowhere to receive an order: no active printer, not set to email, and the app is off. Orders will be recorded and nobody there will be told.",
+        }),
     restaurant: {
       ...data,
       effective_footer_text: (data.ticket_footer_text ?? "").trim() || DEFAULT_FOOTER_TEXT,
       prints_qr: data.ticket_footer_mode === "qr_with_text" && Boolean(data.ticket_footer_url),
+      has_active_printer: (count ?? 0) > 0,
+      destinations,
     },
   });
 }

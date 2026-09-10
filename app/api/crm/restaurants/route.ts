@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
+import { orderDestinations } from "@/lib/canonical";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +19,19 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("restaurants")
-    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to")
+    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected")
     .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Who actually has a working printer. Asked once for the whole roster
+  // rather than per restaurant, and asked of print_devices rather than of
+  // printer_expected - see orderDestinations() for why that flag cannot
+  // answer this.
+  const { data: deviceRows } = await admin
+    .from("print_devices")
+    .select("restaurant_id")
+    .eq("is_active", true);
+  const withPrinter = new Set((deviceRows ?? []).map((d: any) => d.restaurant_id));
 
   return NextResponse.json({
     // So the console can show what will actually print, rather than an empty
@@ -42,6 +53,16 @@ export async function GET(req: NextRequest) {
         // arrives, rather than after a ticket fails to reach anyone.
         email_delivery_ready:
           r.print_method !== "email" || Boolean((r.ticket_email_to ?? "").trim()),
+        has_active_printer: withPrinter.has(r.id),
+        // The straight answer to "where do this restaurant's orders go?".
+        // Computed here so the console never has to re-derive it from three
+        // columns and get a different answer than the ingest does. An empty
+        // list means orders arrive and nobody there is told.
+        destinations: orderDestinations({
+          print_method: r.print_method,
+          app_expected: r.app_expected,
+          hasActivePrinter: withPrinter.has(r.id),
+        }),
       };
     }),
   });

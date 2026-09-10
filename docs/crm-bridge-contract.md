@@ -89,6 +89,62 @@ that quietly differs from the paper is worse than no preview.
 
 `test_print` remains the physical confirmation after saving.
 
+## Destinations (printer, tablet, or both)
+
+An order reaches a restaurant on paper, on a screen, or both. These are two
+destinations for one order, not two kinds of order.
+
+Paper is an either/or — `print_method` picks an Epson or an email to a PC
+running AEM, which are two ways of producing the same ticket. The tablet is
+independent of that choice.
+
+Writable on `POST /api/crm/restaurants/:id`:
+
+| field | values |
+|---|---|
+| `app_expected` | `true` \| `false` — is this site meant to watch orders on the tablet? |
+
+`GET /api/crm/restaurants` adds:
+
+| field | meaning |
+|---|---|
+| `app_expected` | as above |
+| `has_active_printer` | whether an active print device exists — a fact, not an intention |
+| `destinations` | `["printer"]`, `["app"]`, `["printer","app"]`, `["email","app"]`, or `[]` |
+
+**Read `destinations`, don't re-derive it.** It is the same function the ingest
+path uses, so the console cannot disagree with where orders actually go.
+
+The three configurations in use:
+
+| Setup | `print_method` | active device | `app_expected` | `destinations` |
+|---|---|---|---|---|
+| Printer only | `printer` | yes | false | `["printer"]` |
+| Printer + tablet | `printer` | yes | true | `["printer","app"]` |
+| Tablet only | `printer` | no | true | `["app"]` |
+
+Note the third row: a tablet-only site still reads `print_method: "printer"`,
+because that column says *which* paper route, not *whether* there is one. What
+makes it tablet-only is having no device.
+
+`destinations: []` means orders will be recorded and nobody at the restaurant
+will be told. A write that produces it returns a **`warning`**, not an error —
+it is the normal state halfway through onboarding, before the printer is
+registered — so surface the warning rather than treating it as a failure.
+
+`app_expected` does **not** switch push on. Push already fires wherever a
+subscription exists. What the flag declares is that this restaurant is *meant*
+to be watching the tablet, which is what earns a `print_jobs` row per order and
+brings the app health checks into play. Someone still has to tap **Enable
+notifications** once on the device.
+
+### Monitoring
+
+`app_alert_failed` is **critical** when the restaurant has no paper route —
+nobody there has seen the order in any form — and a **warning** when a ticket
+also printed. `restaurant_no_app_device` is a warning: `app_expected` is on but
+no device has notifications enabled, so nothing can alert.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

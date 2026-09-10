@@ -70,6 +70,21 @@ export interface HealthSnapshot {
     queued_at: string;
     send_error: string | null;
   }[];
+  /** App alerts owed to a tablet that never reached one. */
+  undeliveredAppAlerts: {
+    id: string;
+    order_number: string | null;
+    restaurant_name: string | null;
+    queued_at: string;
+    send_error: string | null;
+    /** Whether a paper ticket covers this restaurant as well. */
+    alsoPrints: boolean;
+  }[];
+  /**
+   * Restaurants onboarded onto the app with nowhere to send an alert - the
+   * app-path equivalent of a registered printer that has never checked in.
+   */
+  restaurantsWithoutAppDevice: { id: string; name: string }[];
   /** Orders whose captured money fields do not sum to the charged total. */
   unreconciledOrders: {
     id: string;
@@ -99,6 +114,8 @@ export interface HealthThresholds {
   webhookSilentHours: number;
   /** An email ticket unsent this long has not been delayed, it has failed. */
   emailUnsentMinutes: number;
+  /** An app alert undelivered this long never went. Same reasoning as email. */
+  appUndeliveredMinutes: number;
 }
 
 export const DEFAULT_THRESHOLDS: HealthThresholds = {
@@ -113,6 +130,9 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   // The send is synchronous with ingest, so anything still unsent after this
   // is not slow - it never went.
   emailUnsentMinutes: 5,
+  // Same: the push goes out during ingest. Nothing about it is queued for
+  // later, so an alert with no sent_at after this did not arrive late.
+  appUndeliveredMinutes: 5,
 };
 
 const minutesSince = (iso: string | null, now: Date): number | null => {
@@ -180,6 +200,47 @@ export function evaluateHealth(
         `Order ${oldest.order_number ?? oldest.id} for ${oldest.restaurant_name ?? "unknown"} has been waiting ${ago(minutesSince(oldest.queued_at, now))} and never sent. ` +
         `This restaurant prints by email - nobody there has seen this order.` +
         (reason ? ` Last error: ${reason}` : ""),
+    });
+  }
+
+  // --- app alerts that never reached a tablet ---
+  //
+  // Severity is not fixed, and that is the whole point of the check. On an
+  // app-only site the tablet IS the ticket: nobody has seen the order, in any
+  // form, and that is the same outage as a dead printer. Where a paper ticket
+  // also went out, the food is being made and this is a screen needing
+  // attention rather than a service failure. Paging someone at 7pm for the
+  // second case is how a channel gets muted before the first case happens.
+  const undelivered = snap.undeliveredAppAlerts.filter((a) => {
+    const mins = minutesSince(a.queued_at, now);
+    return mins !== null && mins >= thresholds.appUndeliveredMinutes;
+  });
+  if (undelivered.length) {
+    const blind = undelivered.filter((a) => !a.alsoPrints);
+    const worst = (blind.length ? blind : undelivered).reduce((a, b) =>
+      new Date(a.queued_at) <= new Date(b.queued_at) ? a : b
+    );
+    const reason = undelivered.find((a) => a.send_error)?.send_error;
+    issues.push({
+      key: "app_alert_failed",
+      severity: blind.length ? "critical" : "warning",
+      title: `${undelivered.length} order(s) never alerted on the tablet`,
+      detail:
+        `Order ${worst.order_number ?? worst.id} for ${where(worst.restaurant_name)} was queued ${ago(minutesSince(worst.queued_at, now))} and no device was reached. ` +
+        (blind.length
+          ? "This restaurant has no paper ticket - nobody there has seen the order at all."
+          : "A ticket did print, so the kitchen has the order, but the tablet is not alerting.") +
+        (reason ? ` Last reason: ${reason}` : ""),
+    });
+  }
+
+  // --- restaurants on the app with nothing to alert ---
+  for (const r of snap.restaurantsWithoutAppDevice) {
+    issues.push({
+      key: `restaurant_no_app_device:${r.id}`,
+      severity: "warning",
+      title: `No tablet notifications: ${r.name}`,
+      detail: `${r.name} is set up to take orders on the app, but no device there has notifications enabled - so nothing will alert when an order arrives. Open the dashboard on their tablet and tap "Enable notifications".`,
     });
   }
 
@@ -312,6 +373,7 @@ export function sortIssues(issues: HealthIssue[]): HealthIssue[] {
 
 import { supabaseAdmin } from "./supabase-server";
 import { ACCEPTED_STATUSES } from "./webhook-receipts";
+import { orderDestinations, producesPaper } from "./canonical";
 
 /** Reads the current state of the pipeline for evaluateHealth(). */
 export async function collectSnapshot(): Promise<HealthSnapshot> {
@@ -320,12 +382,21 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const [devicesRes, inboxesRes, restaurantsRes, jobsRes] = await Promise.all([
     admin.from("print_devices").select("id, name, is_active, last_seen_at, restaurant_id"),
     admin.from("monitored_inboxes").select("id, email_address, is_active, gmail_refresh_token, gmail_last_poll_at, restaurant_id"),
-    admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected, print_method"),
+    admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected, print_method, app_expected"),
     admin
       .from("print_jobs")
-      .select("id, status, attempts, queued_at, error, orders(order_number, restaurant_id)")
+      .select("id, status, attempts, queued_at, error, delivery, orders(order_number, restaurant_id)")
       .in("status", ["queued", "claimed", "failed"]),
   ]);
+
+  // Which restaurants actually have a printer, resolved once and used twice:
+  // to decide whether a mute tablet leaves anyone blind, and to find printer
+  // restaurants with no device. It is an ACTIVE DEVICE that means paper comes
+  // out, never printer_expected - see orderDestinations() for why that flag
+  // cannot carry this weight.
+  const activeDeviceRestaurantIds = new Set(
+    (devicesRes.data ?? []).filter((d: any) => d.is_active).map((d: any) => d.restaurant_id)
+  );
 
   // Recent window for the "arriving but all rejected" check. Wide enough to
   // survive a quiet stretch, short enough that yesterday's fixed problem does
@@ -366,6 +437,37 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     restaurant_name: j.orders?.restaurants?.name ?? null,
     queued_at: j.queued_at,
     send_error: j.send_error ?? null,
+  }));
+
+  // App alerts that never reached a device. Recent window only, for the same
+  // reason as the email one: a gap from last month that has been dealt with
+  // should not keep raising itself every run.
+  const appSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: appRows } = await admin
+    .from("print_jobs")
+    .select("id, queued_at, send_error, orders(order_number, restaurant_id, restaurants(name, print_method, app_expected))")
+    .eq("delivery", "app")
+    .is("sent_at", null)
+    .gte("queued_at", appSince)
+    .order("queued_at", { ascending: true })
+    .limit(50);
+  const undeliveredAppAlerts = (appRows ?? []).map((j: any) => ({
+    id: j.id,
+    order_number: j.orders?.order_number ?? null,
+    restaurant_name: j.orders?.restaurants?.name ?? null,
+    queued_at: j.queued_at,
+    send_error: j.send_error ?? null,
+    // "A paper ticket covers this too" is what decides whether a mute tablet
+    // is an outage or an annoyance, so it is resolved here rather than left
+    // for the alerting rules to guess at. A tablet-only site has nothing to
+    // fall back on, which is exactly the case that must page someone.
+    alsoPrints: producesPaper(
+      orderDestinations({
+        print_method: j.orders?.restaurants?.print_method,
+        app_expected: j.orders?.restaurants?.app_expected,
+        hasActivePrinter: activeDeviceRestaurantIds.has(j.orders?.restaurant_id),
+      })
+    ),
   }));
 
   const varianceSince = new Date(Date.now() - 7 * 86_400_000).toISOString();
@@ -414,9 +516,6 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   //
   // printer_expected is set when a restaurant is being onboarded for
   // printing, so this stays a short list of real gaps.
-  const activeDeviceRestaurantIds = new Set(
-    (devicesRes.data ?? []).filter((d: any) => d.is_active).map((d: any) => d.restaurant_id)
-  );
   const inboxRestaurantIds = new Set(
     (inboxesRes.data ?? []).filter((i: any) => i.is_active).map((i: any) => i.restaurant_id)
   );
@@ -430,24 +529,48 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     .filter((r: any) => !activeDeviceRestaurantIds.has(r.id))
     .map((r: any) => ({ id: r.id, name: r.name }));
 
+  // A restaurant on the app needs somewhere to send the alert. One
+  // subscription is one browser that tapped "Enable notifications", so zero
+  // of them means the push has no destination at all - which is silent, and
+  // looks exactly like a quiet service from the outside.
+  const { data: subRows } = await admin
+    .from("push_subscriptions")
+    .select("restaurant_id");
+  const subscribedRestaurantIds = new Set(
+    (subRows ?? []).map((s: any) => s.restaurant_id)
+  );
+  const restaurantsWithoutAppDevice = restaurants
+    .filter((r: any) => r.is_active)
+    .filter((r: any) => r.app_expected)
+    .filter((r: any) => !subscribedRestaurantIds.has(r.id))
+    .map((r: any) => ({ id: r.id, name: r.name }));
+
   const allJobs = jobsRes.data ?? [];
   const jobShape = (j: any) => ({
     id: j.id,
     order_number: j.orders?.order_number ?? null,
     restaurant_name: nameOf(j.orders?.restaurant_id ?? null),
   });
+  // Paper only. These two checks say "ticket not printed" and "ticket failed
+  // to print", which is not what an app row means - and an app alert nobody
+  // received has its own check, with its own severity rule. Email rows were
+  // already excluded by never being queued or claimed; app rows are not, so
+  // this is now explicit rather than incidental.
+  const paperJobs = allJobs.filter((j: any) => j.delivery !== "app");
 
   return {
     unsentEmailJobs,
+    undeliveredAppAlerts,
     unreconciledOrders,
     webhook,
     devices,
     inboxes,
     restaurantsWithoutDevice,
-    pendingJobs: allJobs
+    restaurantsWithoutAppDevice,
+    pendingJobs: paperJobs
       .filter((j: any) => j.status === "queued" || j.status === "claimed")
       .map((j: any) => ({ ...jobShape(j), queued_at: j.queued_at, status: j.status, attempts: j.attempts ?? 0 })),
-    failedJobs: allJobs
+    failedJobs: paperJobs
       .filter((j: any) => j.status === "failed")
       .map((j: any) => ({ ...jobShape(j), error: j.error ?? null })),
   };

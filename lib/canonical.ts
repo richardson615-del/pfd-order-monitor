@@ -409,6 +409,46 @@ async function attempt(
   }
 }
 
+export type OrderDestination = "printer" | "email" | "app";
+
+/**
+ * Where a restaurant's orders will actually reach someone.
+ *
+ * Three configurations are in real use and all are legitimate: a printer
+ * only, a tablet only, or both. That is why this returns a list rather than
+ * answering a single "which one" - for a growing number of sites there is no
+ * single one.
+ *
+ * Paper is the either/or: print_method chooses between an Epson and an email
+ * to a PC running AEM, which are two ways of producing the same ticket. The
+ * tablet sits alongside whichever of those is in play, or on its own.
+ *
+ * Note what decides the printer entry: an ACTIVE DEVICE, not
+ * printer_expected. printer_expected records an intention, and nothing in the
+ * code has ever written it - only migration 014's one-off backfill - so a
+ * restaurant onboarded through the CRM console since then has a working
+ * printer and that flag still false. Anything reasoning about whether paper
+ * actually comes out has to ask about devices.
+ *
+ * An empty list is the answer worth acting on: orders will arrive and nobody
+ * at that restaurant will be told, in any form.
+ */
+export function orderDestinations(r: {
+  print_method?: string | null;
+  app_expected?: boolean | null;
+  hasActivePrinter?: boolean | null;
+}): OrderDestination[] {
+  const out: OrderDestination[] = [];
+  if (r.print_method === "email") out.push("email");
+  else if (r.hasActivePrinter) out.push("printer");
+  if (r.app_expected) out.push("app");
+  return out;
+}
+
+/** True when a paper ticket reaches this restaurant as well as the tablet. */
+export const producesPaper = (d: OrderDestination[]): boolean =>
+  d.includes("printer") || d.includes("email");
+
 /** The print_jobs columns describing how an app alert turned out. */
 export interface AppDeliveryOutcome {
   status: "printed" | "failed";

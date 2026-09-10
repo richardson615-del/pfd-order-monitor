@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { DEFAULT_THRESHOLDS, evaluateHealth, type HealthSnapshot } from "@/lib/health";
-import { appDeliveryOutcome } from "@/lib/canonical";
+import { appDeliveryOutcome, orderDestinations, producesPaper } from "@/lib/canonical";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -55,7 +55,63 @@ const alert = (over: Partial<HealthSnapshot["undeliveredAppAlerts"][number]> = {
   ...over,
 });
 
-console.log("recording what happened to a push:");
+console.log("the three configurations actually in use:");
+
+test("printer only", () => {
+  const d = orderDestinations({ print_method: "printer", app_expected: false, hasActivePrinter: true });
+  assert.deepEqual(d, ["printer"]);
+  assert.equal(producesPaper(d), true);
+});
+
+test("printer and tablet together", () => {
+  const d = orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: true });
+  assert.deepEqual(d, ["printer", "app"], "both is a real configuration, not a choice between them");
+  assert.equal(producesPaper(d), true);
+});
+
+test("tablet only", () => {
+  // print_method is NOT NULL default 'printer', so a tablet-only site still
+  // reads 'printer' in that column. What makes it tablet-only is having no
+  // device - the column is about WHICH paper route, not whether there is one.
+  const d = orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: false });
+  assert.deepEqual(d, ["app"]);
+  assert.equal(producesPaper(d), false, "nothing prints - a mute tablet leaves nobody told");
+});
+
+test("email (AEM) and tablet together", () => {
+  const d = orderDestinations({ print_method: "email", app_expected: true, hasActivePrinter: false });
+  assert.deepEqual(d, ["email", "app"]);
+  assert.equal(producesPaper(d), true, "AEM prints it at the restaurant - that is paper");
+});
+
+test("an email restaurant never also queues an Epson job", () => {
+  assert.deepEqual(
+    orderDestinations({ print_method: "email", app_expected: false, hasActivePrinter: true }),
+    ["email"],
+    "paper is an either/or; a stale device row must not double the ticket"
+  );
+});
+
+test("a restaurant with nowhere to send an order returns an empty list", () => {
+  assert.deepEqual(
+    orderDestinations({ print_method: "printer", app_expected: false, hasActivePrinter: false }),
+    [],
+    "the normal state mid-onboarding, and worth saying out loud"
+  );
+});
+
+test("an active printer counts, printer_expected does not", () => {
+  // printer_expected has never been written by any code path - only migration
+  // 014's one-off backfill - so a CRM-onboarded restaurant has a working
+  // printer and that flag still false. Reasoning about paper from it would
+  // call a covered restaurant blind.
+  assert.deepEqual(
+    orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: true } as any),
+    ["printer", "app"]
+  );
+});
+
+console.log("\nrecording what happened to a push:");
 
 test("reaching one device is a delivery", () => {
   const o = appDeliveryOutcome({ subscriptions: 2, sent: 1, failed: 1 }, NOW_ISO);

@@ -485,10 +485,33 @@ The paper leg is a real either/or (`restaurants.print_method` is `printer` or
 `email` — two ways of producing one piece of paper). The app is independent of
 it: a site can have a printer and a tablet, a tablet only, or a printer only.
 
+### The three configurations
+
+| Setup | `print_method` | active device | `app_expected` |
+|---|---|---|---|
+| Printer only | `printer` | yes | false |
+| Printer + tablet | `printer` | yes | true |
+| Tablet only | `printer` | no | true |
+
+A tablet-only site still reads `print_method: "printer"` — that column says
+*which* paper route, not *whether* there is one. What makes it tablet-only is
+having no device registered.
+
+`orderDestinations()` in `lib/canonical.ts` is the single answer to "where do
+this restaurant's orders go", and both the CRM bridge and the health checks
+read it rather than re-deriving from three columns.
+
+It asks about an **active print device**, never `printer_expected`. That flag
+records an intention and nothing in the code has ever written it — only
+migration 014's one-off backfill — so a restaurant onboarded through the CRM
+console since then has a working printer and the flag still false. Anything
+reasoning about whether paper actually comes out has to ask about devices.
+
 ### Turning it on for a restaurant
 
-Set `app_expected = true` on the `restaurants` row (migration 020), then open
-the dashboard on their tablet and tap **Enable notifications** once.
+Set `app_expected = true` — from the CRM Printers console, or
+`POST /api/crm/restaurants/:id { "app_expected": true }` — then open the
+dashboard on their tablet and tap **Enable notifications** once.
 
 That flag does *not* switch push on — push already fires wherever a
 subscription exists, and always has. What it declares is that this restaurant

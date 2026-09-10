@@ -373,6 +373,7 @@ export function sortIssues(issues: HealthIssue[]): HealthIssue[] {
 
 import { supabaseAdmin } from "./supabase-server";
 import { ACCEPTED_STATUSES } from "./webhook-receipts";
+import { orderDestinations, producesPaper } from "./canonical";
 
 /** Reads the current state of the pipeline for evaluateHealth(). */
 export async function collectSnapshot(): Promise<HealthSnapshot> {
@@ -387,6 +388,15 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
       .select("id, status, attempts, queued_at, error, delivery, orders(order_number, restaurant_id)")
       .in("status", ["queued", "claimed", "failed"]),
   ]);
+
+  // Which restaurants actually have a printer, resolved once and used twice:
+  // to decide whether a mute tablet leaves anyone blind, and to find printer
+  // restaurants with no device. It is an ACTIVE DEVICE that means paper comes
+  // out, never printer_expected - see orderDestinations() for why that flag
+  // cannot carry this weight.
+  const activeDeviceRestaurantIds = new Set(
+    (devicesRes.data ?? []).filter((d: any) => d.is_active).map((d: any) => d.restaurant_id)
+  );
 
   // Recent window for the "arriving but all rejected" check. Wide enough to
   // survive a quiet stretch, short enough that yesterday's fixed problem does
@@ -435,7 +445,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const appSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: appRows } = await admin
     .from("print_jobs")
-    .select("id, queued_at, send_error, orders(order_number, restaurant_id, restaurants(name, printer_expected, print_method))")
+    .select("id, queued_at, send_error, orders(order_number, restaurant_id, restaurants(name, print_method, app_expected))")
     .eq("delivery", "app")
     .is("sent_at", null)
     .gte("queued_at", appSince)
@@ -449,10 +459,15 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     send_error: j.send_error ?? null,
     // "A paper ticket covers this too" is what decides whether a mute tablet
     // is an outage or an annoyance, so it is resolved here rather than left
-    // for the alerting rules to guess at.
-    alsoPrints:
-      j.orders?.restaurants?.print_method === "email" ||
-      !!j.orders?.restaurants?.printer_expected,
+    // for the alerting rules to guess at. A tablet-only site has nothing to
+    // fall back on, which is exactly the case that must page someone.
+    alsoPrints: producesPaper(
+      orderDestinations({
+        print_method: j.orders?.restaurants?.print_method,
+        app_expected: j.orders?.restaurants?.app_expected,
+        hasActivePrinter: activeDeviceRestaurantIds.has(j.orders?.restaurant_id),
+      })
+    ),
   }));
 
   const varianceSince = new Date(Date.now() - 7 * 86_400_000).toISOString();
@@ -501,9 +516,6 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   //
   // printer_expected is set when a restaurant is being onboarded for
   // printing, so this stays a short list of real gaps.
-  const activeDeviceRestaurantIds = new Set(
-    (devicesRes.data ?? []).filter((d: any) => d.is_active).map((d: any) => d.restaurant_id)
-  );
   const inboxRestaurantIds = new Set(
     (inboxesRes.data ?? []).filter((i: any) => i.is_active).map((i: any) => i.restaurant_id)
   );

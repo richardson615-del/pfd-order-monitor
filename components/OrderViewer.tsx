@@ -70,6 +70,17 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
           pipeline to mean a real ticket exists. Guessing it from a button
           press made the Printed tab describe intentions rather than tickets.
         */}
+        {/* The ticket prints the number as plain text, the way paper does.
+            The tablet is the thing in someone's hand when an order is wrong,
+            so the action lives beside the ticket rather than inside it. */}
+        {order.customer_phone && (
+          <a
+            className="btn"
+            href={`tel:${order.customer_phone.replace(/[^\d+]/g, "")}`}
+          >
+            Call customer
+          </a>
+        )}
         <button className="btn" disabled={busy} onClick={() => window.print()}>
           Print
         </button>

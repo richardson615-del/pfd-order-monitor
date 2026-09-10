@@ -540,6 +540,39 @@ outage that actually matters.
 `delivered_count = 0` with no `send_error` has one meaning worth knowing: the
 app is installed and signed in, but nobody ever tapped Enable notifications.
 
+### Running the tablet as a kiosk
+
+The tablet runs in **kiosk mode with autostart** — it boots into the dashboard
+after a power cut and stays there. That is a different machine from a phone
+someone is holding, and three of its assumptions had to change.
+
+**Sound must be armed by a touch.** Browsers refuse to make sound from an
+AudioContext created without a user gesture. The chime used to create its
+context on the first beep, so an autostarted tablet nobody had touched since
+boot announced its first order in complete silence. The dashboard now arms
+audio on any touch, checks whether it worked, and shows a red bar across the
+top — *"Sound is off — touch the screen to turn on order alerts"* — until it
+has. The first person to walk past and prod the screen fixes it.
+
+**The page is the alert, not push.** Nobody reads an OS notification tray on a
+wall-mounted tablet. Web push still fires and still matters for staff phones,
+but on a kiosk what counts is that the tab is live.
+
+**A socket open for three weeks is not a guarantee.** Realtime now reports its
+own status, and the dashboard polls the database on a timer regardless — every
+60s when the socket is healthy, every 15s when it is not. A screen that cannot
+reach the database for three minutes says so instead of continuing to present
+an old list as current. Reconnecting triggers a resync, because whatever
+arrived while the socket was down was never delivered to that tab.
+
+The dashboard also takes a screen wake lock. That is belt and braces: the
+kiosk launcher's own keep-awake setting is the real guarantee.
+
+**On the tablet itself:** set the kiosk launcher to start the dashboard URL on
+boot, keep the screen awake, and allow audio. After setting it up, reboot the
+tablet and place a test order without touching the screen first — that is the
+one scenario that was silently broken, and the only way to prove it is not.
+
 ### Destinations do not share fate
 
 Each destination is delivered inside its own `attempt()` in `ingestOrder()`,

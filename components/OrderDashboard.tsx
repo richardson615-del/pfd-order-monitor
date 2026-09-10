@@ -12,6 +12,7 @@ import {
   kioskWarning,
   pollIntervalMs,
   realtimeConnection,
+  unaccepted,
 } from "@/lib/kiosk";
 
 const TABS: { key: OrderStatus | "all"; label: string }[] = [
@@ -37,10 +38,15 @@ export default function OrderDashboard({
   const [now, setNow] = useState(() => Date.now());
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const hasNewOrders = useMemo(
-    () => orders.some((o) => o.status === "new"),
-    [orders]
-  );
+  /**
+   * What the chime is sounding for.
+   *
+   * Keyed on acceptance, not on status 'new'. 'new' cleared itself the moment
+   * anyone tapped the order, so a glance or a mis-tap silenced the tablet
+   * without a single person having agreed to cook anything.
+   */
+  const waiting = useMemo(() => unaccepted(orders), [orders]);
+  const hasNewOrders = waiting.length > 0;
 
   /**
    * Reconcile against the database directly.
@@ -205,6 +211,15 @@ export default function OrderDashboard({
       {warning && (
         <div className={`kiosk-banner kiosk-${warning.level}`} role="status">
           {warning.text}
+        </div>
+      )}
+
+      {/* Why the room is beeping, in one line, readable from a distance. */}
+      {hasNewOrders && (
+        <div className="waiting-bar" role="status">
+          {waiting.length === 1
+            ? "1 order waiting — open it and press Accept"
+            : `${waiting.length} orders waiting — open each one and press Accept`}
         </div>
       )}
 

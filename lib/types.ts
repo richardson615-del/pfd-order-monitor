@@ -46,6 +46,14 @@ export interface Order {
   raw_html: string | null;
   status: OrderStatus;
   received_at: string;
+  /**
+   * When someone at the restaurant explicitly accepted the order.
+   *
+   * Null means the alert is still sounding. Deliberately not the same thing as
+   * opened_at: opening is a tap, and happens on a glance or a mis-tap;
+   * accepting is somebody agreeing to make the food.
+   */
+  accepted_at: string | null;
   opened_at: string | null;
   completed_at: string | null;
   printed_at: string | null;

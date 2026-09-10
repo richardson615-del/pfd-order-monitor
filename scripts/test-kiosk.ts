@@ -16,6 +16,7 @@ import {
   kioskWarning,
   pollIntervalMs,
   realtimeConnection,
+  unaccepted,
 } from "@/lib/kiosk";
 
 let passed = 0;
@@ -109,6 +110,53 @@ test("connecting is a warning, not a page-stopping alarm", () => {
   assert.equal(w?.level, "warning");
 });
 
+console.log("\nwhat the chime sounds for:");
+
+const order = (over: Record<string, any> = {}) => ({
+  id: "o1",
+  status: "new",
+  accepted_at: null as string | null,
+  ...over,
+});
+
+test("an order nobody has accepted keeps the alert going", () =>
+  assert.equal(unaccepted([order()]).length, 1));
+
+test("opening an order does NOT silence it", () => {
+  // The whole reason acceptance exists. 'opened' is stamped by merely tapping
+  // the order - a glance, or a mis-tap - and it used to stop the chime
+  // without anyone having agreed to cook anything.
+  assert.equal(unaccepted([order({ status: "opened" })]).length, 1);
+});
+
+test("accepting it does", () =>
+  assert.equal(
+    unaccepted([order({ status: "opened", accepted_at: "2026-09-10T18:00:00Z" })]).length,
+    0
+  ));
+
+test("a printed ticket still needs accepting", () => {
+  // On a site with a printer AND a tablet the ticket comes out by itself. A
+  // ticket sitting in a printer nobody has walked over to is exactly what the
+  // tablet is there to catch.
+  assert.equal(unaccepted([order({ status: "printed" })]).length, 1);
+});
+
+test("a cancelled order never chimes, accepted or not", () =>
+  // The point of a cancellation is that the food is NOT to be made. Sounding
+  // an alert to demand acknowledgement of that would be worse than useless.
+  assert.equal(unaccepted([order({ status: "cancelled" })]).length, 0));
+
+test("a completed order never chimes", () =>
+  assert.equal(unaccepted([order({ status: "completed" })]).length, 0));
+
+test("it counts every waiting order, not just the first", () =>
+  assert.equal(
+    unaccepted([order({ id: "a" }), order({ id: "b", status: "printed" }), order({ id: "c", accepted_at: "x" })])
+      .length,
+    2
+  ));
+
 console.log("\nthe dashboard actually applies them:");
 
 import { readFileSync } from "node:fs";
@@ -136,5 +184,14 @@ test("the chime never fires while sound is known to be off", () =>
     /hasNewOrders && soundArmed/,
     "beeping into a suspended context is what made the failure silent"
   ));
+
+test("the chime is keyed on acceptance, not on status", () => {
+  assert.match(dash, /unaccepted\(orders\)/);
+  assert.doesNotMatch(
+    dash,
+    /o\.status === "new"/,
+    "'new' clears itself on a tap - that is what acceptance replaced"
+  );
+});
 
 console.log(`\n${passed} assertions passed.`);

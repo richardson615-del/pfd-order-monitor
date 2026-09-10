@@ -16,6 +16,32 @@
 export type Connection = "live" | "connecting" | "down";
 
 /**
+ * An order that is finished one way or the other. Nothing here is waiting on
+ * anyone, so nothing here may sound an alert - a cancelled order in
+ * particular must never chime, because the whole point of a cancellation is
+ * that the food is NOT to be made.
+ */
+const SETTLED = new Set(["completed", "cancelled"]);
+
+/**
+ * Orders still waiting for someone at the restaurant to accept them.
+ *
+ * This is what the chime keys off. It used to key off status 'new', which
+ * cleared itself the instant anyone tapped the order - so a glance, or a
+ * mis-tap, silenced the tablet without a single person having agreed to cook
+ * anything.
+ *
+ * Note that 'printed' is NOT settled. On a site with a printer and a tablet
+ * the ticket comes out by itself, and a ticket sitting in a printer nobody
+ * has walked over to is exactly the situation the tablet exists to catch.
+ */
+export function unaccepted<T extends { status: string; accepted_at: string | null }>(
+  orders: T[]
+): T[] {
+  return orders.filter((o) => !o.accepted_at && !SETTLED.has(o.status));
+}
+
+/**
  * Supabase Realtime's channel status, reduced to what a kitchen needs to know.
  *
  * The distinction that matters is not which error occurred but whether orders

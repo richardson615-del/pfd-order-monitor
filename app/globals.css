@@ -204,6 +204,41 @@ button {
 .kiosk-critical { background: var(--new); color: #fff; }
 .kiosk-warning { background: var(--opened); color: #1a1200; }
 
+/* Why the room is beeping. A fault banner and a work banner are different
+   things and must not look alike - this one is not a problem, it is the
+   tablet doing its job. */
+.waiting-bar {
+  padding: 14px 16px;
+  text-align: center;
+  font-size: 19px;
+  font-weight: 800;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Accept is what stops the chime, so it is the largest thing on the bar. On a
+   screen read from across a kitchen, the control that silences the room
+   should not be the same size as "Print". */
+.btn.accept {
+  background: var(--new);
+  border-color: var(--new);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  padding: 14px 26px;
+  flex: 1;
+  justify-content: center;
+}
+
+.accepted-mark {
+  flex: 1;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--completed);
+  align-self: center;
+}
+
 .badge.status-cancelled { background: rgba(255,90,95,0.18); color: var(--new); }
 .order-card.status-cancelled::before { background: var(--new); }
 

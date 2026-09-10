@@ -475,6 +475,62 @@ app update on every tablet. Worth deciding before the app is written.
 
 ---
 
+## 11. The tablet app as a destination
+
+An order can reach a restaurant on paper, on a screen, or both. These are two
+destinations for the same order, not two kinds of order — the app shows the
+same normalised `orders` row the printer prints.
+
+The paper leg is a real either/or (`restaurants.print_method` is `printer` or
+`email` — two ways of producing one piece of paper). The app is independent of
+it: a site can have a printer and a tablet, a tablet only, or a printer only.
+
+### Turning it on for a restaurant
+
+Set `app_expected = true` on the `restaurants` row (migration 020), then open
+the dashboard on their tablet and tap **Enable notifications** once.
+
+That flag does *not* switch push on — push already fires wherever a
+subscription exists, and always has. What it declares is that this restaurant
+is **meant** to be watching orders on the app, which buys two things:
+
+- every order gets a `print_jobs` row with `delivery = 'app'`, recording
+  whether the alert actually reached a device and how many it reached
+- the health checks start caring about that restaurant
+
+It mirrors `printer_expected` deliberately, and for the same reason: hundreds
+of restaurants in this database take orders through PFD and will never watch a
+tablet. Alerting on all of them would bury the ones that matter.
+
+### What the monitor now catches
+
+| Check | Severity | Means |
+|---|---|---|
+| `app_alert_failed` | critical | An order was never alerted, and this restaurant has no paper ticket either — nobody there has seen it |
+| `app_alert_failed` | warning | Same, but a ticket did print. The kitchen has the order; the screen is the problem |
+| `restaurant_no_app_device:<id>` | warning | `app_expected` is on, but no device has notifications enabled — nothing can alert |
+
+The critical/warning split is the point. Paging someone because a screen went
+quiet while the printer kept working is how a channel gets muted before the
+outage that actually matters.
+
+`delivered_count = 0` with no `send_error` has one meaning worth knowing: the
+app is installed and signed in, but nobody ever tapped Enable notifications.
+
+### Destinations do not share fate
+
+Each destination is delivered inside its own `attempt()` in `ingestOrder()`,
+and none may throw out of it. Before this, everything from the insert to the
+queueing ran as one unguarded sequence, so a throw anywhere in it meant the
+ticket was never queued — and because the order row already existed, the
+webhook retry that should have healed it de-duplicated and returned early.
+A misconfigured VAPID key could permanently stop a kitchen printing.
+
+`orders.status` is deliberately untouched by app delivery. `printed` means a
+ticket physically exists, and an alert on a screen is not that.
+
+---
+
 ## Database schema
 
 See [`db/schema.sql`](./db/schema.sql) for the full schema with comments.

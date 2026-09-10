@@ -30,6 +30,8 @@ const healthy: HealthSnapshot = {
   failedJobs: [],
   unreconciledOrders: [],
   unsentEmailJobs: [],
+  undeliveredAppAlerts: [],
+  restaurantsWithoutAppDevice: [],
   webhook: {
     lastReceiptAt: minsAgo(5),
     lastAcceptedAt: minsAgo(5),

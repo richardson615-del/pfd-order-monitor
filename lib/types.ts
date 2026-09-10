@@ -1,4 +1,5 @@
-export type OrderStatus = "new" | "opened" | "completed" | "printed";
+/** 'cancelled' arrived with migration 004 and was never added here. */
+export type OrderStatus = "new" | "opened" | "completed" | "printed" | "cancelled";
 
 export interface OrderItem {
   name: string;
@@ -31,12 +32,23 @@ export interface Order {
   delivery_fee: number | null;
   /** Customer tip - the driver's money. */
   tip: number | null;
+  /** Promotional discount. Reduces the total; not part of the component sum. */
+  discount: number | null;
   customer_total: number | null;
   payment_type: string | null;
-  raw_html: string;
+  /** Gate codes, allergies, delivery instructions. Printed in the NOTE box. */
+  notes: string | null;
+  /**
+   * The original order EMAIL, when the order came from one. Null for every
+   * webhook order - migration 002 dropped the NOT NULL for exactly that
+   * reason - so nothing may render this as the primary view of an order.
+   */
+  raw_html: string | null;
   status: OrderStatus;
   received_at: string;
   opened_at: string | null;
   completed_at: string | null;
   printed_at: string | null;
+  /** Set when the order was cancelled upstream. The food must not be made. */
+  cancelled_at: string | null;
 }

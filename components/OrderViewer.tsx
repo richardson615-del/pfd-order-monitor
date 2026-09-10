@@ -3,10 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Order, OrderStatus } from "@/lib/types";
+import OrderTicket from "./OrderTicket";
 
 export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   const [order, setOrder] = useState(initialOrder);
   const [busy, setBusy] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   async function setStatus(status: OrderStatus) {
     setBusy(true);
@@ -23,21 +25,9 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
     }
   }
 
-  function printTicket() {
-    // The printer kit prints via the restaurant's browser print dialog for
-    // MVP; the dedicated ESC/POS thermal-printer path is the next iteration.
-    const win = window.open("", "_blank", "width=400,height=600");
-    if (!win) return;
-    win.document.write(order.raw_html);
-    win.document.close();
-    win.focus();
-    win.print();
-    setStatus("printed");
-  }
-
   return (
     <div className="page" style={{ paddingBottom: 90 }}>
-      <div className="topbar">
+      <div className="topbar no-print">
         <Link href="/dashboard" className="btn small">
           &larr; Back
         </Link>
@@ -45,17 +35,42 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
         <span className={`badge status-${order.status}`}>{order.status}</span>
       </div>
 
-      <div style={{ padding: 16 }}>
-        <iframe
-          className="viewer-frame"
-          title={`Order ${order.order_number}`}
-          srcDoc={order.raw_html}
-          sandbox=""
-        />
-      </div>
+      <OrderTicket order={order} />
 
-      <div className="action-bar">
-        <button className="btn" disabled={busy} onClick={printTicket}>
+      {/* The original email, where one exists at all. Kept because it is
+          evidence of what was actually sent, and useful when a parsed field
+          looks wrong - but it is no longer the view, and there is none for
+          any webhook order. */}
+      {order.raw_html && (
+        <div className="no-print" style={{ marginTop: 16 }}>
+          <button className="btn small" onClick={() => setShowOriginal((v) => !v)}>
+            {showOriginal ? "Hide original email" : "View original email"}
+          </button>
+          {showOriginal && (
+            <iframe
+              className="viewer-frame"
+              title={`Original email for order ${order.order_number}`}
+              srcDoc={order.raw_html}
+              sandbox=""
+              style={{ marginTop: 12 }}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="action-bar no-print">
+        {/*
+          Prints the ticket above, not the original email - which a webhook
+          order does not have, so this used to open a blank window and then
+          mark the order printed anyway.
+
+          It no longer sets status. A browser gives no signal that anything
+          reached paper - window.print() returns the same whether it printed
+          or the dialog was cancelled - and 'printed' is written by the print
+          pipeline to mean a real ticket exists. Guessing it from a button
+          press made the Printed tab describe intentions rather than tickets.
+        */}
+        <button className="btn" disabled={busy} onClick={() => window.print()}>
           Print
         </button>
         <button

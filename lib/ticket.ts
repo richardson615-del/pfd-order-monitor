@@ -311,7 +311,12 @@ export function buildTicket(
  * shape - which is stored on every existing order and replayed from - the
  * renderer unfolds it, so historic orders reprint correctly too.
  */
-function splitQuantity(rawName: string, it?: { quantity?: number }): { qty: number; name: string } {
+/**
+ * Exported so the tablet screen reads a quantity the same way the paper does.
+ * "2x Burger" meaning two burgers on the ticket and one on the tablet is the
+ * kind of disagreement nobody notices until a plate comes back.
+ */
+export function splitQuantity(rawName: string, it?: { quantity?: number }): { qty: number; name: string } {
   if (typeof it?.quantity === "number" && it.quantity > 0) {
     return { qty: it.quantity, name: rawName };
   }

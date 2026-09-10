@@ -190,10 +190,210 @@ button {
 .badge.status-completed { background: rgba(46,204,113,0.18); color: var(--completed); }
 .badge.status-printed { background: rgba(108,122,148,0.18); color: var(--printed); }
 
+.badge.status-cancelled { background: rgba(255,90,95,0.18); color: var(--new); }
+.order-card.status-cancelled::before { background: var(--new); }
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;
   color: var(--text-dim);
+}
+
+/* ---------------------------------------------------------------------------
+   The order as the kitchen reads it.
+
+   Sized for a tablet propped on a counter and read at arm's length, not for a
+   phone held close: the type scale here is larger than the rest of the app on
+   purpose. Order of importance follows the paper ticket - where the food goes,
+   when it is due, then what to make - so reading one after the other does not
+   mean re-learning where to look.
+--------------------------------------------------------------------------- */
+.ticket {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.ticket-cancelled {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 90, 95, 0.16);
+  border: 1px solid var(--new);
+  color: var(--new);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.ticket-type {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-align: center;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* Delivery and pickup are handled differently and the distinction has to
+   survive a glance from across a kitchen, so it carries colour as well as a
+   word - never colour alone, which a colour-blind cook would lose. */
+.ticket-type-delivery { background: var(--accent); color: #fff; }
+
+.ticket-due {
+  margin: 14px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ticket-due-past { color: var(--text-dim); font-size: 17px; font-weight: 600; }
+
+.ticket-placed {
+  margin: 4px 0 0;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.ticket-block {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.ticket-customer { margin: 0; font-size: 21px; font-weight: 700; }
+.ticket-phone { font-size: 19px; font-weight: 600; }
+.ticket-address { margin-top: 10px; }
+.ticket-street { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.35; }
+
+/* A delivery instruction is not part of the street address and must not run
+   into it - a driver reads this under time pressure, often in the dark. */
+.ticket-instruction {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  position: relative;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--opened);
+}
+.ticket-instruction::before { content: "\00BB"; position: absolute; left: 4px; }
+
+.ticket-items-head {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.ticket-items-head span:last-child { text-align: right; }
+
+.ticket-item {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ticket-item:last-child { border-bottom: none; }
+
+/* Quantity gets its own column. Folded into the name as "2x Burger" it is the
+   easiest thing to miss when scanning during a rush, and a missed count is a
+   remake. */
+.ticket-qty {
+  font-size: 24px;
+  font-weight: 800;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-item-body { min-width: 0; }
+.ticket-item-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* Modifiers are the part that ruins a plate if missed, so they are never set
+   lighter than the item they belong to. */
+.ticket-mod {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  position: relative;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--opened);
+  overflow-wrap: anywhere;
+}
+.ticket-mod::before { content: "\00BB"; position: absolute; left: 4px; }
+
+.ticket-price {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ticket-noitems { margin: 14px 0 0; color: var(--text-dim); font-size: 16px; }
+
+.ticket-note {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 2px solid var(--opened);
+  background: rgba(245, 165, 36, 0.1);
+}
+.ticket-note h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--opened);
+}
+.ticket-note p { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.4; }
+
+.ticket-totals p {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ticket-totals p:last-child { margin-bottom: 0; }
+.ticket-total {
+  font-size: 23px !important;
+  font-weight: 800;
+  color: var(--text) !important;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.ticket-payment { justify-content: flex-end !important; font-size: 14px !important; }
+
+/* Printing from the tablet prints the ticket, not the app around it. */
+@media print {
+  .no-print { display: none !important; }
+  html, body { background: #fff; color: #000; }
+  .page { padding: 0; }
+  .ticket { border: none; background: #fff; color: #000; padding: 0; }
+  .ticket-type { background: #000; color: #fff; }
+  .ticket-mod, .ticket-instruction { color: #000; }
+  .ticket-note { border-color: #000; background: #fff; }
+  .ticket-note h2 { color: #000; }
+  .ticket-price, .ticket-totals p, .ticket-placed { color: #000; }
 }
 
 .viewer-frame {

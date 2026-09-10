@@ -190,6 +190,20 @@ button {
 .badge.status-completed { background: rgba(46,204,113,0.18); color: var(--completed); }
 .badge.status-printed { background: rgba(108,122,148,0.18); color: var(--printed); }
 
+/* The kiosk status strip.
+   Appears only when something is wrong, because a permanent banner becomes
+   furniture and furniture is not read. Sized to be legible from across a
+   kitchen, since the person who can fix it is walking past, not leaning in. */
+.kiosk-banner {
+  padding: 14px 16px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.kiosk-critical { background: var(--new); color: #fff; }
+.kiosk-warning { background: var(--opened); color: #1a1200; }
+
 .badge.status-cancelled { background: rgba(255,90,95,0.18); color: var(--new); }
 .order-card.status-cancelled::before { background: var(--new); }
 

@@ -32,6 +32,16 @@ export interface TicketOptions {
    * layout changes, it is not the same ticket scaled up.
    */
   scale?: TextScale;
+  /**
+   * Drop the customer-facing footer block.
+   *
+   * On paper the footer is the part the customer keeps - whitespace, the PFD
+   * line, a QR - printed below the total so it survives being torn off. On the
+   * tablet there is nothing to tear off, and it would put four blank lines and
+   * a coupon between the cook and the next order. The order itself is
+   * identical either way.
+   */
+  omitFooter?: boolean;
 }
 
 /** Footer block, resolved per restaurant with a global fallback. */
@@ -285,6 +295,8 @@ export function buildTicket(
   // --- Footer --------------------------------------------------------------
   // Whitespace before it on purpose: this is the part a customer keeps, and
   // it has to survive being torn off above the perforation.
+  if (opts.omitFooter) return lines;
+
   lines.push(L(heavy));
   for (let i = 0; i < 4; i++) lines.push(L(""));
 

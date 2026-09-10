@@ -89,20 +89,21 @@ test("printing no longer claims a ticket exists", () => {
   assert.match(viewer, /window\.print\(\)/);
 });
 
-test("the fields a cook needs are all on the screen", () => {
-  for (const field of [
-    "order_type", "due_time", "customer_name", "customer_phone",
-    "customer_address", "items", "modifiers", "notes", "customer_total",
-  ]) {
-    assert.match(ticket, new RegExp(field), `${field} is missing from the order screen`);
-  }
+test("the screen uses the printer's own renderer, not a second one", () => {
+  // The point of this is that the two cannot drift. A lookalike layout would
+  // make staff learn a second arrangement of the same facts, and would go
+  // stale the first time the ticket changed.
+  assert.match(ticket, /buildTicket\(/);
+  assert.match(ticket, /omitFooter: true/, "the footer is the customer's, not the kitchen's");
 });
 
-test("a cancelled order says so before anything else", () => {
-  const cancelledAt = ticket.indexOf("cancelled_at");
-  const type = ticket.indexOf("ticket-type");
-  assert.ok(cancelledAt > -1, "a cancelled order must be marked");
-  assert.ok(cancelledAt < type, "the warning belongs above the order, not below it");
+test("the printer's emphasis survives onto the screen", () => {
+  // Bold, double height, double width and reverse video are how a thermal
+  // printer says "this matters". Dropping them would render a wall of
+  // monospace that happens to contain the right words.
+  for (const attr of ["bold", "reverse", "double", "double-h"]) {
+    assert.match(ticket, new RegExp(attr), `${attr} is not carried onto the screen`);
+  }
 });
 
 console.log("\nan order with no email still renders fully:");
@@ -125,13 +126,44 @@ test("a webhook order has everything the paper ticket has", () => {
     items_total: 13, tax: 1.2, customer_total: 14.2,
     notes: "allergy: shellfish",
   };
-  const paper = buildTicket(zuppler, 48).map((l) => l.text).join("\n");
-  // Whatever the paper says, the screen has the same source data to say it
-  // from - the point being that neither depends on raw_html.
-  assert.match(paper, /Loaded FF/i);
-  assert.match(paper, /Lemon pep/i);
-  assert.match(paper, /gate code 4471/i);
+  // The screen calls exactly this, so asserting it here asserts the screen.
+  const lines = buildTicket(zuppler, 48, {}, { omitFooter: true });
+  const paper = lines.map((l) => l.text).join("\n");
+
+  assert.match(paper, /D E L I V E R Y/, "where the food goes leads the ticket");
+  assert.match(paper, /Eileen Gutierrez/);
+  assert.match(paper, /254 Village Square/);
+  assert.match(paper, /gate code 4471/i, "the instruction is split off the address");
+  assert.match(paper, /LOADED FF/i);
+  assert.match(paper, /Lemon pep/i, "a missed modifier is a remade plate");
+  assert.match(paper, /allergy: shellfish/i);
+  assert.match(paper, /TOTAL/);
   assert.equal(zuppler.raw_html, null, "and there is no email to fall back on");
+});
+
+test("the quantity survives as its own column, not folded into the name", () => {
+  const lines = buildTicket(
+    { items: [{ name: "2x Loaded FF", price: "$13.00", modifiers: [] }] } as any,
+    48,
+    {},
+    { omitFooter: true }
+  );
+  assert.ok(
+    lines.some((l) => /^\s*2\s+LOADED FF/.test(l.text)),
+    "count must be readable at a glance during a rush"
+  );
+});
+
+test("omitting the footer does not touch the order above it", () => {
+  const order: any = { order_number: "1", items: [], customer_total: 10 };
+  const withFooter = buildTicket(order, 48).map((l) => l.text);
+  const without = buildTicket(order, 48, {}, { omitFooter: true }).map((l) => l.text);
+  assert.deepEqual(
+    withFooter.slice(0, without.length),
+    without,
+    "the screen and the paper must agree on everything before the tear-off"
+  );
+  assert.ok(withFooter.length > without.length, "and the footer really is dropped");
 });
 
 console.log(`\n${passed} assertions passed.`);

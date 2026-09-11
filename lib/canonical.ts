@@ -419,6 +419,12 @@ export type OrderDestination = "printer" | "email" | "app";
  * answering a single "which one" - for a growing number of sites there is no
  * single one.
  *
+ * A list, and not a ranking. These are independent ways for a restaurant to
+ * receive an order, not a primary with a backup: each one succeeds or fails on
+ * its own terms, is alerted on separately, and nothing about one may be used
+ * to excuse the other. Use this to answer "is this channel enabled here", never
+ * "did some other channel cover for it".
+ *
  * Paper is the either/or: print_method chooses between an Epson and an email
  * to a PC running AEM, which are two ways of producing the same ticket. The
  * tablet sits alongside whichever of those is in play, or on its own.
@@ -444,10 +450,6 @@ export function orderDestinations(r: {
   if (r.app_expected) out.push("app");
   return out;
 }
-
-/** True when a paper ticket reaches this restaurant as well as the tablet. */
-export const producesPaper = (d: OrderDestination[]): boolean =>
-  d.includes("printer") || d.includes("email");
 
 /** The print_jobs columns describing how an app alert turned out. */
 export interface AppDeliveryOutcome {

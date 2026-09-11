@@ -140,10 +140,12 @@ notifications** once on the device.
 
 ### Monitoring
 
-`app_alert_failed` is **critical** when the restaurant has no paper route —
-nobody there has seen the order in any form — and a **warning** when a ticket
-also printed. `restaurant_no_app_device` is a warning: `app_expected` is on but
-no device has notifications enabled, so nothing can alert.
+`app_alert_failed` is **critical**: an order never reached the tablet, and
+nobody watching it has been told the order exists. It is never softened by what
+the printer did — these are independent channels, each alerted on its own
+terms, and a site running both must not get a quieter alert than a tablet-only
+one. `restaurant_no_app_device` is a warning: `app_expected` is on but no device
+has notifications enabled, so nothing can alert.
 
 ## Email delivery (Automatic Email Manager restaurants)
 

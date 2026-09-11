@@ -16,6 +16,38 @@
 export type Connection = "live" | "connecting" | "down";
 
 /**
+ * An order nobody is waiting on any more, so nothing here may sound an alert.
+ * A cancelled order in particular must never chime: the whole point of a
+ * cancellation is that the food is NOT to be made.
+ *
+ * Both of these are facts about the ORDER. Note what is deliberately absent:
+ * 'printed'. That is a fact about the paper channel, and the paper channel and
+ * the tablet are two independent ways for a restaurant to receive an order,
+ * not two halves of one. Whether a ticket came out of a printer says nothing
+ * about whether the tablet has done its job, and must never be consulted here.
+ */
+const STILL_WAITING_EXCLUDES = new Set(["completed", "cancelled"]);
+
+/**
+ * Orders still waiting for someone at the restaurant to accept them.
+ *
+ * This is what the chime keys off. It used to key off status 'new', which
+ * cleared itself the instant anyone tapped the order - so a glance, or a
+ * mis-tap, silenced the tablet without a single person having agreed to cook
+ * anything.
+ *
+ * It asks only about the tablet: has somebody here accepted this order, and is
+ * the order still live. What any other delivery channel did is not an input.
+ */
+export function unaccepted<T extends { status: string; accepted_at: string | null }>(
+  orders: T[]
+): T[] {
+  return orders.filter(
+    (o) => !o.accepted_at && !STILL_WAITING_EXCLUDES.has(o.status)
+  );
+}
+
+/**
  * Supabase Realtime's channel status, reduced to what a kitchen needs to know.
  *
  * The distinction that matters is not which error occurred but whether orders

@@ -10,13 +10,13 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   const [busy, setBusy] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
 
-  async function setStatus(status: OrderStatus) {
+  async function patch(body: Record<string, unknown>) {
     setBusy(true);
     try {
       const res = await fetch(`/api/orders/${order.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.order) setOrder(data.order);
@@ -24,6 +24,16 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
       setBusy(false);
     }
   }
+
+  const setStatus = (status: OrderStatus) => patch({ status });
+  const accept = () => patch({ accepted: true });
+
+  const acceptedAt = order.accepted_at
+    ? new Date(order.accepted_at).toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <div className="page" style={{ paddingBottom: 90 }}>
@@ -84,6 +94,23 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
         <button className="btn" disabled={busy} onClick={() => window.print()}>
           Print
         </button>
+        {/*
+          Accept is the loud one, and it is what stops the chime. Deliberately
+          bigger than everything beside it: it is the action the tablet is
+          sounding for, and on a screen read from across a kitchen the thing
+          that silences the room should not be the same size as "Print".
+
+          It stays visible once accepted, showing when - so the next person to
+          walk past can see the order was picked up rather than wondering
+          whether the tablet had simply been ignored.
+        */}
+        {order.accepted_at ? (
+          <span className="accepted-mark">Accepted {acceptedAt}</span>
+        ) : (
+          <button className="btn accept" disabled={busy} onClick={accept}>
+            Accept order
+          </button>
+        )}
         <button
           className="btn primary"
           disabled={busy || order.status === "completed"}

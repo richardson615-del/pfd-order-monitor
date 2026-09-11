@@ -112,10 +112,14 @@ test("connecting is a warning, not a page-stopping alarm", () => {
 
 console.log("\nwhat the chime sounds for:");
 
+const NOW = Date.parse("2026-09-11T19:00:00Z");
+const minutesAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();
+
 const order = (over: Record<string, any> = {}) => ({
   id: "o1",
   status: "new",
   accepted_at: null as string | null,
+  received_at: minutesAgo(2),
   ...over,
 });
 
@@ -152,10 +156,43 @@ test("a completed order never chimes", () =>
 
 test("it counts every waiting order, not just the first", () =>
   assert.equal(
-    unaccepted([order({ id: "a" }), order({ id: "b", status: "printed" }), order({ id: "c", accepted_at: "x" })])
-      .length,
+    unaccepted(
+      [order({ id: "a" }), order({ id: "b", status: "printed" }), order({ id: "c", accepted_at: "x" })],
+      NOW
+    ).length,
     2
   ));
+
+console.log("\nthe backlog a new tablet inherits:");
+
+test("an order older than a service does not chime", () => {
+  // The first real install: a restaurant that had been taking orders for
+  // months signed a tablet in, and every order they had ever taken was
+  // unaccepted - because until that moment there was no tablet to accept one
+  // on. The screen came up chiming about the entire backlog, and the only way
+  // to silence it was to tap Accept on each order in turn.
+  assert.equal(unaccepted([order({ received_at: minutesAgo(7 * 60) })], NOW).length, 0);
+});
+
+test("an order from earlier in the same service still chimes", () => {
+  // The window has to be wider than a service, or it would silence a real
+  // order during a genuinely busy night - which is the failure that actually
+  // costs a restaurant money.
+  assert.equal(unaccepted([order({ received_at: minutesAgo(5 * 60) })], NOW).length, 1);
+});
+
+test("a missing timestamp chimes rather than going quiet", () => {
+  // A field we cannot read must never be the reason an order goes
+  // unannounced. Silence is the expensive failure here, noise is not.
+  assert.equal(unaccepted([order({ received_at: null })], NOW).length, 1);
+  assert.equal(unaccepted([order({ received_at: "not a date" })], NOW).length, 1);
+});
+
+test("age alone never overrides acceptance or cancellation", () => {
+  // The age check narrows what chimes; it must not widen it.
+  assert.equal(unaccepted([order({ received_at: minutesAgo(1), status: "cancelled" })], NOW).length, 0);
+  assert.equal(unaccepted([order({ received_at: minutesAgo(1), accepted_at: "x" })], NOW).length, 0);
+});
 
 console.log("\nthe dashboard actually applies them:");
 

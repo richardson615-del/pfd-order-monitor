@@ -39,6 +39,25 @@ export const HEARTBEAT_EVERY_MS = 2 * 60_000;
 const STILL_WAITING_EXCLUDES = new Set(["completed", "cancelled"]);
 
 /**
+ * How long an unaccepted order still warrants a chime.
+ *
+ * Six hours - longer than any service, and far longer than any honest accept
+ * window. Past that nobody is going to cook it, and the alert is demanding an
+ * action that no longer exists.
+ *
+ * This exists because of what happens the first time a tablet is signed in at
+ * a restaurant that has been taking orders for months. Every order they ever
+ * took is unaccepted - until that moment there was no tablet to accept
+ * anything on - so the screen comes up chiming about a backlog going back to
+ * whenever they joined, and the only way to silence it is to tap Accept on
+ * every single one. That is exactly what happened on the first real install.
+ *
+ * A chime nobody can act on is worse than no chime: it is the thing that
+ * teaches a kitchen to ignore the noise.
+ */
+export const STILL_ACTIONABLE_MS = 6 * 60 * 60 * 1000;
+
+/**
  * Orders still waiting for someone at the restaurant to accept them.
  *
  * This is what the chime keys off. It used to key off status 'new', which
@@ -46,15 +65,28 @@ const STILL_WAITING_EXCLUDES = new Set(["completed", "cancelled"]);
  * mis-tap, silenced the tablet without a single person having agreed to cook
  * anything.
  *
- * It asks only about the tablet: has somebody here accepted this order, and is
- * the order still live. What any other delivery channel did is not an input.
+ * It asks only about the tablet: has somebody here accepted this order, is the
+ * order still live, and is it recent enough to still be worth acting on. What
+ * any other delivery channel did is not an input.
+ *
+ * Note this governs the CHIME, not the list. An old unaccepted order stays on
+ * screen where staff can still see and open it - it just stops demanding to be
+ * dealt with this second.
  */
-export function unaccepted<T extends { status: string; accepted_at: string | null }>(
-  orders: T[]
-): T[] {
-  return orders.filter(
-    (o) => !o.accepted_at && !STILL_WAITING_EXCLUDES.has(o.status)
-  );
+export function unaccepted<
+  T extends { status: string; accepted_at: string | null; received_at?: string | null }
+>(orders: T[], now: number = Date.now()): T[] {
+  return orders.filter((o) => {
+    if (o.accepted_at || STILL_WAITING_EXCLUDES.has(o.status)) return false;
+
+    // No timestamp means we cannot tell how old it is, so chime. A missing
+    // field must never be the reason a real order goes unannounced - silence
+    // is the failure that costs a restaurant the order.
+    if (!o.received_at) return true;
+
+    const age = now - new Date(o.received_at).getTime();
+    return Number.isNaN(age) || age < STILL_ACTIONABLE_MS;
+  });
 }
 
 /**

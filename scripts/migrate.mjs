@@ -83,6 +83,12 @@ async function main() {
       )
     `);
 
+    // RLS on, no policies, which denies every client. The only reader is
+    // /api/health through the service role and the only writer is this script
+    // over a direct connection as the table owner - both bypass RLS.
+    // Idempotent, so it also closes a database whose table predates this line.
+    await client.query("ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY");
+
     const { rows: applied } = await client.query("SELECT version FROM schema_migrations");
     const appliedSet = new Set(applied.map((r) => r.version));
 

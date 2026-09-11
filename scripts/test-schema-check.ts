@@ -116,7 +116,16 @@ test("every table in this database has RLS enabled somewhere", () => {
   // a table created in 005 may legitimately be secured by 025. Checking
   // file-by-file would demand the fix live in the migration that is already
   // applied and must not be edited.
-  const sources = ["db/schema.sql", ...files.map((f) => `db/migrations/${f}`)];
+  //
+  // migrate.mjs is in the list because it creates a table too. This check
+  // scanned only db/ at first and so never saw schema_migrations - Supabase's
+  // editor caught that one, on the very paste that set the runner up. A lint
+  // that misses the table its own machinery creates is worth little.
+  const sources = [
+    "db/schema.sql",
+    ...files.map((f) => `db/migrations/${f}`),
+    "scripts/migrate.mjs",
+  ];
   const created = new Map<string, string>();
   const secured = new Set<string>();
 

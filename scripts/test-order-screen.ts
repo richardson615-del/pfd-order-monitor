@@ -101,9 +101,23 @@ test("the printer's emphasis survives onto the screen", () => {
   // Bold, double height, double width and reverse video are how a thermal
   // printer says "this matters". Dropping them would render a wall of
   // monospace that happens to contain the right words.
+  //
+  // The mapping lives in lib/ticket.ts rather than in the component, so the
+  // public demo page can render a byte-identical ticket without a second copy
+  // of these rules - two renderers drifting apart is how a demo starts showing
+  // something the kitchen never sees.
+  const lib = src("lib/ticket.ts");
   for (const attr of ["bold", "reverse", "double", "double-h"]) {
-    assert.match(ticket, new RegExp(attr), `${attr} is not carried onto the screen`);
+    assert.match(lib, new RegExp(attr), `${attr} is not carried onto the screen`);
   }
+  assert.match(lib, /export function ticketLineClass/);
+});
+
+test("the screen and the demo page share one line-class rule", () => {
+  // If either grows its own copy, they can disagree, and the demo is only
+  // worth anything while it shows what the app actually does.
+  assert.match(ticket, /ticketLineClass\(l\)/);
+  assert.match(src("scripts/build-demo.ts"), /ticketLineClass\(l\)/);
 });
 
 console.log("\nan order with no email still renders fully:");

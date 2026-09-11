@@ -337,6 +337,25 @@ export function splitQuantity(rawName: string, it?: { quantity?: number }): { qt
   return { qty: 1, name: rawName };
 }
 
+/**
+ * The CSS classes that carry one ticket line's emphasis onto a screen.
+ *
+ * Lives here rather than in the component so the public demo page can render
+ * a byte-identical ticket without a second copy of these rules. Two renderers
+ * drifting apart is how a demo starts showing something the kitchen never
+ * sees - see scripts/build-demo.ts.
+ */
+export function ticketLineClass(l: TicketLine): string {
+  const c = ["tl"];
+  if (l.bold) c.push("tl-b");
+  if (l.reverse) c.push("tl-rev");
+  if (l.size === "double") c.push("tl-2x");
+  if (l.size === "double-h") c.push("tl-2h");
+  if (l.align === "center") c.push("tl-c");
+  if (l.align === "right") c.push("tl-r");
+  return c.join(" ");
+}
+
 export function xmlEscape(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")

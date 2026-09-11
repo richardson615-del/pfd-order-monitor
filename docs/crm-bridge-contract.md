@@ -147,6 +147,42 @@ terms, and a site running both must not get a quieter alert than a tablet-only
 one. `restaurant_no_app_device` is a warning: `app_expected` is on but no device
 has notifications enabled, so nothing can alert.
 
+### Restaurant logins
+
+```
+GET    /api/crm/restaurants/:id/logins
+POST   /api/crm/restaurants/:id/logins    { username, actor? }
+PATCH  /api/crm/restaurants/:id/logins    { username, actor? }
+```
+
+Who can sign in to a restaurant's tablet, and the two writes that change it.
+Without these, onboarding a restaurant was four things in the CRM and a jump
+to a different system for the fifth.
+
+Restaurants sign in with a **username and password**, not an emailed link: a
+kitchen tablet is shared, runs locked to one app, and has no inbox anybody is
+watching. Supabase needs an email, so one is derived from the username and
+receives nothing.
+
+Both writes return the password **once**. Nothing retrieves it afterwards -
+a forgotten one is replaced, not recovered, because no reset email could ever
+reach a derived address.
+
+| field | meaning |
+|---|---|
+| `username` | lowercase, 2-31 chars, letters/digits/`.`/`-`/`_`. Normalised, so case and stray spaces cannot make a second account |
+| `actor` | who asked. The bridge authenticates with one shared key and cannot know; an absent actor is recorded as null, never guessed |
+| `is_email_login` | on GET: true for an older account with a real address rather than a username |
+
+**Every write is audited** (migration 023), the same judgement migration 015
+made about printer device keys. The audit never stores the password - it
+records that a change happened and who made it, not the credential.
+
+A `PATCH` only touches a login belonging to **that** restaurant. `409` on a
+username already taken. A reset says plainly that a tablet already signed in
+stays signed in until its session ends - resetting does not rescue a tablet
+that is currently stuck.
+
 ### Test order to the tablet
 
 ```

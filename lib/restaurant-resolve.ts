@@ -80,6 +80,41 @@ function slugify(name: string): string {
   return base || "restaurant";
 }
 
+/**
+ * Records that this restaurant is meant to have a printer.
+ *
+ * Called wherever a device is registered or moved, because that is the only
+ * moment anybody states the intention - and until migration 022 nothing did.
+ * printer_expected was backfilled once by migration 014 and then never
+ * written again, so every restaurant onboarded through the CRM console since
+ * has a working printer and the flag still false, which silently disabled the
+ * "No printer" warning for exactly the sites that own one.
+ *
+ * Never throws, and never clears. Registering a device must not fail because
+ * a monitoring hint could not be written; and deactivating a printer does not
+ * mean the restaurant stopped needing one - the intention outliving the
+ * hardware is the entire point of the warning.
+ */
+export async function markPrinterExpected(restaurantId: string): Promise<void> {
+  try {
+    const admin = supabaseAdmin();
+    const { error } = await admin
+      .from("restaurants")
+      .update({ printer_expected: true })
+      .eq("id", restaurantId);
+    if (error) {
+      console.error("could not set printer_expected for", restaurantId, "-", error.message);
+    }
+  } catch (err) {
+    console.error(
+      "could not set printer_expected for",
+      restaurantId,
+      "-",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
 export async function resolveOrCreateRestaurant(
   input: ResolveInput
 ): Promise<ResolveResult> {

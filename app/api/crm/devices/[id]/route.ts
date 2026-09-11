@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
-import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
+import { markPrinterExpected, resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 import { randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -163,6 +163,13 @@ export async function POST(
       .update({ restaurant_id: target.id })
       .eq("id", device.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // The restaurant receiving the printer now expects one. The one losing it
+    // keeps its own flag: a site that had a printer taken away is exactly the
+    // gap the "No printer" warning exists to report, so clearing it here would
+    // silence the case worth hearing about.
+    await markPrinterExpected(target.id);
+
     return NextResponse.json({
       ok: true,
       device: { id: device.id, restaurant: { id: target.id, name: target.name } },

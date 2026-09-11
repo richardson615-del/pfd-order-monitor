@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { isCurrentUserAdmin } from "@/lib/authz";
+import { markPrinterExpected } from "@/lib/restaurant-resolve";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,11 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Registering a printer is the statement that this site is meant to have
+  // one - see markPrinterExpected and migration 022.
+  await markPrinterExpected(restaurantId);
+
   return NextResponse.json({ device: data, device_key: deviceKey });
 }
 
@@ -110,5 +116,13 @@ export async function PATCH(req: NextRequest) {
     .update(updates)
     .eq("id", body.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // A device moved here means this restaurant now expects a printer. The one
+  // it came from keeps its flag deliberately: a site that lost its printer is
+  // precisely what the "No printer" warning is for.
+  if (typeof updates.restaurant_id === "string") {
+    await markPrinterExpected(updates.restaurant_id);
+  }
+
   return NextResponse.json({ ok: true });
 }

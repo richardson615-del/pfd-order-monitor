@@ -238,8 +238,28 @@ If you'd rather not wait on Vercel Cron granularity, you can also call
    receives PFD order emails.
 3. Click **Connect Gmail** and sign in as that restaurant's Gmail account to
    grant read access.
-4. **Invite a restaurant login** - enter the owner/staff email you want them
-   to use to log into the dashboard. They'll get a magic-link sign-in email.
+4. **Create a restaurant login** - pick the restaurant and choose a username
+   (lowercase, no spaces: `swezeys`). A password is generated and shown
+   ONCE - write it down.
+
+   A username and password, not an emailed link, because a kitchen tablet is
+   shared, runs locked to one app in kiosk mode, and has no inbox anybody is
+   watching. A sign-in link has nowhere useful to arrive.
+
+   Supabase identifies a user by email, so one is derived from the username
+   (`swezeys@tablet.pfdworks.com`). These addresses receive nothing: the
+   account is created pre-confirmed and password sign-in sends no mail. The
+   domain is a constant in `lib/usernames.ts` and must never change - the
+   address IS the account, so changing it orphans every restaurant login at
+   once.
+
+   There is no "forgot password" and there cannot be, since nothing can reach
+   that address. An admin sets a new one from the same panel and reads it to
+   them. For a shared device that is the honest flow rather than a broken
+   imitation of a personal one.
+
+   PFD's own admins keep real email addresses and can still use "Sign in with
+   an email link instead" on the login page.
 5. On their tablet/phone, they open the app URL in Chrome (Android) or
    Safari (iOS) and choose **Add to Home Screen** / **Install app**. From
    then on it behaves like a normal app icon - no App Store needed.

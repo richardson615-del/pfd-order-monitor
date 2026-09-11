@@ -39,8 +39,10 @@ export default function AdminPanel({
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [inviteRestaurantId, setInviteRestaurantId] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+  // Shown once, on screen, deliberately. Nothing can retrieve it afterwards.
+  const [newCredentials, setNewCredentials] = useState<{ username: string; password: string } | null>(null);
 
   const [lookupInput, setLookupInput] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
@@ -254,19 +256,44 @@ export default function AdminPanel({
     }
   }
 
-  async function inviteUser(e: React.FormEvent) {
+  async function createLogin(e: React.FormEvent) {
     e.preventDefault();
-    setInviteStatus("Sending...");
+    setInviteStatus("Creating...");
+    setNewCredentials(null);
     const res = await fetch("/api/admin/restaurant-users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         restaurant_id: inviteRestaurantId,
-        email: inviteEmail,
+        username: loginUsername,
       }),
     });
     const data = await res.json();
-    setInviteStatus(res.ok ? "Invite sent." : data.error);
+    if (res.ok) {
+      setInviteStatus(null);
+      setNewCredentials({ username: data.username, password: data.password });
+      setLoginUsername("");
+    } else {
+      setInviteStatus(data.error);
+    }
+  }
+
+  /** No reset email can reach a derived address, so an admin sets a new one. */
+  async function resetPassword(username: string) {
+    setInviteStatus("Setting a new password...");
+    setNewCredentials(null);
+    const res = await fetch("/api/admin/restaurant-users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setInviteStatus(null);
+      setNewCredentials({ username: data.username, password: data.password });
+    } else {
+      setInviteStatus(data.error);
+    }
   }
 
   function ZupplerCell({ r }: { r: Restaurant }) {
@@ -362,8 +389,13 @@ export default function AdminPanel({
         </div>
 
         <div className="card">
-          <h2>Invite a restaurant login</h2>
-          <form className="form" onSubmit={inviteUser}>
+          <h2>Create a restaurant login</h2>
+          <p className="muted">
+            A username and a password, not an email. The tablet is shared, runs
+            locked to one app, and has no inbox anyone is watching &mdash; so
+            there is nowhere for a sign-in link to arrive.
+          </p>
+          <form className="form" onSubmit={createLogin}>
             <label>Restaurant</label>
             <select
               required
@@ -377,19 +409,46 @@ export default function AdminPanel({
                 </option>
               ))}
             </select>
-            <label>Email to invite</label>
+            <label>Username</label>
             <input
               required
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="owner@restaurant.com"
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              placeholder="swezeys"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
             <button className="btn primary" type="submit">
-              Send invite
+              Create login
             </button>
             {inviteStatus && <div className="muted">{inviteStatus}</div>}
           </form>
+
+          {newCredentials && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <p>
+                <strong>Username:</strong> {newCredentials.username}
+                <br />
+                <strong>Password:</strong>{" "}
+                <code style={{ fontSize: 16 }}>{newCredentials.password}</code>
+              </p>
+              {/* Stated plainly because it is true and because the consequence
+                  lands on a restaurant, not on us: there is no reset email for
+                  an address that receives nothing. */}
+              <p className="muted">
+                Write this down now. Nothing can retrieve it afterwards &mdash; a
+                forgotten password is replaced, not recovered.
+              </p>
+              <button
+                className="btn small"
+                type="button"
+                onClick={() => resetPassword(newCredentials.username)}
+              >
+                Set a different password
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="card">

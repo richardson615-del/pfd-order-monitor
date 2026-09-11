@@ -144,6 +144,15 @@ test("a restaurant with no recent order is skipped entirely", () => {
 test("the newest order wins, since the query is newest-first", () =>
   assert.match(health, /if \(!lastOrder\.has\(o\.restaurant_id\)\)/));
 
+test("an unreadable heartbeat table skips the check rather than accusing everyone", () => {
+  // Without this, a failed read makes every restaurant look like it has never
+  // checked in - a critical apiece, all at once. "We could not tell" is not
+  // "nobody is watching", and a check that cries wolf when its own table is
+  // unreachable is one people mute.
+  assert.match(health, /if \(beatsError\)/);
+  assert.match(health, /skipping the not-watching check/);
+});
+
 console.log("\nthe endpoint:");
 
 const route = readFileSync(

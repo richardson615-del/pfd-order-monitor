@@ -599,7 +599,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
 
   if (appRestaurants.length) {
     const ids = appRestaurants.map((r: any) => r.id);
-    const [{ data: recentOrders }, { data: beats }] = await Promise.all([
+    const [{ data: recentOrders }, { data: beats, error: beatsError }] = await Promise.all([
       admin
         .from("orders")
         .select("restaurant_id, received_at")
@@ -609,24 +609,36 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
       admin.from("dashboard_heartbeats").select("restaurant_id, last_seen_at").in("restaurant_id", ids),
     ]);
 
-    const lastOrder = new Map<string, string>();
-    for (const o of recentOrders ?? []) {
-      // Ordered newest first, so the first one seen for a restaurant wins.
-      if (!lastOrder.has(o.restaurant_id)) lastOrder.set(o.restaurant_id, o.received_at);
-    }
-    const lastSeen = new Map<string, string>(
-      (beats ?? []).map((b: any) => [b.restaurant_id, b.last_seen_at])
-    );
+    // If the heartbeats cannot be READ, every restaurant looks like it has
+    // never checked in - which would raise a critical for each of them at
+    // once. "We could not tell" is not "nobody is watching", and a check that
+    // cries wolf the moment its own table is unreachable is one people mute.
+    // Skipped entirely, and loudly, rather than reported as an outage.
+    if (beatsError) {
+      console.error(
+        "health: cannot read dashboard_heartbeats, skipping the not-watching check -",
+        beatsError.message
+      );
+    } else {
+      const lastOrder = new Map<string, string>();
+      for (const o of recentOrders ?? []) {
+        // Ordered newest first, so the first one seen for a restaurant wins.
+        if (!lastOrder.has(o.restaurant_id)) lastOrder.set(o.restaurant_id, o.received_at);
+      }
+      const lastSeen = new Map<string, string>(
+        (beats ?? []).map((b: any) => [b.restaurant_id, b.last_seen_at])
+      );
 
-    for (const r of appRestaurants) {
-      const orderAt = lastOrder.get(r.id);
-      if (!orderAt) continue; // nothing arriving - nothing to miss
-      tabletsNotWatching.push({
-        id: r.id,
-        name: r.name,
-        lastSeenAt: lastSeen.get(r.id) ?? null,
-        lastOrderAt: orderAt,
-      });
+      for (const r of appRestaurants) {
+        const orderAt = lastOrder.get(r.id);
+        if (!orderAt) continue; // nothing arriving - nothing to miss
+        tabletsNotWatching.push({
+          id: r.id,
+          name: r.name,
+          lastSeenAt: lastSeen.get(r.id) ?? null,
+          lastOrderAt: orderAt,
+        });
+      }
     }
   }
 

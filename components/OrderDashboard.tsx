@@ -13,6 +13,7 @@ import {
   pollIntervalMs,
   realtimeConnection,
   unaccepted,
+  HEARTBEAT_EVERY_MS,
 } from "@/lib/kiosk";
 
 const TABS: { key: OrderStatus | "all"; label: string }[] = [
@@ -150,6 +151,34 @@ export default function OrderDashboard({
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
       document.removeEventListener("visibilitychange", onGesture);
+    };
+  }, []);
+
+  // --- Say that a signed-in screen is actually open --------------------------
+  //
+  // A push subscription belongs to the browser's service worker, not to the
+  // session, so it outlives being signed out: a tablet sitting on a login
+  // screen kept reporting delivered pushes while nobody saw a single order.
+  // This is the one signal that tells a watched screen from a dead one.
+  //
+  // Fire-and-forget. A heartbeat that failed to record must never disturb the
+  // thing it is reporting on.
+  useEffect(() => {
+    const beat = () => {
+      void fetch("/api/dashboard/heartbeat", { method: "POST" }).catch(() => {});
+    };
+    beat();
+    const id = setInterval(beat, HEARTBEAT_EVERY_MS);
+    // Coming back to the foreground, say so immediately rather than waiting
+    // out the interval - a tablet that was backgrounded is exactly when the
+    // monitor is closest to deciding nobody is there.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") beat();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

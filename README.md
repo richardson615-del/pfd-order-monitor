@@ -551,6 +551,19 @@ tablet. Alerting on all of them would bury the ones that matter.
 |---|---|---|
 | `app_alert_failed` | critical | An order never reached the tablet. Nobody watching it has been told the order exists |
 | `restaurant_no_app_device:<id>` | warning | `app_expected` is on, but no device has notifications enabled — nothing can alert |
+| `tablet_not_watching:<id>` | critical | Orders are arriving and no signed-in dashboard has been open. The tablet is signed out or closed |
+
+**A signed-out tablet used to look perfectly healthy.** A push subscription
+belongs to the browser's service worker, not to the session, so it outlives
+being signed out: the tablet sat on a login screen, push kept reporting
+delivered, and every check read green while nobody saw an order. The dashboard
+now says "I am open and signed in" every two minutes (migration 024), and
+`tablet_not_watching` fires when that stops.
+
+That check is gated on **orders actually arriving**, which is what makes it
+liveable. A closed restaurant has its tablet off and that is not a fault -
+without the gate it would fire at four in the morning, every morning, and then
+be muted before the night it mattered.
 
 **The printer never answers for the tablet.** `app_alert_failed` was briefly
 softened to a warning when a paper ticket had also gone out, on the reasoning

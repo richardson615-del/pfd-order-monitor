@@ -16,6 +16,16 @@
 export type Connection = "live" | "connecting" | "down";
 
 /**
+ * How often the dashboard says it is open and signed in.
+ *
+ * Two minutes against a fifteen-minute staleness threshold, so a browser
+ * throttling timers on a backgrounded tab has to miss seven in a row before
+ * anybody is told. A heartbeat that cries wolf on ordinary throttling is one
+ * people learn to ignore.
+ */
+export const HEARTBEAT_EVERY_MS = 2 * 60_000;
+
+/**
  * An order nobody is waiting on any more, so nothing here may sound an alert.
  * A cancelled order in particular must never chime: the whole point of a
  * cancellation is that the food is NOT to be made.

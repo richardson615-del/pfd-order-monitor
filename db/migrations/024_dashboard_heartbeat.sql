@@ -31,6 +31,20 @@ create table if not exists dashboard_heartbeats (
 create index if not exists dashboard_heartbeats_seen_idx
   on dashboard_heartbeats (last_seen_at);
 
+-- RLS on, and deliberately NO policies.
+--
+-- Nothing legitimate touches this table with an anon or authenticated key:
+-- the heartbeat is written by the endpoint through the service role, and the
+-- health snapshot reads it the same way, and the service role bypasses RLS.
+-- So no policy is missing - the absence of one is the rule, and it denies
+-- every client.
+--
+-- Without this line the table is readable by anyone holding the anon key,
+-- which for a row saying which restaurants are open and what device is on
+-- their wall is more than nothing. Supabase's SQL editor flags exactly this,
+-- and it was right to.
+alter table dashboard_heartbeats enable row level security;
+
 comment on table dashboard_heartbeats is
   'When a signed-in dashboard was last open for this restaurant. One row per restaurant, not per device: with two tablets, one being alive masks the other. Deliberate for now - the failure worth catching is nobody watching at all, and a per-device model needs a device identity the browser does not have.';
 comment on column dashboard_heartbeats.last_seen_at is

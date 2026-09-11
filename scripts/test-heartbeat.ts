@@ -153,6 +153,24 @@ test("an unreadable heartbeat table skips the check rather than accusing everyon
   assert.match(health, /skipping the not-watching check/);
 });
 
+console.log("\nthe table:");
+
+const migration = readFileSync(
+  new URL("../db/migrations/024_dashboard_heartbeat.sql", import.meta.url),
+  "utf8"
+);
+
+test("row level security is on, with no policies", () => {
+  // Nothing legitimate touches this with an anon or authenticated key - both
+  // the write and the read go through the service role, which bypasses RLS.
+  // So no policy is missing; the absence of one IS the rule, and it denies
+  // every client. Without the line the table is readable by anyone holding
+  // the anon key, which for rows saying which restaurants are open and what
+  // device is on their wall is more than nothing.
+  assert.match(migration, /enable row level security/);
+  assert.doesNotMatch(migration, /create policy/i);
+});
+
 console.log("\nthe endpoint:");
 
 const route = readFileSync(

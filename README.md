@@ -592,6 +592,82 @@ ticket physically exists, and an alert on a screen is not that.
 
 ---
 
+## 12. Checking which migrations are applied
+
+Migrations here are `.sql` files pasted into the Supabase SQL Editor by hand.
+Nothing runs them for you, and until now nothing recorded which had been run —
+so "did that migration land?" was answered by something breaking, on the live
+print pipeline.
+
+**Open [`/api/health`](https://pfd-order-monitor.vercel.app/api/health).** No
+auth — an uptime pinger can't authenticate, and neither can somebody trying to
+find out why the printers stopped at eight on a Friday.
+
+Healthy:
+
+```json
+{ "ok": true,
+  "checks": { "database": true, "schema": true,
+              "zuppler_webhook": true, "push": true } }
+```
+
+Missing one — `503`, naming the files to run, in order:
+
+```json
+{ "ok": false,
+  "checks": { "database": true, "schema": false, ... },
+  "failing": ["schema"],
+  "schemaMismatch": {
+    "message": "This database is missing 1 migration(s) the deployed code needs.",
+    "missingMigrations": ["db/migrations/021_order_accepted.sql"]
+  } }
+```
+
+It reports booleans and filenames only — never a key, a restaurant or an order.
+
+### Why it probes the schema instead of keeping a migrations table
+
+The CRM answers this from a `schema_migrations` table its own runner
+maintains. Copying that here would have made things worse: with migrations
+applied by hand, nothing would keep such a table honest, and **a bookkeeping
+table that quietly disagrees with the database is more dangerous than no table
+— because it gets believed.**
+
+So each requirement in `lib/schema-check.ts` names one thing a migration adds,
+and the probe goes through the same PostgREST client the app uses. It tests
+what a real request would hit, including the schema cache, and it cannot be
+fooled by someone forgetting to record a migration.
+
+Anything it can't recognise as "this column does not exist" is reported as
+**unchecked, never missing**. A health check that cries wolf during a network
+blip is one people learn to ignore, and being ignored is the only way this
+fails at its job.
+
+### Migrations with nothing to probe
+
+A migration that only backfills data adds no column, so it can't appear in
+that list. `022_printer_expected_backfill` is the current example — check it
+directly:
+
+```sql
+select count(*) as "restaurants with a printer but not flagged"
+  from restaurants r
+ where r.printer_expected = false
+   and exists (select 1 from print_devices d
+                where d.restaurant_id = r.id and d.is_active);
+```
+
+`0` means it's applied, or there was nothing to fix.
+
+### When you add a migration
+
+If it adds a column or table the code relies on, add a line to
+`REQUIRED_SCHEMA` in `lib/schema-check.ts`. A test asserts every entry names a
+real file in `db/migrations/`, so a typo fails CI rather than producing a
+health check that silently passes.
+
+---
+
 ## Database schema
 
 See [`db/schema.sql`](./db/schema.sql) for the full schema with comments.

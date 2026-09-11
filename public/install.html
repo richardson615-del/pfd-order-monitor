@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install PFD Orders</title>
+<style>
+  :root {
+    --ink: #0f1420;
+    --paper: #f7f7f5;
+    --card: #ffffff;
+    --line: #d9dce3;
+    --muted: #5b6472;
+    --accent: #b3391f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding-block: 32px;
+    padding-inline: 20px;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 33rem; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  a.get {
+    display: block;
+    text-align: center;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1.1rem;
+    padding: 16px;
+    border-radius: 8px;
+  }
+  ol { margin: 0; padding-left: 1.3em; }
+  li { margin-bottom: 10px; }
+  li:last-child { margin-bottom: 0; }
+  h2 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .note { font-size: 0.9rem; color: var(--muted); }
+  code {
+    background: #eceef2;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  strong { font-weight: 650; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Install PFD Orders</h1>
+  <p class="sub">Open this page <strong>on the tablet</strong>, not on a computer.</p>
+
+  <div class="card">
+    <a class="get" href="/app/pfd-orders.apk" download>Download the app</a>
+    <p class="note" style="margin-bottom:0;margin-top:14px">
+      About 1&nbsp;MB. Android will ask whether to allow installing from Chrome &mdash;
+      that prompt is normal, say yes.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>After it downloads</h2>
+    <ol>
+      <li>Open the downloaded file and tap <strong>Install</strong>.</li>
+      <li>Open <strong>PFD Orders</strong> from the home screen.</li>
+      <li>Sign in with the username and password from the CRM.</li>
+      <li>Tap <strong>Enable notifications</strong> and allow it. Nothing will chime until this is done, and it can only be done here on the device.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Then, from the office</h2>
+    <ol>
+      <li>Send a <strong>Test order</strong> from the CRM and check it reports reaching at least one device. Zero means notifications were not enabled.</li>
+      <li>Press <strong>Accept</strong> on the tablet to stop the chiming. Only Accept stops it.</li>
+      <li>Only once that works, turn the tablet on for the restaurant.</li>
+    </ol>
+  </div>
+
+  <p class="note">
+    If the download is blocked, open Chrome's menu &rarr; Downloads and tap the file there.
+    The app updates itself whenever the dashboard changes &mdash; you only reinstall
+    if this page says to.
+  </p>
+</main>
+</body>
+</html>

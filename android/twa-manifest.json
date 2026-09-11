@@ -1,0 +1,39 @@
+{
+  "packageId": "com.pfdworks.orders",
+  "host": "pfd-order-monitor.vercel.app",
+  "name": "PFD Order Monitor",
+  "launcherName": "PFD Orders",
+  "display": "standalone",
+  "themeColor": "#111827",
+  "themeColorDark": "#111827",
+  "navigationColor": "#111827",
+  "navigationColorDark": "#111827",
+  "navigationDividerColor": "#111827",
+  "navigationDividerColorDark": "#111827",
+  "backgroundColor": "#0f1420",
+  "enableNotifications": true,
+  "startUrl": "/dashboard",
+  "iconUrl": "https://pfd-order-monitor.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://pfd-order-monitor.vercel.app/icons/icon-512.png",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "signingKey": {
+    "path": "C:\\Users\\richa\\OneDrive\\pfd-app-signing\\pfd-orders.keystore",
+    "alias": "pfd-orders"
+  },
+  "webManifestUrl": "https://pfd-order-monitor.vercel.app/manifest.json",
+  "fallbackType": "webview",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://pfd-order-monitor.vercel.app/",
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "splashScreenFadeOutDuration": 300,
+  "generatorApp": "bubblewrap-cli"
+}

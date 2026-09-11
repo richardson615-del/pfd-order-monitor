@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.pfdworks.orders",
+      "sha256_cert_fingerprints": [
+        "18:FD:3B:DB:E2:01:F3:CB:7D:0F:EA:D8:29:27:7C:A0:BF:49:AA:77:A1:D1:BB:9A:7B:A7:CC:A0:7A:B7:0E:56"
+      ]
+    }
+  }
+]

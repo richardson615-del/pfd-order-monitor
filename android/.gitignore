@@ -1,0 +1,20 @@
+# Gradle's own working state.
+.gradle/
+build/
+app/build/
+local.properties
+
+# Build outputs. The APK that tablets actually install is committed at
+# public/app/pfd-orders.apk, because a restaurant installs it by opening a URL
+# on the tablet - so the served copy is the one that has to be current, and a
+# second copy here would only ever be a stale rival to it.
+*.apk
+*.aab
+
+# The signing key NEVER belongs in the repository. It lives in
+# OneDrive/pfd-app-signing/ so it is backed up, and losing it means no tablet
+# with the app installed can ever be updated again.
+*.keystore
+*.jks
+keystore-password.txt
+*.idsig

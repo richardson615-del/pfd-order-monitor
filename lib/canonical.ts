@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "./supabase-server";
-import { notifyRestaurant } from "./push";
+import { notifyRestaurant, type PushResult } from "./push";
 import { resolveFooter } from "./footer-engine";
 
 /**
@@ -397,7 +397,7 @@ export async function ingestOrder(
 async function attempt(
   what: string,
   orderId: string,
-  fn: () => Promise<void>
+  fn: () => Promise<unknown>
 ): Promise<void> {
   try {
     await fn();
@@ -521,14 +521,14 @@ export function appDeliveryOutcome(
  * a mute tablet there is not a fault worth anyone's attention - the same
  * judgement printer_expected already makes for printers.
  */
-async function deliverToApp(args: {
+export async function deliverToApp(args: {
   orderId: string;
   restaurantId: string;
   appExpected: boolean;
   orderNumber: string;
   customerName?: string | null;
   customerTotal?: number | null;
-}): Promise<void> {
+}): Promise<PushResult> {
   const admin = supabaseAdmin();
 
   // Written BEFORE the send, same as the email leg: a crash mid-send should
@@ -546,7 +546,7 @@ async function deliverToApp(args: {
       // alerted, which is the idempotency guarantee doing its job on a
       // retried webhook. Do not push again - a second alert for one order
       // reads to staff as a second order.
-      if (jobError.code === "23505") return;
+      if (jobError.code === "23505") return { subscriptions: 0, sent: 0, failed: 0 };
       console.error("app alert: could not record job", jobError.message);
     } else {
       jobId = job.id;
@@ -561,7 +561,7 @@ async function deliverToApp(args: {
     orderId: args.orderId,
   });
 
-  if (!jobId) return;
+  if (!jobId) return push;
 
   const now = new Date().toISOString();
   const outcome = appDeliveryOutcome(push, now);
@@ -590,6 +590,8 @@ async function deliverToApp(args: {
       finished_at: now,
     })
     .eq("id", jobId);
+
+  return push;
 }
 
 /**

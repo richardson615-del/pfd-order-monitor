@@ -147,6 +147,32 @@ terms, and a site running both must not get a quieter alert than a tablet-only
 one. `restaurant_no_app_device` is a warning: `app_expected` is on but no device
 has notifications enabled, so nothing can alert.
 
+### Test order to the tablet
+
+```
+POST /api/crm/restaurants/:id/test-order
+```
+
+Sends a test order to the restaurant's TABLET: the screen lights up, chimes,
+and the order can be opened and accepted like any other. The only way to know
+a newly installed tablet works before a customer finds out it does not.
+
+**Never prints.** The paper path has its own test, and a tablet test that also
+produced a ticket would put a fake order on the spike in a working kitchen.
+Safe to point at a live restaurant: the order is `source: 'test'`, says on its
+face that it is not real, and touches nothing the printer reads.
+
+| status | meaning |
+|---|---|
+| `200 { ok: true, devices_reached }` | The tablet should be chiming |
+| `409` | No device has notifications enabled — checked *before* an order is written, because with nothing to push to the test tells nobody anything |
+| `502` | The order was created and reached none of the registered devices — tablet offline, or permission revoked |
+
+It works **before** `app_expected` is turned on, and returns a `warning` saying
+so. That order matters: prove the tablet chimes first, then turn
+`app_expected` on. Reversed, every order raises a critical `app_alert_failed`
+until somebody enables notifications.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

@@ -72,18 +72,46 @@ test("it shows what the callback could not do", () => {
   assert.match(login, /useState<string \| null>\(params\.get\("error"\)\)/);
 });
 
-test("it cannot create an account for an address nobody invited", () => {
-  // The cause of the original report. Left at its default, signInWithOtp
-  // creates a user for any address typed in - and a NEW user gets a "confirm
-  // your email" rather than a sign-in link, which lands back on this form
-  // having quietly made an account belonging to no restaurant.
-  assert.match(login, /shouldCreateUser: false/);
+test("it signs in with a username and password", () => {
+  // A kitchen tablet is shared, runs locked to one app, and has no inbox
+  // anyone is watching - so a sign-in link had nowhere to arrive.
+  assert.match(login, /signInWithPassword/);
+  assert.match(login, /usernameToEmail\(username\)/);
 });
 
-test("'signups not allowed' is translated into who can fix it", () => {
+test("a wrong password and an unknown username read the same", () => {
+  // This form is on the public internet. Splitting them apart confirms which
+  // usernames exist, which is a favour to nobody except somebody guessing.
+  assert.match(login, /didn't match/);
+  assert.doesNotMatch(login, /no such user|user not found/i);
+});
+
+test("it navigates properly rather than pushing a route", () => {
+  // The session lives in cookies the server has to read; a client-side
+  // transition arrives before they are set and bounces straight back.
+  assert.match(login, /window\.location\.assign\(next\)/);
+});
+
+test("the email-link fallback survives, so nobody is locked out", () => {
+  // PFD admins have real addresses, and anyone from before usernames has an
+  // account with no password at all.
+  assert.match(login, /signInWithOtp/);
+  assert.match(login, /Sign in with an email link instead/);
+});
+
+test("the fallback still cannot create an account for an address nobody invited", () => {
+  // The cause of the original report. Left at its default, signInWithOtp
+  // creates a user for any address typed in - and a NEW user gets a "confirm
+  // your email" rather than a sign-in link.
+  assert.match(login, /shouldCreateUser: false/);
   assert.match(login, /signups\? not allowed/i);
   assert.match(login, /hasn't been set up yet/);
-  assert.match(login, /Ask PFD/);
+});
+
+test("it says a forgotten password is replaced, not emailed", () => {
+  // There is no reset email for an address that receives nothing, and the
+  // form must not imply one is coming.
+  assert.match(login, /PFD can set a new one/);
 });
 
 console.log(`\n${passed} assertions passed.`);

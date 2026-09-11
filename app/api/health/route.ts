@@ -43,7 +43,7 @@ export async function GET() {
   // failure already reported.
   const schema = database
     ? await checkSchema()
-    : { ok: true, missing: [] as string[], unchecked: 0 };
+    : { ok: true, missing: [] as string[], unreadable: false };
 
   const checks = {
     database,
@@ -65,19 +65,25 @@ export async function GET() {
   if (failing.length > 0) {
     body.failing = failing;
     if (!schema.ok) {
-      body.schemaMismatch = {
-        message:
-          `This database is missing ${schema.missing.length} migration(s) the deployed code needs. ` +
-          `Run them in the Supabase SQL Editor, in order.`,
-        missingMigrations: schema.missing.map((m) => `db/migrations/${m}.sql`),
-      };
+      body.schemaMismatch = schema.unreadable
+        ? {
+            // Distinct from "migrations are missing", and the fix is
+            // different: nothing has recorded a migration here, which means
+            // the runner has never run - almost always MIGRATION_DATABASE_URL
+            // not being set on the deployment.
+            message:
+              "Could not read schema_migrations, so it is unknown which migrations this database has. " +
+              "Usually MIGRATION_DATABASE_URL is unset, so scripts/migrate.mjs never ran.",
+            missingMigrations: [],
+          }
+        : {
+            message:
+              `This database is missing ${schema.missing.length} migration(s) the deployed code needs. ` +
+              `They apply themselves on the next deploy; run them by hand only if that cannot wait.`,
+            missingMigrations: schema.missing.map((m) => `db/migrations/${m}`),
+          };
     }
   }
-
-  // Surfaced even when everything passes: probes that could not be run are
-  // not failures, but "ok" while a third of the checks never happened is the
-  // kind of green that gets trusted wrongly.
-  if (schema.unchecked > 0) body.schemaUnchecked = schema.unchecked;
 
   return NextResponse.json(body, { status: failing.length === 0 ? 200 : 503 });
 }

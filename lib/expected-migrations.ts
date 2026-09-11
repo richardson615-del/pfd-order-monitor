@@ -26,4 +26,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "023_restaurant_login_audit.sql",
   "024_dashboard_heartbeat.sql",
   "025_monitor_alerts_rls.sql",
+  "026_restaurant_login_password.sql",
 ];

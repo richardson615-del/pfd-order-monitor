@@ -25,6 +25,21 @@ function test(name: string, fn: () => void) {
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const route = src("app/api/crm/restaurants/[id]/logins/route.ts");
 const migration = src("db/migrations/023_restaurant_login_audit.sql");
+const storeMigration = src("db/migrations/026_restaurant_login_password.sql");
+
+/**
+ * Just the reveal branch of GET.
+ *
+ * Delimited on the listing query's own comment rather than "const { data:
+ * links }", which also appears inside findLink ABOVE the branch - slicing on
+ * that produced an empty string, and two assertions passed against nothing.
+ */
+function revealBranch(): string {
+  const start = route.indexOf("const reveal =");
+  const end = route.indexOf("// getUserById per link");
+  assert.ok(start > -1 && end > start, "could not isolate the reveal branch");
+  return route.slice(start, end);
+}
 
 console.log("scoping:");
 
@@ -53,11 +68,24 @@ test("listing does not page-limit its way into being wrong", () => {
 
 console.log("\nauditing:");
 
-test("both writes record who did it", () => {
+test("every write AND every reveal records who did it", () => {
+  // Three now, not two. Reveal reads a credential, which is exactly what
+  // migration 015 decided was worth recording - a stored password that could
+  // be shown without a trace would be strictly worse than the one-shot
+  // password it replaced.
   const audits = route.match(/await audit\(\{/g) ?? [];
-  assert.equal(audits.length, 2, "create and reset must both be recorded");
+  assert.equal(audits.length, 3, "create, reset and reveal must all be recorded");
   assert.match(route, /action: "created"/);
   assert.match(route, /action: "password_reset"/);
+  assert.match(route, /action: "password_shown"/);
+});
+
+test("the audit table actually accepts a reveal", () => {
+  // 023's CHECK allows only created/password_reset. Without widening it, every
+  // reveal would fail to record while still returning the password - an audit
+  // trail that is quietly partial, which is the worst state for one to be in.
+  assert.match(storeMigration, /password_shown/);
+  assert.match(storeMigration, /add constraint restaurant_login_audit_action_check/);
 });
 
 test("an unnamed actor is recorded as null, never guessed", () => {
@@ -92,9 +120,72 @@ test("deleting a restaurant does not erase its login history", () => {
 
 console.log("\nwhat the responses say:");
 
-test("a password is described as shown once and unrecoverable", () => {
-  assert.match(route, /Shown once/);
-  assert.match(route, /replaced, not recovered/);
+test("a new password says it can be shown again", () => {
+  // The old copy said "Nothing can retrieve it". Leaving that in place while
+  // the CRM grew a Show password button would have people resetting a working
+  // login to recover a password they could simply have looked at - and a reset
+  // breaks the next tablet that signs in with the sticky note.
+  assert.match(route, /show it again/);
+  assert.doesNotMatch(route, /replaced, not recovered/);
+});
+
+console.log("\nshowing a password again:");
+
+test("reveal is a separate request, not a field on the list", () => {
+  // Opening the panel to see WHO can sign in must not read a credential, or
+  // the audit row stops meaning anything.
+  assert.match(route, /searchParams\.get\("reveal"\)/);
+  const listBlock = route.slice(route.indexOf("const logins = []"), route.indexOf("export async function POST"));
+  assert.doesNotMatch(listBlock, /password_current,$/m);
+  assert.match(listBlock, /has_password: Boolean\(/);
+});
+
+test("reveal is scoped to the restaurant in the URL", () => {
+  // Same rule as reset: a restaurant-scoped route must not hand back a
+  // password belonging to someone else because the username was spelled right.
+  const revealBlock = revealBranch();
+  assert.match(revealBlock, /findLink\(restaurant\.id, reveal\)/);
+  assert.match(revealBlock, /is not a login for/);
+});
+
+test("reveal changes nothing", () => {
+  // The whole point over "New password": recovering a lost password must not
+  // invalidate the tablet still running on the old one.
+  const revealBlock = revealBranch();
+  assert.doesNotMatch(revealBlock, /updateUserById/);
+  assert.doesNotMatch(revealBlock, /generatePassword/);
+});
+
+test("a login from before this feature says reset, not error", () => {
+  // Its only copy is Supabase's hash. Saying so is the difference between a
+  // usable instruction and a button that appears broken.
+  assert.match(route, /before passwords were kept/);
+  assert.match(route, /status: 409/);
+});
+
+test("the password is stored only after Supabase accepted it", () => {
+  // Storing first would leave the CRM confidently showing a password that does
+  // not work, which is worse than showing none at all.
+  const patch = route.slice(route.indexOf("export async function PATCH"));
+  assert.ok(
+    patch.indexOf("updateUserById") < patch.indexOf("password_current:"),
+    "the update must precede the store"
+  );
+});
+
+test("a failed store does not fail a password that did change", () => {
+  // The new password is live and is in the response; erroring here would tell
+  // the caller it had not worked when it had.
+  const patch = route.slice(route.indexOf("export async function PATCH"));
+  assert.match(patch, /console\.error\("login password not stored/);
+});
+
+test("the column is service-role only", () => {
+  assert.match(storeMigration, /restaurant_users/);
+  assert.match(storeMigration, /password_current/);
+  // The decision is recorded where the next person will look, rather than
+  // reading as an oversight.
+  assert.match(storeMigration, /Service role only/i);
 });
 
 test("a reset says it does not rescue a tablet already signed in", () => {

@@ -3,7 +3,7 @@ import { randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_THRESHOLDS } from "@/lib/health";
-import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
+import { markPrinterExpected, resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 
 export const dynamic = "force-dynamic";
 
@@ -107,6 +107,12 @@ export async function POST(req: NextRequest) {
     .select("id, name, is_active, created_at")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Registering a printer IS the statement that this site is meant to have
+  // one, and it is the only moment anyone makes it. Nothing wrote this
+  // between migration 014 and 022, which left the "No printer" warning unable
+  // to fire for every restaurant onboarded through this console.
+  await markPrinterExpected(restaurant.id);
 
   return NextResponse.json({
     device: { ...data, restaurant: { id: restaurant.id, name: restaurant.name } },

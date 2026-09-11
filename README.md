@@ -592,7 +592,33 @@ ticket physically exists, and an alert on a screen is not that.
 
 ---
 
-## 12. Checking which migrations are applied
+## 12. The public demo page
+
+`/demo.html` is a working, no-login demo of the order tablet — send an order,
+hear it chime, open the ticket, press Accept. Safe to send to anyone: invented
+orders, no server behind it, nothing that touches a restaurant.
+
+```
+https://pfd-order-monitor.vercel.app/demo.html
+```
+
+It is **generated**, not hand-written:
+
+```bash
+npm run build:demo     # rewrites public/demo.html
+```
+
+The ticket comes from `buildTicket()` — the same function the printer receives
+— styled with `ticketLineClass()`, the same rules the in-app screen uses, and
+`app/globals.css` is inlined verbatim. **Re-run it after changing the ticket or
+the stylesheet**, or the demo quietly starts showing customers something the
+kitchen never sees. That is the whole reason it is a generator: a page written
+once by hand goes stale and nothing says so.
+
+`noindex` is set. It is reachable by anyone with the link, which is the point,
+but it should not turn up in a search for the restaurant.
+
+## 13. Checking which migrations are applied
 
 Migrations here are `.sql` files pasted into the Supabase SQL Editor by hand.
 Nothing runs them for you, and until now nothing recorded which had been run —

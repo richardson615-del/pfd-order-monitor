@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PFD Order Tablet - Demo</title>
+<meta name="description" content="A working demo of the PFD kitchen order tablet. Invented orders, no login.">
+<meta name="robots" content="noindex">
+<style>
+:root {
+  --bg: #0f1420;
+  --panel: #171d2b;
+  --panel-2: #1f2637;
+  --border: #2a3245;
+  --text: #e7ebf3;
+  --text-dim: #9aa4b8;
+  --accent: #4f8cff;
+  --new: #ff5a5f;
+  --opened: #f5a524;
+  --completed: #2ecc71;
+  --printed: #6c7a94;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+a { color: var(--accent); text-decoration: none; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px;
+  padding-bottom: 80px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(15, 20, 32, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.btn.small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 0;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tab.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.order-card {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.order-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+}
+
+.order-card.status-new::before { background: var(--new); }
+.order-card.status-opened::before { background: var(--opened); }
+.order-card.status-completed::before { background: var(--completed); }
+.order-card.status-printed::before { background: var(--printed); }
+
+.order-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.order-number {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.order-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.order-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* Which platform the order came from. Deliberately quiet: it answers a
+   question staff ask occasionally, and must not compete with the order
+   number, the total or the status for attention on a screen read at a glance
+   from across a kitchen. */
+.order-source {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  margin-left: 8px;
+}
+
+.badge.status-new { background: rgba(255,90,95,0.18); color: var(--new); }
+.badge.status-opened { background: rgba(245,165,36,0.18); color: var(--opened); }
+.badge.status-completed { background: rgba(46,204,113,0.18); color: var(--completed); }
+.badge.status-printed { background: rgba(108,122,148,0.18); color: var(--printed); }
+
+/* The kiosk status strip.
+   Appears only when something is wrong, because a permanent banner becomes
+   furniture and furniture is not read. Sized to be legible from across a
+   kitchen, since the person who can fix it is walking past, not leaning in. */
+.kiosk-banner {
+  padding: 14px 16px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.kiosk-critical { background: var(--new); color: #fff; }
+.kiosk-warning { background: var(--opened); color: #1a1200; }
+
+/* Why the room is beeping. A fault banner and a work banner are different
+   things and must not look alike - this one is not a problem, it is the
+   tablet doing its job. */
+.waiting-bar {
+  padding: 14px 16px;
+  text-align: center;
+  font-size: 19px;
+  font-weight: 800;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Accept is what stops the chime, so it is the largest thing on the bar. On a
+   screen read from across a kitchen, the control that silences the room
+   should not be the same size as "Print". */
+.btn.accept {
+  background: var(--new);
+  border-color: var(--new);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  padding: 14px 26px;
+  flex: 1;
+  justify-content: center;
+}
+
+.accepted-mark {
+  flex: 1;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--completed);
+  align-self: center;
+}
+
+.badge.status-cancelled { background: rgba(255,90,95,0.18); color: var(--new); }
+.order-card.status-cancelled::before { background: var(--new); }
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-dim);
+}
+
+/* ---------------------------------------------------------------------------
+   The order, on screen, as the ticket it prints as.
+
+   Rendered from the same buildTicket() lines the printer receives, so this is
+   the ticket rather than a picture of one. Every rule here exists to carry a
+   thermal printer's emphasis onto a screen: bold, double height, double width,
+   and reverse video, which is the strongest thing ESC/POS has and is spent on
+   the one fact that decides where the food goes.
+--------------------------------------------------------------------------- */
+.receipt {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.receipt-paper {
+  background: #fff;
+  color: #000;
+  font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+  /* Exactly 48 columns, the paper's own width, sized to fill a tablet without
+     spilling off it. The floor keeps a phone from collapsing the column; the
+     ceiling stops a desktop rendering it comically large. */
+  font-size: clamp(11px, 2.4vw, 22px);
+  line-height: 1.25;
+  width: min(calc(48ch + 36px), 100%);
+  padding: 22px 18px 28px;
+  border-radius: 4px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  /* Double-height lines are laid out at 200% and squeezed back with a
+     transform, which is visual only - their layout box stays twice as wide.
+     Without this the paper gets dragged off the side of the screen by lines
+     that look like they fit perfectly. */
+  overflow: hidden;
+}
+
+/* Padding spaces carry the layout - every column on this ticket is aligned
+   with them - so they must not be collapsed. */
+.tl {
+  white-space: pre;
+  min-height: 1.25em;
+}
+
+.tl-b { font-weight: 700; }
+.tl-c { text-align: center; }
+.tl-r { text-align: right; }
+.tl-rev { background: #000; color: #fff; }
+
+/* Double width AND height. buildTicket lays these lines out at 24 columns
+   because the head halves them, so at 2em they land back at exactly 48. */
+.tl-2x {
+  font-size: 2em;
+  line-height: 1.15;
+}
+
+/* Double HEIGHT only. The line is laid out at the full 48 columns, so at 2em
+   it needs twice the room and is then squeezed back horizontally: characters
+   end up one column wide and two lines tall, which is what the printer does.
+   Centring survives because the box is scaled from its left edge, so its
+   midpoint lands on the parent's midpoint. */
+.tl-2h {
+  font-size: 2em;
+  line-height: 1.15;
+  width: 200%;
+  transform: scaleX(0.5);
+  transform-origin: left center;
+}
+
+.tl-note {
+  color: #767676;
+  font-style: italic;
+}
+
+/* Printing from the tablet prints the ticket, not the app around it. */
+@media print {
+  .no-print { display: none !important; }
+  html, body { background: #fff; color: #000; }
+  .page { padding: 0; }
+  .receipt { padding: 0; }
+  .receipt-paper { box-shadow: none; border-radius: 0; width: 100%; }
+}
+
+
+.viewer-frame {
+  width: 100%;
+  height: calc(100vh - 130px);
+  border: none;
+  background: white;
+  border-radius: 12px;
+}
+
+.action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  /* Four controls now (Call, Print, Accept, Mark complete) where there were
+     two. On a tablet they sit in one row; on a phone they did not fit and the
+     last one was clipped off the right edge - and the clipped one is the
+     action, not an ornament. Wrapping is the whole fix. */
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+/* A basis rather than flex:1 alone, so a wrapped row divides evenly instead
+   of leaving one button stretched across the width on its own. */
+.action-bar .btn { flex: 1 1 8rem; justify-content: center; }
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.form input, .form select {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 15px;
+}
+
+.form label {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: -6px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 15px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+table.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+table.admin-table th, table.admin-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.muted { color: var(--text-dim); }
+.error-text { color: var(--new); font-size: 13px; }
+.success-text { color: var(--completed); font-size: 13px; }
+
+</style>
+<style>
+  /* Demo harness. Prefixed dx- throughout so nothing can collide with the app
+     stylesheet above, which is inlined unmodified. */
+  body { background: #090c12; }
+  .dx-wrap { max-width: 1140px; margin: 0 auto; padding: 32px 20px 72px; }
+  .dx-head { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 26px; }
+  .dx-head h1 { font-size: clamp(24px, 5vw, 34px); margin: 0 0 8px; letter-spacing: -0.02em; color: var(--text); }
+  .dx-head p { margin: 0 0 10px; color: var(--text-dim); font-size: 15px; line-height: 1.55; max-width: 64ch; }
+  .dx-note {
+    margin-top: 14px; padding: 10px 13px; border-radius: 8px;
+    background: rgba(79,140,255,0.1); border: 1px solid rgba(79,140,255,0.35);
+    color: var(--text-dim); font-size: 13.5px; line-height: 1.5;
+  }
+  .dx-note b { color: var(--text); }
+  .dx-stage { display: grid; gap: 26px; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 860px) { .dx-stage { grid-template-columns: 1fr; } }
+  .dx-device { border: 11px solid #222839; border-radius: 24px; background: var(--bg); overflow: hidden; box-shadow: 0 22px 60px rgba(0,0,0,0.6); }
+  .dx-screen { height: 640px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .dx-screen .action-bar { position: sticky; bottom: 0; }
+  /* The app sizes the ticket in vw, which is correct on a real tablet where
+     the viewport IS the device. Here the device is a small frame inside a
+     larger page, so vw over-sizes the 48-column ticket. Harness-only; the
+     app's own stylesheet is untouched and fills a real screen as designed. */
+  .dx-screen .receipt-paper { font-size: 11px; }
+  .dx-panel { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 16px; }
+  .dx-panel + .dx-panel { margin-top: 14px; }
+  .dx-panel h2 { font-size: 14px; margin: 0 0 4px; color: var(--text); }
+  .dx-panel p { margin: 0 0 12px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+  .dx-panel p:last-child { margin-bottom: 0; }
+  .dx-btn {
+    display: block; width: 100%; text-align: left; padding: 11px 13px; margin-bottom: 8px;
+    border-radius: 9px; border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--text); font-size: 14px; font-weight: 600; font-family: inherit;
+  }
+  .dx-btn:last-child { margin-bottom: 0; }
+  .dx-btn:hover { border-color: var(--accent); }
+  .dx-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dx-btn small { display: block; font-weight: 400; color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+  .dx-btn[aria-pressed="true"] { border-color: var(--new); background: rgba(255,90,95,0.12); }
+  .dx-steps { margin: 0; padding-left: 1.1em; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+  .dx-steps li { margin-bottom: 7px; }
+  .dx-steps b { color: var(--text); }
+  .dx-foot { margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 12.5px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="dx-wrap">
+  <header class="dx-head">
+    <h1>PFD Order Tablet</h1>
+    <p>
+      The kitchen tablet, running. The ticket is produced by the same renderer that drives the
+      receipt printer, and the styling is the app's own &mdash; but the orders are invented and there
+      is no server behind this page, so nothing here touches a real restaurant.
+    </p>
+    <p class="dx-note">
+      <b>Turn your sound on.</b> The alert is the point. The red bar you see first is real behaviour
+      &mdash; a browser will not make a sound until someone has touched the screen, which is why a
+      tablet that starts itself up announces that it is silent rather than just being silent.
+    </p>
+  </header>
+
+  <div class="dx-stage">
+    <div class="dx-device"><div class="dx-screen" id="screen"></div></div>
+    <div>
+      <div class="dx-panel">
+        <h2>Try it</h2>
+        <ol class="dx-steps">
+          <li><b>Touch the screen</b> &mdash; the sound warning clears.</li>
+          <li><b>Send an order</b> &mdash; it arrives and starts chiming.</li>
+          <li><b>Tap the order</b> &mdash; it opens as the ticket. The chime keeps going.</li>
+          <li><b>Press Accept</b> &mdash; only this stops it.</li>
+        </ol>
+      </div>
+      <div class="dx-panel">
+        <h2>Controls</h2>
+        <button class="dx-btn" id="send">Send an order<small>As if one had just come in</small></button>
+        <button class="dx-btn" id="wifi" aria-pressed="false">Simulate a wifi drop<small>A screen that cannot reach the server says so</small></button>
+        <button class="dx-btn" id="reset">Reset<small>Back to an empty, freshly started tablet</small></button>
+      </div>
+      <div class="dx-panel">
+        <h2>What is real here</h2>
+        <p>The ticket layout, the styling, the sound rule, the chime, the wording of every banner, and the fact that only Accept silences it.</p>
+        <p>Not real: the orders, and the server. In the live app orders arrive the moment they are placed, and the screen re-checks every minute as a backstop.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="dx-foot">
+    Demonstration only &mdash; this is not a live order screen. The real app installs to an Android
+    tablet from the browser, with no app store.
+  </footer>
+</div>
+
+<script>
+const DEMO_ORDERS = [{"id":"demo0","number":"2bed4416","who":"Eileen Gutierrez","type":"Delivery","total":"$44.76","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Fri, Sep 11, 12:32 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #2bed4416     placed Fri, Sep 11, 11:52 AM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Eileen Gutierrez</div><div class=\"tl\">(931) 302-3610</div><div class=\"tl\"> </div><div class=\"tl tl-b\">254 Village Square, Pleasant View, 37146</div><div class=\"tl tl-b\">&gt;&gt; Gate code 4471</div><div class=\"tl tl-b\">&gt;&gt; Leave at side door</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  2   LOADED FRIES                        $13.00</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pepper x 1</div><div class=\"tl tl-b\">      &gt;&gt; No sour cream</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   SMASH BURGER                        $11.50</div><div class=\"tl tl-b\">      &gt;&gt; NO ONIONS</div><div class=\"tl tl-b\">      &gt;&gt; Add bacon</div><div class=\"tl tl-b\">      &gt;&gt; Medium well</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   CHOCOLATE MILKSHAKE                  $7.25</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $31.75</div><div class=\"tl\">Tax                                        $2.93</div><div class=\"tl\">Service                                    $1.59</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $6.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $44.76</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Allergy: shellfish. Ring the bell twice.</div></div></div>"},{"id":"demo1","number":"9fa21c07","who":"Marquita Clark","type":"Pickup","total":"$34.83","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  P I C K U P  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Fri, Sep 11, 12:16 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #9fa21c07     placed Fri, Sep 11, 11:53 AM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Marquita Clark</div><div class=\"tl\">(615) 555-0142</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  3   WINGS                               $24.00</div><div class=\"tl tl-b\">      &gt;&gt; Hot</div><div class=\"tl tl-b\">      &gt;&gt; Ranch on the side</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   LOADED FF                            $6.50</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pep. X 1</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $30.50</div><div class=\"tl\">Tax                                        $2.81</div><div class=\"tl\">Service                                    $1.52</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $34.83</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div></div></div>"},{"id":"demo2","number":"77c1e934","who":"Greg Bishop","type":"Delivery","total":"$74.53","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Fri, Sep 11, 12:49 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #77c1e934     placed Fri, Sep 11, 11:53 AM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Greg Bishop</div><div class=\"tl\">(931) 555-0177</div><div class=\"tl\"> </div><div class=\"tl tl-b\">88 Oak Ridge Rd, Ashland City, 37015</div><div class=\"tl tl-b\">&gt;&gt; Apartment 3B, buzzer broken</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  1   FAMILY PLATTER                      $48.00</div><div class=\"tl tl-b\">      &gt;&gt; No pork</div><div class=\"tl tl-b\">      &gt;&gt; Extra slaw</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  2   SWEET TEA                            $5.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $53.00</div><div class=\"tl\">Tax                                        $4.89</div><div class=\"tl\">Service                                    $2.65</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $9.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $74.53</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Please knock, doorbell does not work.</div></div></div>"}];
+
+let ctx = null;
+function audioContext() {
+  if (ctx) return ctx;
+  try {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return null;
+    ctx = new C();
+    return ctx;
+  } catch (e) { return null; }
+}
+async function armAudio() {
+  const c = audioContext();
+  if (!c) return false;
+  try { if (c.state !== "running") await c.resume(); } catch (e) {}
+  return c.state === "running";
+}
+function beep() {
+  const c = audioContext();
+  if (!c || c.state !== "running") return;
+  const now = c.currentTime;
+  [880, 1108].forEach(function (freq, i) {
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const start = now + i * 0.18;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.35, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.16);
+    osc.connect(gain).connect(c.destination);
+    osc.start(start);
+    osc.stop(start + 0.18);
+  });
+}
+
+const state = { orders: [], view: "list", openId: null, armed: false, offline: false, next: 0 };
+let chime = null;
+const waiting = () => state.orders.filter((o) => !o.accepted && o.status !== "completed");
+
+function syncChime() {
+  if (waiting().length && state.armed) {
+    if (!chime) { beep(); chime = setInterval(beep, 8000); }
+  } else if (chime) { clearInterval(chime); chime = null; }
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function banner() {
+  if (!state.armed) return '<div class="kiosk-banner kiosk-critical">Sound is off &mdash; touch the screen to turn on order alerts</div>';
+  if (state.offline) return '<div class="kiosk-banner kiosk-critical">Not receiving orders &mdash; reconnecting. Check this tablet\'s wifi.</div>';
+  return "";
+}
+
+function listView() {
+  const w = waiting().length;
+  const bar = w ? '<div class="waiting-bar">' + (w === 1 ? "1 order waiting &mdash; open it and press Accept" : w + " orders waiting &mdash; open each one and press Accept") + "</div>" : "";
+  const cards = state.orders.length
+    ? state.orders.map(function (o) {
+        const st = o.accepted ? (o.status === "completed" ? "completed" : "opened") : "new";
+        const label = o.accepted ? (o.status === "completed" ? "completed" : "accepted") : "new";
+        return '<a class="order-card status-' + st + '" data-open="' + o.id + '">' +
+          '<div class="order-card-top"><span class="order-number">Order #' + esc(o.number) +
+          '<span class="badge status-' + st + '">' + label + '</span></span>' +
+          '<span class="order-total">' + esc(o.total) + "</span></div>" +
+          '<div class="order-meta">' + esc(o.who) + " &middot; " + esc(o.type) + " &middot; just now</div>" +
+          '<span class="order-source">Zuppler</span></a>';
+      }).join("")
+    : '<div class="empty-state">No orders here yet.</div>';
+  return banner() + bar +
+    '<div class="topbar"><h1>PFD Orders</h1><span class="success-text">Notifications on</span></div>' +
+    '<div class="tabs"><button class="tab active">All</button><button class="tab">New (' + w + ')</button><button class="tab">Completed</button></div>' +
+    '<div class="order-list">' + cards + "</div>";
+}
+
+function ticketView() {
+  const o = state.orders.find((x) => x.id === state.openId);
+  if (!o) return listView();
+  return banner() +
+    '<div class="topbar"><span class="btn small" data-back="1">&larr; Back</span><h1>Order #' + esc(o.number) + "</h1>" +
+    '<span class="badge status-' + (o.accepted ? "opened" : "new") + '">' + (o.accepted ? "accepted" : "new") + "</span></div>" +
+    o.ticket +
+    '<div class="action-bar"><span class="btn">Call customer</span><span class="btn">Print</span>' +
+    (o.accepted
+      ? '<span class="accepted-mark">Accepted ' + esc(o.acceptedAt) + "</span>"
+      : '<button class="btn accept" data-accept="' + o.id + '">Accept order</button>') +
+    '<button class="btn primary" data-complete="' + o.id + '">Mark complete</button></div>';
+}
+
+function render() {
+  document.getElementById("screen").innerHTML = state.view === "ticket" ? ticketView() : listView();
+  syncChime();
+  document.getElementById("wifi").setAttribute("aria-pressed", String(state.offline));
+}
+
+async function onGesture() {
+  const ok = await armAudio();
+  const changed = ok !== state.armed;
+  state.armed = ok;
+  if (changed) render();
+}
+window.addEventListener("pointerdown", onGesture);
+window.addEventListener("keydown", onGesture);
+
+const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+document.getElementById("screen").addEventListener("click", function (e) {
+  const open = e.target.closest("[data-open]");
+  const back = e.target.closest("[data-back]");
+  const accept = e.target.closest("[data-accept]");
+  const complete = e.target.closest("[data-complete]");
+  if (open) { state.openId = open.dataset.open; state.view = "ticket"; render(); }
+  else if (back) { state.view = "list"; render(); }
+  else if (accept) {
+    const o = state.orders.find((x) => x.id === accept.dataset.accept);
+    if (o) { o.accepted = true; o.acceptedAt = now(); }
+    render();
+  } else if (complete) {
+    const o = state.orders.find((x) => x.id === complete.dataset.complete);
+    if (o) { o.status = "completed"; o.accepted = true; o.acceptedAt = o.acceptedAt || now(); }
+    state.view = "list"; render();
+  }
+});
+
+document.getElementById("send").addEventListener("click", function () {
+  const t = DEMO_ORDERS[state.next % DEMO_ORDERS.length];
+  state.next += 1;
+  state.orders.unshift(Object.assign({}, t, { id: t.id + "-" + state.next, accepted: false, status: "new" }));
+  state.view = "list";
+  render();
+});
+document.getElementById("wifi").addEventListener("click", function () { state.offline = !state.offline; render(); });
+document.getElementById("reset").addEventListener("click", function () {
+  state.orders = []; state.view = "list"; state.openId = null; state.offline = false; state.next = 0; render();
+});
+
+render();
+</script>
+</body>
+</html>

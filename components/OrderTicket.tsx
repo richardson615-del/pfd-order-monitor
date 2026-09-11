@@ -1,5 +1,5 @@
 import { Order } from "@/lib/types";
-import { buildTicket, type TicketLine } from "@/lib/ticket";
+import { buildTicket, ticketLineClass } from "@/lib/ticket";
 
 /**
  * The order, on screen, as the ticket it would print as.
@@ -20,17 +20,6 @@ import { buildTicket, type TicketLine } from "@/lib/ticket";
  * dot count; a screen does not, and sizes the whole ticket to fit instead.
  */
 
-const lineClass = (l: TicketLine): string => {
-  const c = ["tl"];
-  if (l.bold) c.push("tl-b");
-  if (l.reverse) c.push("tl-rev");
-  if (l.size === "double") c.push("tl-2x");
-  if (l.size === "double-h") c.push("tl-2h");
-  if (l.align === "center") c.push("tl-c");
-  if (l.align === "right") c.push("tl-r");
-  return c.join(" ");
-};
-
 export default function OrderTicket({ order }: { order: Order }) {
   const lines = buildTicket(order as any, 48, {}, { omitFooter: true });
 
@@ -47,7 +36,7 @@ export default function OrderTicket({ order }: { order: Order }) {
           ) : (
             // A blank line is a real part of the layout - it is what keeps
             // items from reading as one block - so it needs a height.
-            <div key={i} className={lineClass(l)}>
+            <div key={i} className={ticketLineClass(l)}>
               {l.text === "" ? " " : l.text}
             </div>
           )

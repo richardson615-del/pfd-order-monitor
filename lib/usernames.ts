@@ -80,19 +80,27 @@ export const isDerivedEmail = (email: string): boolean =>
  *
  * No l/1/I/O/0, for the same reason the device keys avoid them: these get
  * written on a sticky note and typed by someone who did not choose them.
- * Length over alphabet size - four words of five characters is stronger than
- * anything a kitchen would otherwise pick, and can be read aloud down a phone.
+ *
+ * Three groups of four, not the four groups of five this started as. That
+ * was 23 characters to thumb into a tablet while standing in a kitchen, and
+ * the length was buying strength nobody needed: 12 characters from a
+ * 31-character alphabet is around 59 bits, against an online login with no
+ * offline hash to attack. The real bound on guessing here is Supabase's rate
+ * limiting, not the twelfth character.
+ *
+ * Still read-aloud-able down a phone, which is the property that actually
+ * matters - and since migration 026 the CRM can show it again, so nobody has
+ * to transcribe it perfectly the first time.
  */
 const PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 
 export function generatePassword(randomBytes: (n: number) => Uint8Array): string {
-  const bytes = randomBytes(20);
+  const bytes = randomBytes(12);
   const chars = Array.from(bytes, (b) => PASSWORD_ALPHABET[b % PASSWORD_ALPHABET.length]);
   return [
-    chars.slice(0, 5).join(""),
-    chars.slice(5, 10).join(""),
-    chars.slice(10, 15).join(""),
-    chars.slice(15, 20).join(""),
+    chars.slice(0, 4).join(""),
+    chars.slice(4, 8).join(""),
+    chars.slice(8, 12).join(""),
   ].join("-");
 }
 

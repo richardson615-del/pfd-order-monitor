@@ -22,19 +22,26 @@ export const dynamic = "force-dynamic";
  * to the tablet.
  *
  *   GET    - who can sign in to this restaurant
+ *   GET ?reveal=<username>  - show that login's password again
  *   POST   - create a login          { username, actor? }
  *   PATCH  - set a new password      { username, actor? }
  *
- * Both writes return the password ONCE. Nothing retrieves it afterwards: a
- * forgotten one is replaced, not recovered, because the address behind these
- * accounts is derived and receives no mail, so no reset email could ever
- * arrive.
+ * The password used to be shown once and then be gone, recoverable only by
+ * resetting it. Migration 026 changed that deliberately: it is now stored and
+ * can be shown again. The reasoning is in that migration - briefly, these
+ * guard a restaurant's own order screen, and a password nobody can look up
+ * means a reset every time a tablet is replaced, which is a phone call during
+ * service.
  *
- * Every write is audited (migration 023), the same judgement migration 015
- * made about printer device keys: a credential that can be read is one worth
- * recording who read. The bridge authenticates with a single shared key and
- * cannot know who asked, so the CRM passes `actor` and an absent one is
- * recorded as null rather than guessed at.
+ * Reveal is its own request rather than a field on the list, so that opening
+ * the panel to see WHO can sign in does not read a credential, and so the
+ * audit row means something. Same shape as the printer device key reveal.
+ *
+ * Every write and every reveal is audited (migrations 023 and 026), the same
+ * judgement migration 015 made about device keys: a credential that can be
+ * read is one worth recording who read. The bridge authenticates with a
+ * single shared key and cannot know who asked, so the CRM passes `actor` and
+ * an absent one is recorded as null rather than guessed at.
  */
 
 /** Never blocks the write. An unwritable audit row is a problem to shout
@@ -42,7 +49,7 @@ export const dynamic = "force-dynamic";
 async function audit(entry: {
   restaurantId: string;
   username: string;
-  action: "created" | "password_reset";
+  action: "created" | "password_reset" | "password_shown";
   actor: string | null;
   note?: string;
 }) {
@@ -80,6 +87,29 @@ async function findRestaurant(id: string) {
   return data;
 }
 
+/**
+ * The link row for one username within one restaurant, or null.
+ *
+ * Scoped to the restaurant on purpose, and shared by reveal and PATCH so the
+ * two cannot drift: a restaurant-scoped route must not act on a login that
+ * belongs to somebody else just because the username was spelled right.
+ */
+async function findLink(restaurantId: string, username: string) {
+  const admin = supabaseAdmin();
+  const email = usernameToEmail(username);
+
+  const { data: links } = await admin
+    .from("restaurant_users")
+    .select("auth_user_id, password_current")
+    .eq("restaurant_id", restaurantId);
+
+  for (const link of links ?? []) {
+    const { data } = await admin.auth.admin.getUserById(link.auth_user_id);
+    if (data?.user?.email === email) return link;
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
@@ -88,9 +118,44 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const restaurant = await findRestaurant(params.id);
   if (!restaurant) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
 
+  // --- reveal one password -------------------------------------------------
+  // A separate request from listing, so that opening the panel to see who can
+  // sign in does not read a credential and does not write an audit row. The
+  // actor rides in a header here because a GET has no body.
+  const reveal = normaliseUsername(req.nextUrl.searchParams.get("reveal") ?? "");
+  if (reveal) {
+    const link = await findLink(restaurant.id, reveal);
+    if (!link) {
+      return NextResponse.json(
+        { error: `"${reveal}" is not a login for ${restaurant.name}` },
+        { status: 404 }
+      );
+    }
+    if (!link.password_current) {
+      // Created before migration 026, so the only copy is Supabase's hash.
+      return NextResponse.json(
+        {
+          error: `"${reveal}" was created before passwords were kept, so there is nothing to show. Reset it to get a new one.`,
+          resettable: true,
+        },
+        { status: 409 }
+      );
+    }
+
+    await audit({
+      restaurantId: restaurant.id,
+      username: reveal,
+      action: "password_shown",
+      actor: actorOf({ actor: req.headers.get("x-crm-actor") }),
+      note: `password shown for ${restaurant.name}`,
+    });
+
+    return NextResponse.json({ ok: true, username: reveal, password: link.password_current });
+  }
+
   const { data: links } = await admin
     .from("restaurant_users")
-    .select("auth_user_id, role, created_at")
+    .select("auth_user_id, role, created_at, password_current")
     .eq("restaurant_id", restaurant.id);
 
   // getUserById per link rather than listUsers(): listUsers pages at 50 and
@@ -108,6 +173,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       is_email_login: emailToUsername(email) === null,
       role: link.role,
       created_at: link.created_at,
+      // Whether there is anything to reveal, so the CRM can show a working
+      // button or explain why it cannot - without the list itself carrying
+      // the password.
+      has_password: Boolean(link.password_current),
     });
   }
 
@@ -171,7 +240,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const { error: linkError } = await admin.from("restaurant_users").upsert(
-    { restaurant_id: restaurant.id, auth_user_id: created.user.id, role: "staff" },
+    {
+      restaurant_id: restaurant.id,
+      auth_user_id: created.user.id,
+      role: "staff",
+      // Kept so the CRM can show it again - migration 026.
+      password_current: password,
+      password_set_at: new Date().toISOString(),
+    },
     { onConflict: "restaurant_id,auth_user_id" }
   );
   if (linkError) return NextResponse.json({ error: linkError.message }, { status: 400 });
@@ -189,7 +265,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     username,
     password,
     audited: true,
-    note: "Shown once. Nothing can retrieve it - a forgotten password is replaced, not recovered.",
+    note: "Write it down for the tablet. If it gets lost, the CRM can show it again - you do not have to reset it.",
   });
 }
 
@@ -218,35 +294,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const admin = supabaseAdmin();
-  const email = usernameToEmail(username);
 
   // Confirm the login actually belongs to THIS restaurant before touching it.
   // Without this check a restaurant-scoped route would happily reset any
   // login in the system given its username, which is not what the URL says
   // it does and not what an audit row would then describe.
-  const { data: links } = await admin
-    .from("restaurant_users")
-    .select("auth_user_id")
-    .eq("restaurant_id", restaurant.id);
-
-  let userId: string | null = null;
-  for (const link of links ?? []) {
-    const { data } = await admin.auth.admin.getUserById(link.auth_user_id);
-    if (data?.user?.email === email) {
-      userId = link.auth_user_id;
-      break;
-    }
-  }
-
-  if (!userId) {
+  const link = await findLink(restaurant.id, username);
+  if (!link) {
     return NextResponse.json(
       { error: `"${username}" is not a login for ${restaurant.name}` },
       { status: 404 }
     );
   }
 
-  const { error } = await admin.auth.admin.updateUserById(userId, { password });
+  const { error } = await admin.auth.admin.updateUserById(link.auth_user_id, { password });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Only after Supabase accepted it. Storing first would leave the CRM
+  // showing a password that does not work, which is worse than showing none.
+  const { error: storeError } = await admin
+    .from("restaurant_users")
+    .update({ password_current: password, password_set_at: new Date().toISOString() })
+    .eq("restaurant_id", restaurant.id)
+    .eq("auth_user_id", link.auth_user_id);
+  if (storeError) {
+    // The password IS changed and is in this response - failing the request
+    // now would tell the caller it did not work when it did.
+    console.error("login password not stored for", username, "-", storeError.message);
+  }
 
   await audit({
     restaurantId: restaurant.id,
@@ -263,6 +338,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     audited: true,
     // The consequence, stated: a tablet already signed in keeps working, so
     // resetting does not fix a tablet that is currently stuck.
-    note: "The old password stopped working immediately. A tablet already signed in stays signed in until its session ends.",
+    note: "The old password stopped working immediately. A tablet already signed in stays signed in until its session ends. This one can be shown again from the CRM.",
   });
 }

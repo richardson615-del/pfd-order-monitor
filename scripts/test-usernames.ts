@@ -82,10 +82,17 @@ console.log("\ngenerated passwords:");
 
 const fakeRandom = (n: number) => Uint8Array.from({ length: n }, (_, i) => i * 7);
 
-test("it is long enough for Supabase and for a kitchen", () => {
+test("it is long enough for Supabase and short enough to thumb in", () => {
+  // Three groups of four, down from four of five. 23 characters was a real
+  // obstacle at the one moment this gets typed - somebody standing in a
+  // kitchen holding a tablet - and the extra length was buying strength
+  // against an attack that does not exist here: there is no offline hash to
+  // grind, and Supabase rate-limits the login itself. Since migration 026 the
+  // CRM can show it again, so a mistyped transcription is not a reset either.
   const p = generatePassword(fakeRandom);
   assert.ok(p.length >= MIN_PASSWORD_LENGTH);
-  assert.equal(p.split("-").length, 4, "four groups, so it can be read down a phone");
+  assert.equal(p.split("-").length, 3, "three groups, so it can still be read down a phone");
+  assert.equal(p.replace(/-/g, "").length, 12);
 });
 
 test("no character anyone would misread", () => {

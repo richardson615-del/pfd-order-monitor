@@ -83,6 +83,19 @@ export interface HealthSnapshot {
    * app-path equivalent of a registered printer that has never checked in.
    */
   restaurantsWithoutAppDevice: { id: string; name: string }[];
+  /**
+   * Restaurants where orders are arriving but no dashboard has said it is
+   * open. A push subscription survives being signed out, so this is the only
+   * thing that tells a screen somebody is watching from a dead one.
+   */
+  tabletsNotWatching: {
+    id: string;
+    name: string;
+    /** Null when a dashboard has never checked in at all. */
+    lastSeenAt: string | null;
+    /** When the most recent order arrived. Only a live restaurant qualifies. */
+    lastOrderAt: string;
+  }[];
   /** Orders whose captured money fields do not sum to the charged total. */
   unreconciledOrders: {
     id: string;
@@ -114,6 +127,10 @@ export interface HealthThresholds {
   emailUnsentMinutes: number;
   /** An app alert undelivered this long never went. Same reasoning as email. */
   appUndeliveredMinutes: number;
+  /** No dashboard heartbeat for this long, while orders are arriving. */
+  tabletSilentMinutes: number;
+  /** Only count a restaurant as live if an order arrived this recently. */
+  tabletOrderWindowMinutes: number;
 }
 
 export const DEFAULT_THRESHOLDS: HealthThresholds = {
@@ -131,6 +148,14 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   // Same: the push goes out during ingest. Nothing about it is queued for
   // later, so an alert with no sent_at after this did not arrive late.
   appUndeliveredMinutes: 5,
+  // Seven missed beats. Generous on purpose: a browser throttles timers on a
+  // backgrounded tab, and an alert that fires on ordinary throttling is one
+  // people stop reading.
+  tabletSilentMinutes: 15,
+  // The part that stops this firing every night. A closed restaurant has its
+  // tablet off and that is not a fault - so staleness only counts while
+  // orders are actually arriving.
+  tabletOrderWindowMinutes: 30,
 };
 
 const minutesSince = (iso: string | null, now: Date): number | null => {
@@ -233,6 +258,31 @@ export function evaluateHealth(
         `Order ${oldest.order_number ?? oldest.id} for ${where(oldest.restaurant_name)} was queued ${ago(minutesSince(oldest.queued_at, now))} and no device was reached. ` +
         `Nobody watching that tablet has been told this order exists.` +
         (reason ? ` Last reason: ${reason}` : ""),
+    });
+  }
+
+  // --- a tablet nobody is watching ---
+  //
+  // The failure every other check was blind to. A push subscription belongs
+  // to the browser's service worker, not to the session, so it outlives being
+  // signed out: the tablet sits on a login screen, push keeps reporting
+  // delivered, and everything reads green.
+  //
+  // Gated on orders actually arriving, which is what keeps it quiet. A closed
+  // restaurant has its tablet off and that is not a fault - without the gate
+  // this would fire at four in the morning, every morning, which is how a
+  // channel gets muted before the night it matters.
+  for (const t of snap.tabletsNotWatching) {
+    const silent = minutesSince(t.lastSeenAt, now);
+    if (silent !== null && silent < thresholds.tabletSilentMinutes) continue;
+    issues.push({
+      key: `tablet_not_watching:${t.id}`,
+      severity: "critical",
+      title: `Nobody watching the tablet: ${t.name}`,
+      detail:
+        `Orders are arriving - the most recent ${ago(minutesSince(t.lastOrderAt, now))} - but no signed-in dashboard has been open ` +
+        (t.lastSeenAt ? `for ${ago(silent)}.` : "at any point.") +
+        ` The tablet is probably signed out or closed: push still reports delivered, so nothing else will catch this.`,
     });
   }
 
@@ -537,6 +587,49 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     .filter((r: any) => !subscribedRestaurantIds.has(r.id))
     .map((r: any) => ({ id: r.id, name: r.name }));
 
+  // --- tablets nobody is watching -------------------------------------------
+  // Only restaurants on the app, and only while orders are actually arriving:
+  // a closed restaurant has its tablet off, and that is not a fault.
+  const orderWindowSince = new Date(
+    Date.now() - DEFAULT_THRESHOLDS.tabletOrderWindowMinutes * 60_000
+  ).toISOString();
+
+  const appRestaurants = restaurants.filter((r: any) => r.is_active && r.app_expected);
+  const tabletsNotWatching: HealthSnapshot["tabletsNotWatching"] = [];
+
+  if (appRestaurants.length) {
+    const ids = appRestaurants.map((r: any) => r.id);
+    const [{ data: recentOrders }, { data: beats }] = await Promise.all([
+      admin
+        .from("orders")
+        .select("restaurant_id, received_at")
+        .in("restaurant_id", ids)
+        .gte("received_at", orderWindowSince)
+        .order("received_at", { ascending: false }),
+      admin.from("dashboard_heartbeats").select("restaurant_id, last_seen_at").in("restaurant_id", ids),
+    ]);
+
+    const lastOrder = new Map<string, string>();
+    for (const o of recentOrders ?? []) {
+      // Ordered newest first, so the first one seen for a restaurant wins.
+      if (!lastOrder.has(o.restaurant_id)) lastOrder.set(o.restaurant_id, o.received_at);
+    }
+    const lastSeen = new Map<string, string>(
+      (beats ?? []).map((b: any) => [b.restaurant_id, b.last_seen_at])
+    );
+
+    for (const r of appRestaurants) {
+      const orderAt = lastOrder.get(r.id);
+      if (!orderAt) continue; // nothing arriving - nothing to miss
+      tabletsNotWatching.push({
+        id: r.id,
+        name: r.name,
+        lastSeenAt: lastSeen.get(r.id) ?? null,
+        lastOrderAt: orderAt,
+      });
+    }
+  }
+
   const allJobs = jobsRes.data ?? [];
   const jobShape = (j: any) => ({
     id: j.id,
@@ -559,6 +652,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     inboxes,
     restaurantsWithoutDevice,
     restaurantsWithoutAppDevice,
+    tabletsNotWatching,
     pendingJobs: paperJobs
       .filter((j: any) => j.status === "queued" || j.status === "claimed")
       .map((j: any) => ({ ...jobShape(j), queued_at: j.queued_at, status: j.status, attempts: j.attempts ?? 0 })),

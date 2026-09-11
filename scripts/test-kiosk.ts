@@ -185,6 +185,19 @@ test("the chime never fires while sound is known to be off", () =>
     "beeping into a suspended context is what made the failure silent"
   ));
 
+test("the dashboard says it is open, and again on returning to the foreground", () => {
+  // A push subscription outlives being signed out, so this is the only signal
+  // that tells a watched screen from a dead one.
+  assert.match(dash, /\/api\/dashboard\/heartbeat/);
+  assert.match(dash, /setInterval\(beat, HEARTBEAT_EVERY_MS\)/);
+  assert.match(dash, /visibilitychange/);
+});
+
+test("a failed heartbeat cannot disturb the thing it reports on", () => {
+  // A tablet that cannot record a heartbeat is still showing orders.
+  assert.match(dash, /heartbeat[\s\S]{0,200}catch\(\(\) => \{\}\)/);
+});
+
 test("the chime is keyed on acceptance, not on status", () => {
   assert.match(dash, /unaccepted\(orders\)/);
   assert.doesNotMatch(

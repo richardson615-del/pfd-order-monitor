@@ -37,6 +37,7 @@ const quiet: HealthSnapshot = {
   inboxes: [],
   restaurantsWithoutDevice: [],
   restaurantsWithoutAppDevice: [],
+  tabletsNotWatching: [],
   pendingJobs: [],
   failedJobs: [],
   unreconciledOrders: [],

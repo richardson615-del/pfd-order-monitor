@@ -78,6 +78,7 @@ const base: HealthSnapshot = {
   inboxes: [],
   restaurantsWithoutDevice: [],
   restaurantsWithoutAppDevice: [],
+  tabletsNotWatching: [],
   pendingJobs: [],
   failedJobs: [],
   unreconciledOrders: [],

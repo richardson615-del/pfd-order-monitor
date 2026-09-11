@@ -77,8 +77,6 @@ export interface HealthSnapshot {
     restaurant_name: string | null;
     queued_at: string;
     send_error: string | null;
-    /** Whether a paper ticket covers this restaurant as well. */
-    alsoPrints: boolean;
   }[];
   /**
    * Restaurants onboarded onto the app with nowhere to send an alert - the
@@ -205,31 +203,35 @@ export function evaluateHealth(
 
   // --- app alerts that never reached a tablet ---
   //
-  // Severity is not fixed, and that is the whole point of the check. On an
-  // app-only site the tablet IS the ticket: nobody has seen the order, in any
-  // form, and that is the same outage as a dead printer. Where a paper ticket
-  // also went out, the food is being made and this is a screen needing
-  // attention rather than a service failure. Paging someone at 7pm for the
-  // second case is how a channel gets muted before the first case happens.
+  // Always critical, and never softened by what the printer did.
+  //
+  // This used to drop to a warning when a paper ticket also went out, on the
+  // reasoning that the kitchen had the order anyway. That was wrong: the
+  // tablet and the printer are two independent ways for a restaurant to
+  // receive an order, not two halves of one. A restaurant that is set up on
+  // the tablet is relying on the tablet, and the tablet failing is the tablet
+  // failing whatever else happened to work. Judging one channel by another
+  // also meant a site that had BOTH got a quieter alert than a site with only
+  // the tablet - exactly backwards, since the first one has more to go wrong.
+  //
+  // The paper channel raises its own alerts, on its own terms, and they are
+  // just as loud.
   const undelivered = snap.undeliveredAppAlerts.filter((a) => {
     const mins = minutesSince(a.queued_at, now);
     return mins !== null && mins >= thresholds.appUndeliveredMinutes;
   });
   if (undelivered.length) {
-    const blind = undelivered.filter((a) => !a.alsoPrints);
-    const worst = (blind.length ? blind : undelivered).reduce((a, b) =>
+    const oldest = undelivered.reduce((a, b) =>
       new Date(a.queued_at) <= new Date(b.queued_at) ? a : b
     );
     const reason = undelivered.find((a) => a.send_error)?.send_error;
     issues.push({
       key: "app_alert_failed",
-      severity: blind.length ? "critical" : "warning",
+      severity: "critical",
       title: `${undelivered.length} order(s) never alerted on the tablet`,
       detail:
-        `Order ${worst.order_number ?? worst.id} for ${where(worst.restaurant_name)} was queued ${ago(minutesSince(worst.queued_at, now))} and no device was reached. ` +
-        (blind.length
-          ? "This restaurant has no paper ticket - nobody there has seen the order at all."
-          : "A ticket did print, so the kitchen has the order, but the tablet is not alerting.") +
+        `Order ${oldest.order_number ?? oldest.id} for ${where(oldest.restaurant_name)} was queued ${ago(minutesSince(oldest.queued_at, now))} and no device was reached. ` +
+        `Nobody watching that tablet has been told this order exists.` +
         (reason ? ` Last reason: ${reason}` : ""),
     });
   }
@@ -373,7 +375,6 @@ export function sortIssues(issues: HealthIssue[]): HealthIssue[] {
 
 import { supabaseAdmin } from "./supabase-server";
 import { ACCEPTED_STATUSES } from "./webhook-receipts";
-import { orderDestinations, producesPaper } from "./canonical";
 
 /** Reads the current state of the pipeline for evaluateHealth(). */
 export async function collectSnapshot(): Promise<HealthSnapshot> {
@@ -445,7 +446,9 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const appSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: appRows } = await admin
     .from("print_jobs")
-    .select("id, queued_at, send_error, orders(order_number, restaurant_id, restaurants(name, print_method, app_expected))")
+    // Deliberately does not ask what the printer did. The tablet is its own
+    // delivery channel and is judged on its own.
+    .select("id, queued_at, send_error, orders(order_number, restaurants(name))")
     .eq("delivery", "app")
     .is("sent_at", null)
     .gte("queued_at", appSince)
@@ -457,17 +460,6 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     restaurant_name: j.orders?.restaurants?.name ?? null,
     queued_at: j.queued_at,
     send_error: j.send_error ?? null,
-    // "A paper ticket covers this too" is what decides whether a mute tablet
-    // is an outage or an annoyance, so it is resolved here rather than left
-    // for the alerting rules to guess at. A tablet-only site has nothing to
-    // fall back on, which is exactly the case that must page someone.
-    alsoPrints: producesPaper(
-      orderDestinations({
-        print_method: j.orders?.restaurants?.print_method,
-        app_expected: j.orders?.restaurants?.app_expected,
-        hasActivePrinter: activeDeviceRestaurantIds.has(j.orders?.restaurant_id),
-      })
-    ),
   }));
 
   const varianceSince = new Date(Date.now() - 7 * 86_400_000).toISOString();

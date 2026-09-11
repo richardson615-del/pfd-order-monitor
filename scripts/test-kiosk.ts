@@ -135,10 +135,10 @@ test("accepting it does", () =>
     0
   ));
 
-test("a printed ticket still needs accepting", () => {
-  // On a site with a printer AND a tablet the ticket comes out by itself. A
-  // ticket sitting in a printer nobody has walked over to is exactly what the
-  // tablet is there to catch.
+test("the paper channel does not answer for the tablet", () => {
+  // The printer and the tablet are independent ways for a restaurant to
+  // receive an order. A ticket having printed says nothing about whether the
+  // tablet has done its job, so it cannot silence it.
   assert.equal(unaccepted([order({ status: "printed" })]).length, 1);
 });
 

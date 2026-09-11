@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { DEFAULT_THRESHOLDS, evaluateHealth, type HealthSnapshot } from "@/lib/health";
-import { appDeliveryOutcome, orderDestinations, producesPaper } from "@/lib/canonical";
+import { appDeliveryOutcome, orderDestinations } from "@/lib/canonical";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -51,37 +51,49 @@ const alert = (over: Partial<HealthSnapshot["undeliveredAppAlerts"][number]> = {
   restaurant_name: "China One",
   queued_at: minsAgo(30),
   send_error: null,
-  alsoPrints: false,
   ...over,
 });
 
 console.log("the three configurations actually in use:");
 
-test("printer only", () => {
-  const d = orderDestinations({ print_method: "printer", app_expected: false, hasActivePrinter: true });
-  assert.deepEqual(d, ["printer"]);
-  assert.equal(producesPaper(d), true);
-});
+test("printer only", () =>
+  assert.deepEqual(
+    orderDestinations({ print_method: "printer", app_expected: false, hasActivePrinter: true }),
+    ["printer"]
+  ));
 
-test("printer and tablet together", () => {
-  const d = orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: true });
-  assert.deepEqual(d, ["printer", "app"], "both is a real configuration, not a choice between them");
-  assert.equal(producesPaper(d), true);
-});
+test("printer and tablet together", () =>
+  assert.deepEqual(
+    orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: true }),
+    ["printer", "app"],
+    "both is a real configuration, not a choice between them"
+  ));
 
 test("tablet only", () => {
   // print_method is NOT NULL default 'printer', so a tablet-only site still
   // reads 'printer' in that column. What makes it tablet-only is having no
   // device - the column is about WHICH paper route, not whether there is one.
-  const d = orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: false });
-  assert.deepEqual(d, ["app"]);
-  assert.equal(producesPaper(d), false, "nothing prints - a mute tablet leaves nobody told");
+  assert.deepEqual(
+    orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: false }),
+    ["app"]
+  );
 });
 
-test("email (AEM) and tablet together", () => {
-  const d = orderDestinations({ print_method: "email", app_expected: true, hasActivePrinter: false });
-  assert.deepEqual(d, ["email", "app"]);
-  assert.equal(producesPaper(d), true, "AEM prints it at the restaurant - that is paper");
+test("email (AEM) and tablet together", () =>
+  assert.deepEqual(
+    orderDestinations({ print_method: "email", app_expected: true, hasActivePrinter: false }),
+    ["email", "app"]
+  ));
+
+test("the list is enablement, never a ranking", () => {
+  // Nothing may read this as "printer, with the tablet as backup". Each entry
+  // is an independent channel that succeeds or fails on its own terms, and the
+  // presence of one is never grounds for excusing another. The helper that
+  // used to collapse this into "does paper cover it" has been deleted for
+  // exactly that reason.
+  const both = orderDestinations({ print_method: "printer", app_expected: true, hasActivePrinter: true });
+  assert.equal(both.length, 2, "two channels, both real");
+  assert.ok(both.includes("app") && both.includes("printer"));
 });
 
 test("an email restaurant never also queues an Epson job", () => {
@@ -168,45 +180,42 @@ test("an undelivered alert under the threshold is not flagged", () => {
   assert.equal(evaluateHealth(s, NOW).length, 0, "the push is seconds old - do not cry wolf");
 });
 
-test("no paper ticket to fall back on is critical", () => {
+test("an order that never reached the tablet is critical", () => {
   const issues = evaluateHealth({ ...quiet, undeliveredAppAlerts: [alert()] }, NOW);
   assert.equal(issues.length, 1);
   assert.equal(issues[0].key, "app_alert_failed");
   assert.equal(issues[0].severity, "critical");
-  assert.match(issues[0].detail, /nobody there has seen the order/i);
+  assert.match(issues[0].detail, /nobody watching that tablet/i);
 });
 
-test("a ticket that also printed downgrades it to a warning", () => {
-  const issues = evaluateHealth(
-    { ...quiet, undeliveredAppAlerts: [alert({ alsoPrints: true })] },
-    NOW
-  );
-  assert.equal(issues.length, 1);
-  assert.equal(
-    issues[0].severity,
-    "warning",
-    "the kitchen has the order on paper - this must not page someone at 7pm"
-  );
-  assert.match(issues[0].detail, /ticket did print/i);
+test("the printer does not answer for the tablet", () => {
+  // This used to drop to a warning when a paper ticket also went out. The
+  // tablet and the printer are independent ways for a restaurant to receive an
+  // order, not two halves of one: a restaurant set up on the tablet is relying
+  // on the tablet, and the tablet failing is the tablet failing. Judging one
+  // channel by the other also meant a site running BOTH got a quieter alert
+  // than a tablet-only site - backwards, since it has more to go wrong.
+  //
+  // The snapshot no longer carries any printer state for this check at all,
+  // which is the real fix: there is nothing left to soften it with.
+  const issues = evaluateHealth({ ...quiet, undeliveredAppAlerts: [alert()] }, NOW);
+  assert.equal(issues[0].severity, "critical");
+  assert.doesNotMatch(issues[0].detail, /print/i, "the paper channel is not this alert's business");
 });
 
-test("one blind restaurant in a batch makes the whole alert critical", () => {
+test("it names the oldest one, and counts them all", () => {
   const issues = evaluateHealth(
     {
       ...quiet,
       undeliveredAppAlerts: [
-        alert({ id: "j1", alsoPrints: true }),
-        alert({ id: "j2", alsoPrints: false, restaurant_name: "Swezey's Pub" }),
+        alert({ id: "j1", queued_at: minsAgo(20) }),
+        alert({ id: "j2", queued_at: minsAgo(45), restaurant_name: "Swezey's Pub" }),
       ],
     },
     NOW
   );
-  assert.equal(issues[0].severity, "critical");
-  assert.match(
-    issues[0].detail,
-    /Swezey's Pub/,
-    "the example named should be the restaurant nobody has told, not the covered one"
-  );
+  assert.match(issues[0].title, /2 order/);
+  assert.match(issues[0].detail, /Swezey's Pub/, "the oldest is the one that has waited longest");
 });
 
 test("the send_error is carried into the alert", () => {

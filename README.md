@@ -529,13 +529,18 @@ tablet. Alerting on all of them would bury the ones that matter.
 
 | Check | Severity | Means |
 |---|---|---|
-| `app_alert_failed` | critical | An order was never alerted, and this restaurant has no paper ticket either — nobody there has seen it |
-| `app_alert_failed` | warning | Same, but a ticket did print. The kitchen has the order; the screen is the problem |
+| `app_alert_failed` | critical | An order never reached the tablet. Nobody watching it has been told the order exists |
 | `restaurant_no_app_device:<id>` | warning | `app_expected` is on, but no device has notifications enabled — nothing can alert |
 
-The critical/warning split is the point. Paging someone because a screen went
-quiet while the printer kept working is how a channel gets muted before the
-outage that actually matters.
+**The printer never answers for the tablet.** `app_alert_failed` was briefly
+softened to a warning when a paper ticket had also gone out, on the reasoning
+that the kitchen had the order anyway. That was wrong. The two are independent
+ways for a restaurant to receive an order, not two halves of one: a restaurant
+set up on the tablet is relying on the tablet, and the tablet failing is the
+tablet failing whatever else happened to work. It also meant a site running
+both got a *quieter* alert than a tablet-only site — backwards, since it has
+more to go wrong. The paper channel raises its own alerts, on its own terms,
+and they are just as loud.
 
 `delivered_count = 0` with no `send_error` has one meaning worth knowing: the
 app is installed and signed in, but nobody ever tapped Enable notifications.

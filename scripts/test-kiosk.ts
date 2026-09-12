@@ -112,6 +112,15 @@ test("connecting is a warning, not a page-stopping alarm", () => {
 
 console.log("\nwhat the chime sounds for:");
 
+/**
+ * A fixed clock, passed to EVERY unaccepted() call.
+ *
+ * Three assertions here were left on the default Date.now() when the
+ * six-hour chime window landed. They passed when written and failed hours
+ * later the same evening, because the fixtures are dated relative to NOW and
+ * the real clock had walked past the window. A test whose result depends on
+ * the time of day is broken whichever way it happens to land.
+ */
 const NOW = Date.parse("2026-09-11T19:00:00Z");
 const minutesAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();
 
@@ -124,18 +133,18 @@ const order = (over: Record<string, any> = {}) => ({
 });
 
 test("an order nobody has accepted keeps the alert going", () =>
-  assert.equal(unaccepted([order()]).length, 1));
+  assert.equal(unaccepted([order()], NOW).length, 1));
 
 test("opening an order does NOT silence it", () => {
   // The whole reason acceptance exists. 'opened' is stamped by merely tapping
   // the order - a glance, or a mis-tap - and it used to stop the chime
   // without anyone having agreed to cook anything.
-  assert.equal(unaccepted([order({ status: "opened" })]).length, 1);
+  assert.equal(unaccepted([order({ status: "opened" })], NOW).length, 1);
 });
 
 test("accepting it does", () =>
   assert.equal(
-    unaccepted([order({ status: "opened", accepted_at: "2026-09-10T18:00:00Z" })]).length,
+    unaccepted([order({ status: "opened", accepted_at: "2026-09-10T18:00:00Z" })], NOW).length,
     0
   ));
 
@@ -143,16 +152,16 @@ test("the paper channel does not answer for the tablet", () => {
   // The printer and the tablet are independent ways for a restaurant to
   // receive an order. A ticket having printed says nothing about whether the
   // tablet has done its job, so it cannot silence it.
-  assert.equal(unaccepted([order({ status: "printed" })]).length, 1);
+  assert.equal(unaccepted([order({ status: "printed" })], NOW).length, 1);
 });
 
 test("a cancelled order never chimes, accepted or not", () =>
   // The point of a cancellation is that the food is NOT to be made. Sounding
   // an alert to demand acknowledgement of that would be worse than useless.
-  assert.equal(unaccepted([order({ status: "cancelled" })]).length, 0));
+  assert.equal(unaccepted([order({ status: "cancelled" })], NOW).length, 0));
 
 test("a completed order never chimes", () =>
-  assert.equal(unaccepted([order({ status: "completed" })]).length, 0));
+  assert.equal(unaccepted([order({ status: "completed" })], NOW).length, 0));
 
 test("it counts every waiting order, not just the first", () =>
   assert.equal(

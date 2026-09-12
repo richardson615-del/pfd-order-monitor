@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Order } from "@/lib/types";
+import { ageClass, elapsedLabel, orderFlag } from "@/lib/order-display";
 
 /**
  * What staff should see an order's origin called.
@@ -16,35 +17,46 @@ const SOURCE_LABELS: Record<string, string> = {
   test: "Test",
 };
 
-function timeAgo(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ago`;
-}
+/**
+ * One order in the list.
+ *
+ * Reads the same in both display modes - what changes between kitchen and
+ * standard is size and how loudly age is signalled, never which facts are on
+ * screen. The CSS does that; this decides what is true.
+ *
+ * `now` is passed in rather than read here so every card on the screen agrees
+ * about the time, and so the timers move when the dashboard ticks instead of
+ * only when the data changes.
+ */
+export default function OrderCard({ order, now }: { order: Order; now: number }) {
+  const flag = orderFlag(order);
+  const age = ageClass(order, now);
 
-export default function OrderCard({ order }: { order: Order }) {
   return (
-    <Link href={`/order/${order.id}`} className={`order-card status-${order.status}`}>
-      <div className="order-card-top">
-        <span className="order-number">
-          Order #{order.order_number}
-          <span className={`badge status-${order.status}`}>{order.status}</span>
+    <Link href={`/order/${order.id}`} className={`card ${age}`}>
+      <div className="card-top">
+        <span className="card-no num">#{order.order_number}</span>
+        <span className="card-type">
+          {order.order_type === "delivery" ? "Delivery" : "Pickup"}
         </span>
+        <span className="card-age num">{elapsedLabel(order, now)}</span>
+      </div>
+
+      <div className="card-who">
+        <span className="card-name">{order.customer_name || "Customer"}</span>
         {order.customer_total != null && (
-          <span className="order-total">${order.customer_total.toFixed(2)}</span>
+          <span className="card-total num">${order.customer_total.toFixed(2)}</span>
         )}
       </div>
-      <div className="order-meta">
-        {order.customer_name || "Customer"} &middot;{" "}
-        {order.order_type === "delivery" ? "Delivery" : "Pickup"} &middot;{" "}
-        {timeAgo(order.received_at)}
+
+      <div className="card-sub">
+        <span className={`card-flag ${flag.tone}`}>{flag.label}</span>
+        {order.source && SOURCE_LABELS[order.source] ? ` ${SOURCE_LABELS[order.source]}` : ""}
       </div>
-      {order.source && SOURCE_LABELS[order.source] && (
-        <span className="order-source">{SOURCE_LABELS[order.source]}</span>
-      )}
+
+      {/* Kitchen only - CSS hides it in standard, where a tablet somebody is
+          standing at does not need telling that a card is tappable. */}
+      <span className="card-tap">Tap to open the ticket</span>
     </Link>
   );
 }

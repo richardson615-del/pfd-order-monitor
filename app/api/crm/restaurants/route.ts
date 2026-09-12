@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("restaurants")
-    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected")
+    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected, display_mode")
     .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -58,6 +58,9 @@ export async function GET(req: NextRequest) {
         // Computed here so the console never has to re-derive it from three
         // columns and get a different answer than the ingest does. An empty
         // list means orders arrive and nobody there is told.
+        // Which of the two looks their tablet is on, so the CRM can show the
+        // current setting rather than guessing at a default.
+        display_mode: r.display_mode ?? "kitchen",
         destinations: orderDestinations({
           print_method: r.print_method,
           app_expected: r.app_expected,

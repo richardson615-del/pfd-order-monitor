@@ -28,4 +28,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "025_monitor_alerts_rls.sql",
   "026_restaurant_login_password.sql",
   "027_password_column_not_readable_by_clients.sql",
+  "028_display_mode.sql",
 ];

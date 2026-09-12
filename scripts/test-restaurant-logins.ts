@@ -26,6 +26,7 @@ const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "ut
 const route = src("app/api/crm/restaurants/[id]/logins/route.ts");
 const migration = src("db/migrations/023_restaurant_login_audit.sql");
 const storeMigration = src("db/migrations/026_restaurant_login_password.sql");
+const adminRoute = src("app/api/admin/restaurant-users/route.ts");
 
 /**
  * Just the reveal branch of GET.
@@ -178,6 +179,50 @@ test("a failed store does not fail a password that did change", () => {
   // the caller it had not worked when it had.
   const patch = route.slice(route.indexOf("export async function PATCH"));
   assert.match(patch, /console\.error\("login password not stored/);
+});
+
+console.log("\nboth ways a login can be created:");
+
+test("the admin panel stores the password too, not just the bridge", () => {
+  // The defect this pins, found on the first real restaurant: migration 026
+  // made passwords retrievable, but only the CRM bridge was updated. A login
+  // created in this app's own admin panel stored nothing, so the CRM showed
+  // no way to see it and the only option was replacing a working password.
+  //
+  // Two creation paths for one credential is the real problem. Until they are
+  // merged, this asserts they behave the same.
+  assert.match(adminRoute, /password_current: password/);
+  assert.match(adminRoute, /password_set_at/);
+});
+
+test("the admin panel's reset stores it as well", () => {
+  const patch = adminRoute.slice(adminRoute.indexOf("export async function PATCH"));
+  assert.match(patch, /password_current: password/);
+  assert.ok(
+    patch.indexOf("updateUserById") < patch.indexOf("password_current:"),
+    "store only after Supabase accepted the change"
+  );
+});
+
+test("neither path promises a password cannot be recovered", () => {
+  // Both said "nothing can retrieve it". Left in place next to a Show
+  // password button, that copy sends people to reset a working login.
+  for (const src of [route, adminRoute]) {
+    assert.doesNotMatch(src, /Shown once/);
+    assert.doesNotMatch(src, /nothing can retrieve it/i);
+  }
+});
+
+test("looking a login up by username pages through every account", () => {
+  // listUsers() returns 50 by default and this route is not
+  // restaurant-scoped, so the single-page version reported "no login found"
+  // for the 51st account onwards - and the apparent fix for a login you
+  // could not reset would have been creating a duplicate.
+  assert.match(adminRoute, /perPage/);
+  // The CALL with no arguments, not the bare word: the comment above the fix
+  // explains the 50-per-page default, and a test that trips over its own
+  // explanation is arguing with documentation rather than behaviour.
+  assert.doesNotMatch(adminRoute, /admin\.auth\.admin\.listUsers\(\)/);
 });
 
 test("the column is service-role only", () => {

@@ -22,9 +22,37 @@ import {
  * orders were arriving. The address Supabase needs is derived from the
  * username instead of collected from anyone, and never receives mail.
  *
- * The password is returned ONCE. Nothing can retrieve it afterwards; a
- * forgotten one is replaced with PATCH, not recovered.
+ * The password is stored (migration 026) so the CRM can show it again rather
+ * than forcing a reset. This route was missed when that landed - only the CRM
+ * bridge was updated - so a login created here reported "no password stored"
+ * and the CRM offered no way to see it. Found on the first real restaurant.
+ *
+ * Two creation paths for one credential is the actual defect; until they are
+ * merged, both have to store it.
  */
+/**
+ * Finds an auth user by address, paging through every page.
+ *
+ * listUsers() defaults to 50 per page. This route is not restaurant-scoped -
+ * it looks a login up by username alone - so the single-page version silently
+ * reported "no login found" for the 51st account onwards, and the fix for a
+ * login you could not reset would have looked like creating a duplicate.
+ *
+ * Supabase Auth has no lookup-by-email admin call, hence the paging.
+ */
+async function findAuthUserByEmail(email: string) {
+  const admin = supabaseAdmin();
+  const perPage = 200;
+  for (let page = 1; page <= 50; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error || !data?.users?.length) return null;
+    const found = data.users.find((u: { email?: string }) => u.email === email);
+    if (found) return found;
+    if (data.users.length < perPage) return null;
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   if (!(await isCurrentUserAdmin())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -91,7 +119,14 @@ export async function POST(req: NextRequest) {
   }
 
   const { error: linkError } = await admin.from("restaurant_users").upsert(
-    { restaurant_id: restaurantId, auth_user_id: created.user.id, role: body?.role || "staff" },
+    {
+      restaurant_id: restaurantId,
+      auth_user_id: created.user.id,
+      role: body?.role || "staff",
+      // Kept so the CRM can show it again - migration 026.
+      password_current: password,
+      password_set_at: new Date().toISOString(),
+    },
     { onConflict: "restaurant_id,auth_user_id" }
   );
 
@@ -103,7 +138,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     username,
     password,
-    note: "Shown once. Write it down before closing this - nothing can retrieve it, and a forgotten password is replaced rather than recovered.",
+    note: "Write it down for the tablet. If it gets lost, the CRM can show it again - you do not have to reset it.",
   });
 }
 
@@ -144,8 +179,7 @@ export async function PATCH(req: NextRequest) {
   const admin = supabaseAdmin();
   const email = usernameToEmail(username);
 
-  const { data: list } = await admin.auth.admin.listUsers();
-  const user = list?.users.find((u: { email?: string }) => u.email === email);
+  const user = await findAuthUserByEmail(email);
   if (!user) {
     return NextResponse.json({ error: `no login found for "${username}"` }, { status: 404 });
   }
@@ -153,10 +187,22 @@ export async function PATCH(req: NextRequest) {
   const { error } = await admin.auth.admin.updateUserById(user.id, { password });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+  // Store only after Supabase accepted the change. The other way round leaves
+  // the CRM showing a password that does not work, which is worse than showing
+  // none. A failed store is logged, not returned: the password HAS changed and
+  // is in this response, so failing now would be a lie to the caller.
+  const { error: storeError } = await admin
+    .from("restaurant_users")
+    .update({ password_current: password, password_set_at: new Date().toISOString() })
+    .eq("auth_user_id", user.id);
+  if (storeError) {
+    console.error("login password not stored for", username, "-", storeError.message);
+  }
+
   return NextResponse.json({
     ok: true,
     username,
     password,
-    note: "The old password stopped working immediately. Anyone already signed in stays signed in until their session expires.",
+    note: "The old password stopped working immediately. Anyone already signed in stays signed in until their session expires. This one can be shown again from the CRM.",
   });
 }

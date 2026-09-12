@@ -15,8 +15,8 @@
   "startUrl": "/dashboard",
   "iconUrl": "https://pfd-order-monitor.vercel.app/icons/icon-512.png",
   "maskableIconUrl": "https://pfd-order-monitor.vercel.app/icons/icon-512.png",
-  "appVersion": "1.0.0",
-  "appVersionCode": 1,
+  "appVersion": "1.0.1",
+  "appVersionCode": 2,
   "shortcuts": [],
   "signingKey": {
     "path": "C:\\Users\\richa\\OneDrive\\pfd-app-signing\\pfd-orders.keystore",

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { constantTimeEquals } from "@/lib/crm-auth";
 import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
 import { recordWebhookReceipt, fingerprint } from "@/lib/webhook-receipts";
 
@@ -59,7 +60,10 @@ export async function POST(req: NextRequest) {
     apiTokenHeader?.trim(),
     authHeader?.replace(/^Bearer\s+/i, "").trim(),
   ].filter(Boolean) as string[];
-  const ok = !!secret && presentedTokens.some((t) => t === secret);
+  // constantTimeEquals rather than ===, which returns as soon as two bytes
+  // differ. This one already fails closed when the secret is unset, which is
+  // why the `!!secret` guard stays in front.
+  const ok = !!secret && presentedTokens.some((t) => !!t && constantTimeEquals(t, secret));
   if (!ok) {
     // Loud. A 401 here means an order was dropped on the floor, which is
     // exactly the failure that once killed every live webhook silently while

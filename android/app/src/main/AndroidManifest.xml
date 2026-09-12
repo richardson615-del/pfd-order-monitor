@@ -34,9 +34,28 @@
 
     
 
+    <!--
+      allowBackup / fullBackupContent / dataExtractionRules are false here,
+      not bubblewrap's generated allowBackup="true".
+
+      These are shared kitchen tablets left switched on in a public-facing
+      room, and the app's data is a signed-in restaurant session. Backup lets
+      that session be pulled off the device with adb backup and copied into
+      Google cloud backup, neither of which a kiosk that signs in once needs.
+
+      Regenerating with `bubblewrap update` puts allowBackup back to true.
+      scripts/test-security.ts fails if it does.
+
+      NOTE: this comment sits OUTSIDE the <application> tag deliberately. It
+      was first written between the attributes, which is not valid XML, and
+      the manifest merger failed the build with "Error parsing
+      AndroidManifest.xml" and no line number.
+    -->
     <application
         android:name="Application"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/appName"
         

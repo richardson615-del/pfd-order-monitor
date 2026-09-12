@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { constantTimeEquals } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
@@ -27,7 +28,28 @@ const line = (i: HealthIssue) =>
   `${i.severity === "critical" ? "\u{1F534}" : "\u{1F7E1}"} ${i.title}\n   ${i.detail}`;
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Two things wrong with the version this replaces, both found in the
+  // 2026-09-11 security review:
+  //
+  //   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`)
+  //
+  // It FAILED OPEN. With CRON_SECRET unset, that template is the literal
+  // string "Bearer undefined", so sending exactly that header authenticated -
+  // and this endpoint sends SMS. A missing secret has to deny everyone, the
+  // same judgement authorizeCrmWrite already made by answering 503.
+  //
+  // And it compared with !==, which returns as soon as two bytes differ.
+  // constantTimeEquals existed in this codebase and was used by one of the
+  // three shared-secret checks.
+  const expected = process.env.CRON_SECRET;
+  if (!expected) {
+    return NextResponse.json(
+      { error: "CRON_SECRET is not set - the monitor endpoint is disabled" },
+      { status: 503 }
+    );
+  }
+  const presented = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!presented || !constantTimeEquals(presented, expected)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

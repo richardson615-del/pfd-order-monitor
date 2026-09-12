@@ -425,3 +425,354 @@ table.admin-table th, table.admin-table td {
 .muted { color: var(--text-dim); }
 .error-text { color: var(--new); font-size: 13px; }
 .success-text { color: var(--completed); font-size: 13px; }
+
+/* ==========================================================================
+   THE TABLET DASHBOARD, IN TWO LOOKS                          (2026-09-11)
+   ==========================================================================
+
+   Set per restaurant in the CRM (restaurants.display_mode, migration 028):
+
+     kitchen   large type, heavy contrast, an order's age counting up and
+               turning amber then red. Read across a room by somebody who is
+               not looking for it.
+
+     standard  quieter and roomier, for a tablet on a counter somebody stands
+               at, where the kitchen look reads as shouting.
+
+   Everything here is scoped under [data-display] on the dashboard wrapper, so
+   /admin, /login and the ticket view keep the styles they already had. The two
+   modes differ ONLY in scale, weight and how loudly they signal age - never in
+   what information is present. A quieter screen must not be a screen that
+   tells you less.
+   ========================================================================== */
+
+.app {
+  /* Ground and panels. Warmer and darker than the old navy, so the status
+     colours are the only saturated things on the screen. */
+  --app-bg: #0b0d10;
+  --app-panel: #14181d;
+  --app-panel-2: #1b2026;
+  --app-line: #262c34;
+  --app-text: #f2f4f7;
+  --app-text-dim: #98a2b3;
+
+  /* One accent, for "this system is alive" and nothing else. */
+  --app-accent: #38bdf8;
+
+  /* Age of an unaccepted order. These are the only reds on the screen, so a
+     red thing is always a late thing. */
+  --age-calm: #8a94a6;
+  --age-warn: #fbbf24;
+  --age-late: #ff4d3d;
+
+  --st-waiting: #ff4d3d;
+  --st-done: #34d399;
+  --st-printed: #8a94a6;
+
+  min-height: 100vh;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+/* Digits that line up in a column, for money and for timers. Without this a
+   timer jitters sideways as it counts and reads as a glitch. */
+.app .num { font-variant-numeric: tabular-nums; }
+
+/* --- header ------------------------------------------------------------- */
+
+.app-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--app-bg);
+  border-bottom: 1px solid var(--app-line);
+}
+
+.app-head-count {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.app-head-count.idle { color: var(--app-text-dim); }
+.app-head-count.busy { color: var(--st-waiting); }
+
+.app-head-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.app-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--app-text-dim);
+}
+
+.app-live::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--age-late);
+}
+
+.app-live.live::before { background: var(--st-done); }
+.app-live.connecting::before { background: var(--age-warn); }
+
+.app-clock { color: var(--app-text-dim); font-weight: 700; }
+
+/* --- the order list ----------------------------------------------------- */
+
+.app-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.card {
+  position: relative;
+  display: block;
+  background: var(--app-panel);
+  border: 1px solid var(--app-line);
+  color: inherit;
+  overflow: hidden;
+}
+
+/* The urgency rail. Colour comes from AGE, not status: a cook does not care
+   that a ticket printed, they care that this one arrived eleven minutes ago
+   and nobody has picked it up. */
+.card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--age-calm);
+}
+
+.card.age-warn::before { background: var(--age-warn); }
+.card.age-late::before { background: var(--age-late); }
+.card.settled::before { background: var(--st-done); }
+
+.card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.card-no { font-weight: 800; letter-spacing: -0.02em; }
+
+.card-type {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--app-text-dim);
+}
+
+.card-age {
+  margin-left: auto;
+  font-weight: 800;
+  color: var(--age-calm);
+}
+
+.card.age-warn .card-age { color: var(--age-warn); }
+.card.age-late .card-age { color: var(--age-late); }
+.card.settled .card-age { color: var(--st-done); }
+
+.card-who {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.card-name { font-weight: 700; }
+.card-total { margin-left: auto; font-weight: 800; }
+.card-sub { color: var(--app-text-dim); }
+
+.card-tap {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--app-accent);
+}
+
+.card-flag {
+  display: inline-block;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+}
+
+.card-flag.waiting { background: var(--st-waiting); color: #fff; }
+.card-flag.done { background: var(--st-done); color: #06251a; }
+.card-flag.printed {
+  background: transparent;
+  color: var(--app-text-dim);
+  border: 1px solid var(--app-line);
+}
+.card-flag.cancelled {
+  background: transparent;
+  color: var(--age-late);
+  border: 1px solid var(--age-late);
+}
+
+/* --- filters ------------------------------------------------------------ */
+
+.app-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-tabs::-webkit-scrollbar { display: none; }
+
+.app-tab {
+  flex: 0 0 auto;
+  background: var(--app-panel);
+  color: var(--app-text-dim);
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.app-tab.active {
+  background: var(--app-text);
+  color: var(--app-bg);
+  border-color: var(--app-text);
+}
+
+.app-empty {
+  text-align: center;
+  color: var(--app-text-dim);
+}
+
+/* ==========================================================================
+   KITCHEN
+   Sizes chosen for reading at roughly three metres on a 10in tablet, which is
+   where this actually lives. Touch targets are 64px and up because the hand
+   arriving at the screen may be holding something.
+   ========================================================================== */
+
+[data-display="kitchen"] { padding-bottom: 24px; }
+
+[data-display="kitchen"] .app-head { padding: 18px 20px; }
+[data-display="kitchen"] .app-head-count { font-size: 40px; }
+[data-display="kitchen"] .app-live { font-size: 14px; }
+[data-display="kitchen"] .app-clock { font-size: 22px; }
+
+[data-display="kitchen"] .app-tabs { padding: 14px 20px; gap: 10px; }
+[data-display="kitchen"] .app-tab {
+  padding: 16px 26px;
+  font-size: 17px;
+  min-height: 64px;
+}
+
+[data-display="kitchen"] .app-list { gap: 14px; padding: 0 20px; }
+
+[data-display="kitchen"] .card {
+  border-radius: 12px;
+  border-width: 2px;
+  padding: 20px 24px 20px 34px;
+}
+[data-display="kitchen"] .card::before { width: 12px; }
+
+[data-display="kitchen"] .card-no { font-size: 38px; }
+[data-display="kitchen"] .card-type { font-size: 16px; }
+[data-display="kitchen"] .card-age { font-size: 32px; }
+[data-display="kitchen"] .card-who { margin-top: 10px; }
+[data-display="kitchen"] .card-name {
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+[data-display="kitchen"] .card-total { font-size: 26px; }
+[data-display="kitchen"] .card-sub { font-size: 17px; margin-top: 8px; }
+[data-display="kitchen"] .card-tap { font-size: 14px; margin-top: 14px; display: block; }
+[data-display="kitchen"] .card-flag { font-size: 14px; padding: 6px 14px; }
+[data-display="kitchen"] .app-empty { padding: 70px 20px; font-size: 20px; }
+
+/* A ticket nobody has taken for over ten minutes breathes, so it pulls the
+   eye of someone walking past who was not looking at the screen. Slow and
+   low-contrast on purpose: a flashing screen in a kitchen gets turned off. */
+@keyframes card-breathe {
+  0%, 100% { border-color: var(--age-late); }
+  50% { border-color: #7a1d14; }
+}
+
+[data-display="kitchen"] .card.age-late:not(.settled) {
+  border-color: var(--age-late);
+  animation: card-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-display="kitchen"] .card.age-late:not(.settled) { animation: none; }
+}
+
+/* ==========================================================================
+   STANDARD
+   The same information, said quietly. Nothing is removed - a counter tablet
+   still needs to know an order is nine minutes old, it just does not need to
+   be shouted at about it.
+   ========================================================================== */
+
+[data-display="standard"] { padding-bottom: 40px; }
+
+[data-display="standard"] .app-head { padding: 20px 24px; }
+[data-display="standard"] .app-head-count { font-size: 22px; font-weight: 700; }
+[data-display="standard"] .app-head-count.busy { color: var(--app-text); }
+[data-display="standard"] .app-live { font-size: 12px; }
+[data-display="standard"] .app-clock { font-size: 15px; }
+
+[data-display="standard"] .app-tabs { padding: 16px 24px; }
+[data-display="standard"] .app-tab {
+  padding: 11px 20px;
+  font-size: 14px;
+  min-height: 48px;
+}
+
+[data-display="standard"] .app-list { gap: 14px; padding: 4px 24px; }
+
+[data-display="standard"] .card {
+  border-radius: 16px;
+  padding: 20px 22px 20px 26px;
+}
+[data-display="standard"] .card::before { width: 4px; }
+
+[data-display="standard"] .card-no { font-size: 21px; }
+[data-display="standard"] .card-type { font-size: 12px; }
+[data-display="standard"] .card-age { font-size: 15px; font-weight: 700; }
+[data-display="standard"] .card-who { margin-top: 8px; }
+[data-display="standard"] .card-name { font-size: 16px; }
+[data-display="standard"] .card-total { font-size: 17px; }
+[data-display="standard"] .card-sub { font-size: 14px; margin-top: 6px; }
+[data-display="standard"] .card-tap { display: none; }
+[data-display="standard"] .card-flag { font-size: 11px; padding: 4px 10px; }
+[data-display="standard"] .app-empty { padding: 60px 24px; font-size: 16px; }
+
+/* --- narrow screens ----------------------------------------------------- */
+/* A phone checking in on the restaurant, which happens. The kitchen scale
+   would overflow horizontally, so it steps down - still the larger of the two
+   looks, just not sized for a room. */
+@media (max-width: 560px) {
+  [data-display="kitchen"] .app-head-count { font-size: 28px; }
+  [data-display="kitchen"] .card-no { font-size: 27px; }
+  [data-display="kitchen"] .card-age { font-size: 23px; }
+  [data-display="kitchen"] .card-name { font-size: 18px; }
+  [data-display="kitchen"] .card-total { font-size: 20px; }
+  [data-display="kitchen"] .app-list,
+  [data-display="kitchen"] .app-tabs,
+  [data-display="kitchen"] .app-head { padding-left: 14px; padding-right: 14px; }
+  [data-display="standard"] .app-list,
+  [data-display="standard"] .app-tabs,
+  [data-display="standard"] .app-head { padding-left: 16px; padding-right: 16px; }
+}

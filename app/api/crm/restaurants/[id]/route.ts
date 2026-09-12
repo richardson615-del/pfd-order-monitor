@@ -91,6 +91,20 @@ export async function POST(
     updates.app_expected = body.app_expected;
   }
 
+  // How their tablet renders. Presentation only, and validated here rather
+  // than trusted: a value outside the two the CSS knows about would leave a
+  // kitchen with an unstyled screen, which is worse than either look.
+  if ("display_mode" in body) {
+    const v = String(body.display_mode ?? "").trim();
+    if (v !== "kitchen" && v !== "standard") {
+      return NextResponse.json(
+        { error: "display_mode must be 'kitchen' or 'standard'" },
+        { status: 400 }
+      );
+    }
+    updates.display_mode = v;
+  }
+
   if ("ticket_email_to" in body) {
     const v = String(body.ticket_email_to ?? "").trim();
     if (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {

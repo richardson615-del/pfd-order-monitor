@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order, OrderStatus } from "@/lib/types";
 import OrderCard from "./OrderCard";
+import { type DisplayMode } from "@/lib/order-display";
 import PushSetup from "./PushSetup";
 import { armAudio, isAudioArmed, playAlertBeep } from "@/lib/sound";
 import {
@@ -27,9 +28,14 @@ const TABS: { key: OrderStatus | "all"; label: string }[] = [
 export default function OrderDashboard({
   initialOrders,
   restaurantId,
+  mode,
+  restaurantName,
 }: {
   initialOrders: Order[];
   restaurantId: string;
+  /** kitchen or standard, from the restaurant's own setting. */
+  mode: DisplayMode;
+  restaurantName: string;
 }) {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [tab, setTab] = useState<OrderStatus | "all">("all");
@@ -121,10 +127,14 @@ export default function OrderDashboard({
     return () => clearInterval(id);
   }, [connection, sync]);
 
-  // Drives the staleness check. A screen that cannot reach the database has to
-  // say so on its own, without waiting for an event that is not coming.
+  // Drives the staleness check AND the age timers on every card.
+  //
+  // Every second, not the 10 it used to be: the cards count up in m:ss, and a
+  // clock that jumps ten seconds at a time reads as broken rather than live.
+  // It is one setState of a number - the work is the re-render, and this
+  // screen is a list of at most a couple of hundred rows.
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 10_000);
+    const id = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(id);
   }, []);
 
@@ -236,14 +246,37 @@ export default function OrderDashboard({
   });
 
   return (
-    <div>
+    <div className="app" data-display={mode}>
       {warning && (
         <div className={`kiosk-banner kiosk-${warning.level}`} role="status">
           {warning.text}
         </div>
       )}
 
-      {/* Why the room is beeping, in one line, readable from a distance. */}
+      <div className="app-head">
+        {/* The count IS the headline. Everything else on this screen is
+            detail about it, and on a kitchen tablet the only question being
+            asked from across the room is "is anything waiting". */}
+        <span className={`app-head-count num ${hasNewOrders ? "busy" : "idle"}`}>
+          {hasNewOrders ? `${waiting.length} WAITING` : "All clear"}
+        </span>
+
+        <div className="app-head-right">
+          <span className={`app-live ${connection}`}>
+            {connection === "live"
+              ? "Live"
+              : connection === "connecting"
+                ? "Connecting"
+                : "Offline"}
+          </span>
+          <span className="app-clock num">
+            {new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          </span>
+          <PushSetup />
+        </div>
+      </div>
+
+      {/* Why the room is beeping, in one line, and what stops it. */}
       {hasNewOrders && (
         <div className="waiting-bar" role="status">
           {waiting.length === 1
@@ -252,31 +285,29 @@ export default function OrderDashboard({
         </div>
       )}
 
-      <div className="topbar">
-        <h1>PFD Orders</h1>
-        <PushSetup />
-      </div>
-
-      <div className="tabs">
+      <div className="app-tabs">
         {TABS.map((t) => (
           <button
             key={t.key}
-            className={`tab ${tab === t.key ? "active" : ""}`}
+            className={`app-tab ${tab === t.key ? "active" : ""}`}
             onClick={() => setTab(t.key)}
           >
             {t.label}
-            {t.key !== "all" &&
-              ` (${orders.filter((o) => o.status === t.key).length})`}
+            {t.key !== "all" && ` (${orders.filter((o) => o.status === t.key).length})`}
           </button>
         ))}
       </div>
 
-      <div className="order-list">
+      <div className="app-list">
         {filtered.length === 0 && (
-          <div className="empty-state">No orders here yet.</div>
+          <div className="app-empty">
+            {tab === "all"
+              ? `No orders for ${restaurantName} yet today.`
+              : "Nothing in this list."}
+          </div>
         )}
         {filtered.map((order) => (
-          <OrderCard key={order.id} order={order} />
+          <OrderCard key={order.id} order={order} now={now} />
         ))}
       </div>
     </div>

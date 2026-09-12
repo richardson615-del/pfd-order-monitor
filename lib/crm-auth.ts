@@ -10,7 +10,16 @@ import { timingSafeEqual } from "crypto";
  * anything holding the read key could silently stop a restaurant printing.
  */
 
-function constantTimeEquals(a: string, b: string): boolean {
+/**
+ * Compares a presented secret against the expected one without leaking, in
+ * how long it takes, how many leading characters matched.
+ *
+ * Exported as of 2026-09-11: this was private to the CRM bridge, so the
+ * Zuppler webhook and the monitor cron - the other two shared secrets in this
+ * app - were each comparing with `===`. One helper used by one of three
+ * callers is not a convention, it is an accident waiting to be repeated.
+ */
+export function constantTimeEquals(a: string, b: string): boolean {
   const ab = Buffer.from(a, "utf8");
   const bb = Buffer.from(b, "utf8");
   // timingSafeEqual throws on length mismatch, and length is not the secret.

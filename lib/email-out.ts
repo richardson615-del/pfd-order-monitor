@@ -49,6 +49,29 @@ function encodeHeader(value: string): string {
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/**
+ * The printable HTML body.
+ *
+ * BOLD on purpose. The first live ticket at Greek Style Gyro printed legibly
+ * but faint - Automatic Email Manager renders the HTML part through a Windows
+ * driver, and Courier New's light stems come out weak on thermal paper.
+ * Courier New Bold has the SAME advance width, so this darkens the ticket
+ * without costing a single column, which a larger font size would.
+ *
+ * Colour is stated explicitly: some print paths render default text as dark
+ * grey, which on thermal stock is the difference between readable and not.
+ */
+function wrapTicketHtml(text: string): string {
+  return (
+    `<html><body style="margin:0">` +
+    `<pre style="font-family:'Courier New',Courier,monospace;` +
+    `font-size:13px;font-weight:bold;color:#000;` +
+    `line-height:1.35;white-space:pre;margin:0">` +
+    escapeHtml(text) +
+    `</pre></body></html>`
+  );
+}
+
 export interface TicketEmail {
   subject: string;
   text: string;
@@ -100,10 +123,7 @@ export function composeTicketEmail(
 
   // <pre> in a monospace face: the ticket is column-aligned, and a
   // proportional font would break every total and every quantity column.
-  const html =
-    `<html><body style="margin:0"><pre style="font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.35;white-space:pre;margin:0">` +
-    escapeHtml(text) +
-    `</pre></body></html>`;
+  const html = wrapTicketHtml(text);
 
   return { subject, text, html };
 }
@@ -121,10 +141,7 @@ export function composeCancellationEmail(order: TicketOrder): TicketEmail {
     "This order has been cancelled. Do not prepare it.",
     "If it is already being made, stop.",
   ].filter(Boolean).join("\n");
-  const html =
-    `<html><body style="margin:0"><pre style="font-family:'Courier New',Courier,monospace;font-size:13px;white-space:pre;margin:0">` +
-    escapeHtml(text) + `</pre></body></html>`;
-  return { subject, text, html };
+  return { subject, text, html: wrapTicketHtml(text) };
 }
 
 /** Multipart/alternative RFC822 message. */

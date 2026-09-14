@@ -32,7 +32,7 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   const accept = () => patch({ accepted: true });
 
   /**
-   * Send this ticket to the restaurant's own printer.
+   * Send this ticket to the restaurant's own printer. Only there.
    *
    * This button used to call window.print(), the BROWSER's print dialog. On a
    * kiosk tablet that reaches nothing - the Epson is not a system printer, it
@@ -40,10 +40,17 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
    * the building that can make a ticket was the one thing this button could
    * not talk to.
    *
-   * The browser dialog stays as the fallback, because for a site with no
-   * Epson (tablet-only, or paper made by emailing a PC) it is the only thing
-   * that could work at all. Which of the two happened is always stated rather
-   * than left to be guessed at.
+   * The first fix kept that dialog as a fallback for a site with no Epson.
+   * That was wrong, and it was found the way you would expect (2026-09-14):
+   * "it gives me options to print to printers on the local wifi but not the
+   * epson printer". The Android chooser lists system and network printers,
+   * and the Epson is structurally incapable of appearing among them - so the
+   * dialog is a dead end dressed up as a choice, and the one printer the
+   * restaurant actually owns is the only one missing from it.
+   *
+   * So there is no fallback. Either it goes to the restaurant's printer, or
+   * this says why it could not. A refusal somebody can read beats a menu that
+   * cannot contain the right answer.
    */
   async function sendToPrinter() {
     setPrinting(true);
@@ -58,15 +65,8 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
         return;
       }
 
-      // No printer here, or paper is made by email at this site. Neither is a
-      // fault, and the browser dialog is the only remaining way to get this
-      // ticket onto paper - so offer it rather than refusing.
-      if (data.code === "no_active_printer" || data.code === "email_restaurant") {
-        setPrintNote(`${data.error}. Opening this device's print dialog instead.`);
-        window.print();
-        return;
-      }
-
+      // Deliberately NO window.print() fallback, including when there is no
+      // printer to send to. See the note on this function.
       setPrintNote(data.error ?? "Could not send that to the printer.");
     } catch {
       setPrintNote("Could not reach the server. Nothing was sent to the printer.");

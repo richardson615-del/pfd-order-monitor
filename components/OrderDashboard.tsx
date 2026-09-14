@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { Order, OrderStatus } from "@/lib/types";
+import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
-import { type DisplayMode } from "@/lib/order-display";
+import { ageMs, elapsedLabel, type DisplayMode } from "@/lib/order-display";
+import { Brand } from "./Brand";
 import PushSetup from "./PushSetup";
 import { armAudio, isAudioArmed, playAlertBeep } from "@/lib/sound";
 import {
@@ -14,16 +15,38 @@ import {
   pollIntervalMs,
   realtimeConnection,
   unaccepted,
+  liveState,
   HEARTBEAT_EVERY_MS,
 } from "@/lib/kiosk";
 
-const TABS: { key: OrderStatus | "all"; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "new", label: "New" },
-  { key: "opened", label: "Opened" },
-  { key: "completed", label: "Completed" },
-  { key: "printed", label: "Printed" },
+/**
+ * What the lists are called.
+ *
+ * Was New / Opened / Completed / Printed - the database's own words. Two of
+ * those are not distinctions a kitchen can act on: 'opened' only means
+ * somebody tapped the row, and 'printed' is a fact about the paper channel,
+ * which is independent of the tablet. orderFlag() already collapses them, so
+ * the tabs now say the same three things the cards do.
+ *
+ * "Done" deliberately includes cancelled: nothing is owed on it either. The
+ * card still shows it as cancelled, struck through, so it cannot be mistaken
+ * for something that was cooked.
+ */
+type TabKey = "waiting" | "accepted" | "done" | "all";
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "waiting", label: "Waiting" },
+  { key: "accepted", label: "Accepted" },
+  { key: "done", label: "Done" },
+  { key: "all", label: "Show all" },
 ];
+
+function inTab(order: Order, key: TabKey): boolean {
+  if (key === "all") return true;
+  if (order.status === "cancelled" || order.status === "completed") return key === "done";
+  if (order.accepted_at) return key === "accepted";
+  return key === "waiting";
+}
 
 export default function OrderDashboard({
   initialOrders,
@@ -38,10 +61,17 @@ export default function OrderDashboard({
   restaurantName: string;
 }) {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
-  const [tab, setTab] = useState<OrderStatus | "all">("all");
+  const [tab, setTab] = useState<TabKey>("waiting");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [soundArmed, setSoundArmed] = useState(true); // assume ok until checked
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  /**
+   * When the office last heard from this screen, and whether this browser has
+   * a push subscription. Both feed the status pill. null means NOT YET KNOWN,
+   * which is not the same as missing - see liveState().
+   */
+  const [heartbeatOkAt, setHeartbeatOkAt] = useState<number | null>(null);
+  const [pushSubscribed, setPushSubscribed] = useState<boolean | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -175,7 +205,15 @@ export default function OrderDashboard({
   // thing it is reporting on.
   useEffect(() => {
     const beat = () => {
-      void fetch("/api/dashboard/heartbeat", { method: "POST" }).catch(() => {});
+      // Still fire-and-forget for the REQUEST, but the outcome is recorded:
+      // the pill claimed the office could see this tablet with nothing behind
+      // the claim, and "the office cannot see you" is a thing a restaurant can
+      // act on.
+      void fetch("/api/dashboard/heartbeat", { method: "POST" })
+        .then((res) => {
+          if (res.ok) setHeartbeatOkAt(Date.now());
+        })
+        .catch(() => {});
     };
     beat();
     const id = setInterval(beat, HEARTBEAT_EVERY_MS);
@@ -188,6 +226,41 @@ export default function OrderDashboard({
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  // --- Does this browser actually have a push subscription? -----------------
+  //
+  // Read rather than assumed. The old header showed an "Enable notifications"
+  // button on every load whether or not one existed, and the pill said "Live"
+  // either way - so a tablet that would never ring looked identical to one
+  // that would. Re-checked when the tab comes back to the foreground, since
+  // a subscription can expire while it is asleep.
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+          if (!cancelled) setPushSubscribed(false);
+          return;
+        }
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (!cancelled) setPushSubscribed(Boolean(sub));
+      } catch {
+        // Unknown, not absent. Guessing "false" here would put an amber pill
+        // on a healthy tablet because one API call failed.
+        if (!cancelled) setPushSubscribed(null);
+      }
+    };
+    void check();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
@@ -238,12 +311,33 @@ export default function OrderDashboard({
     };
   }, [hasNewOrders, soundArmed]);
 
-  const filtered = tab === "all" ? orders : orders.filter((o) => o.status === tab);
-  const warning = kioskWarning({
+  const filtered = orders.filter((o) => inTab(o, tab));
+  const stale = isStale(lastSyncAt, now);
+  const warning = kioskWarning({ connection, soundArmed, stale });
+  const live = liveState({
     connection,
+    stale,
     soundArmed,
-    stale: isStale(lastSyncAt, now),
+    pushSubscribed,
+    heartbeatOkAt,
+    now,
   });
+
+  /**
+   * The oldest thing nobody has accepted. "3 waiting" says how much; this
+   * says how bad, which is the number somebody in a kitchen acts on.
+   */
+  const oldest = waiting.reduce<Order | null>((worst, o) => {
+    if (!worst) return o;
+    return (ageMs(o, now) ?? 0) > (ageMs(worst, now) ?? 0) ? o : worst;
+  }, null);
+
+  // The tab a restaurant sees on the wall all day. Naming the restaurant
+  // means a tablet showing the wrong one is obvious at a glance rather than
+  // after somebody wonders why the orders look unfamiliar.
+  useEffect(() => {
+    document.title = `${restaurantName} — Premium Orders`;
+  }, [restaurantName]);
 
   return (
     <div className="app" data-display={mode}>
@@ -254,27 +348,47 @@ export default function OrderDashboard({
       )}
 
       <div className="app-head">
+        <div className="app-head-id">
+          <Brand size="sm" />
+          {/* The restaurant's own name, which this screen never showed. A
+              tablet signed into the wrong restaurant used to look exactly
+              like one signed into the right one. */}
+          <span className="app-head-restaurant">{restaurantName}</span>
+        </div>
+
         {/* The count IS the headline. Everything else on this screen is
             detail about it, and on a kitchen tablet the only question being
             asked from across the room is "is anything waiting". */}
         <span className={`app-head-count num ${hasNewOrders ? "busy" : "idle"}`}>
           {hasNewOrders ? `${waiting.length} WAITING` : "All clear"}
+          {hasNewOrders && oldest && (
+            <span className="app-head-oldest num">oldest {elapsedLabel(oldest, now)}</span>
+          )}
         </span>
 
         <div className="app-head-right">
-          <span className={`app-live ${connection}`}>
-            {connection === "live"
-              ? "Live"
-              : connection === "connecting"
-                ? "Connecting"
-                : "Offline"}
+          {/* Says the worst true thing, not the one that happens to be
+              working. See liveState(). */}
+          <span className={`app-live ${live.level}`} title={live.detail ?? undefined}>
+            {live.label}
           </span>
           <span className="app-clock num">
             {new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
           </span>
+          {/* C3 replaces this with a gate that cannot be skipped. Kept until
+              then: removing it now would leave a window with no way at all to
+              turn alerts on, which is the opposite of where this is going. */}
           <PushSetup />
         </div>
       </div>
+
+      {/* What is wrong and what to do about it, under the name where it is
+          read. The pill is one word; this is the sentence. */}
+      {live.detail && live.level !== "offline" && (
+        <p className="app-head-detail" role="status">
+          {live.detail}
+        </p>
+      )}
 
       {/* Why the room is beeping, in one line, and what stops it. */}
       {hasNewOrders && (
@@ -293,7 +407,7 @@ export default function OrderDashboard({
             onClick={() => setTab(t.key)}
           >
             {t.label}
-            {t.key !== "all" && ` (${orders.filter((o) => o.status === t.key).length})`}
+            {t.key !== "all" && ` (${orders.filter((o) => inTab(o, t.key)).length})`}
           </button>
         ))}
       </div>
@@ -301,9 +415,11 @@ export default function OrderDashboard({
       <div className="app-list">
         {filtered.length === 0 && (
           <div className="app-empty">
-            {tab === "all"
-              ? `No orders for ${restaurantName} yet today.`
-              : "Nothing in this list."}
+            {tab === "waiting"
+              ? "Nothing waiting. All caught up."
+              : tab === "all"
+                ? `No orders for ${restaurantName} yet today.`
+                : "Nothing in this list."}
           </div>
         )}
         {filtered.map((order) => (

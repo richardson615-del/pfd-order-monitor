@@ -181,3 +181,92 @@ export function kioskWarning(args: {
   }
   return null;
 }
+
+/**
+ * How long without a successful heartbeat before the screen stops claiming
+ * the office can see it. Three misses, matching the reasoning on
+ * HEARTBEAT_EVERY_MS: one throttled timer is not an outage.
+ */
+export const HEARTBEAT_STALE_AFTER_MS = 3 * HEARTBEAT_EVERY_MS;
+
+export type LiveLevel = "live" | "degraded" | "offline";
+
+export interface LiveState {
+  level: LiveLevel;
+  /** The word on the pill. */
+  label: string;
+  /** What is wrong and what to do, or null when nothing is. */
+  detail: string | null;
+}
+
+/**
+ * What the status pill is allowed to claim.
+ *
+ * The pill used to read Supabase Realtime's channel status and nothing else,
+ * which meant it said "Live" — in green, all day — on a tablet whose sound
+ * was off, whose notifications had never been enabled, and which the office
+ * could not see. Every one of those is a tablet that will miss an order, and
+ * the screen was reassuring the room about the single thing that happened to
+ * be working.
+ *
+ * So it takes every input that decides whether this tablet will actually
+ * raise the alarm, and the word it shows is the worst of them.
+ *
+ * `null` for pushSubscribed or heartbeatOkAt means NOT YET KNOWN, not
+ * missing. On first paint nothing has reported in, and a screen that flashes
+ * amber for a second on every load is one nobody reads.
+ */
+export function liveState(args: {
+  connection: Connection;
+  stale: boolean;
+  soundArmed: boolean;
+  pushSubscribed: boolean | null;
+  heartbeatOkAt: number | null;
+  now: number;
+}): LiveState {
+  // Orders cannot arrive at all. Nothing else is worth saying.
+  if (args.connection === "down" || args.stale) {
+    return {
+      level: "offline",
+      label: "Offline",
+      detail: "Not receiving orders — check this tablet's wifi.",
+    };
+  }
+
+  // Sound first among the degradations, for the same reason kioskWarning puts
+  // it first: a connected tablet that cannot chime looks perfectly healthy,
+  // and the entire point of the tablet is that somebody notices an order
+  // without watching the screen.
+  if (!args.soundArmed) {
+    return {
+      level: "degraded",
+      label: "Limited",
+      detail: "Sound is off — touch the screen to turn on order alerts.",
+    };
+  }
+
+  if (args.pushSubscribed === false) {
+    return {
+      level: "degraded",
+      label: "Limited",
+      detail: "Alerts are off — this tablet will not ring when it is asleep.",
+    };
+  }
+
+  if (
+    args.heartbeatOkAt !== null &&
+    args.now - args.heartbeatOkAt >= HEARTBEAT_STALE_AFTER_MS
+  ) {
+    return {
+      level: "degraded",
+      label: "Limited",
+      detail: "The office cannot see this tablet — orders are still arriving.",
+    };
+  }
+
+  if (args.connection === "connecting") {
+    return { level: "degraded", label: "Connecting", detail: "Reconnecting…" };
+  }
+
+  return { level: "live", label: "Live", detail: null };
+}

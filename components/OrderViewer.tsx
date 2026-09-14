@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Order, OrderStatus } from "@/lib/types";
 import OrderTicket from "./OrderTicket";
+import { orderFlag } from "@/lib/order-display";
 
 export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   const [order, setOrder] = useState(initialOrder);
@@ -75,6 +76,8 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
     }
   }
 
+  const flag = orderFlag(order);
+
   const acceptedAt = order.accepted_at
     ? new Date(order.accepted_at).toLocaleTimeString(undefined, {
         hour: "numeric",
@@ -89,7 +92,11 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
           &larr; Back
         </Link>
         <h1>Order #{order.order_number}</h1>
-        <span className={`badge status-${order.status}`}>{order.status}</span>
+        {/* The word a person can act on, not the database's own. This used
+            to render order.status raw, so a ticket said "printed" - a fact
+            about the paper channel, which is independent of this screen and
+            says nothing about whether anybody has agreed to cook it. */}
+        <span className={`badge status-${flag.tone}`}>{flag.label}</span>
       </div>
 
       <OrderTicket order={order} />

@@ -7,19 +7,76 @@
 <meta name="description" content="A working demo of the PFD kitchen order tablet. Invented orders, no login.">
 <meta name="robots" content="noindex">
 <style>
+/* ==========================================================================
+   ONE PALETTE                                                  (2026-09-14)
+   ==========================================================================
+
+   There used to be two. A legacy `:root` set (navy --bg, blue --accent) used
+   by /login, /order and /admin, and an `.app` set (warmer, darker, sky
+   --app-accent) added with the tablet dashboard. Walking from the dashboard
+   into a ticket changed the background and the accent colour mid-task, which
+   reads as two applications stitched together - on a screen a cook uses
+   without thinking about it.
+
+   The dashboard's palette won: it is the considered one, and it is the screen
+   that matters most. The legacy names are kept as aliases onto it rather than
+   rewritten at every call site. Same colour, both names, one place to change.
+   ========================================================================== */
+
 :root {
-  --bg: #0f1420;
-  --panel: #171d2b;
-  --panel-2: #1f2637;
-  --border: #2a3245;
-  --text: #e7ebf3;
-  --text-dim: #9aa4b8;
-  --accent: #4f8cff;
-  --new: #ff5a5f;
-  --opened: #f5a524;
-  --completed: #2ecc71;
-  --printed: #6c7a94;
+  /* Ground and panels. Warm and dark, so the status colours are the only
+     saturated things on any screen. */
+  --bg: #0b0d10;
+  --panel: #14181d;
+  --panel-2: #1b2026;
+  --border: #262c34;
+  --text: #f2f4f7;
+  --text-dim: #98a2b3;
+
+  /* The brand, and the gradient the mark is filled with. One accent, for
+     "this system is alive" and for the mark - nothing else. */
+  --brand: #38bdf8;
+  --brand-2: #7dd3fc;
+  --accent: var(--brand);
+
+  /* Age of an unaccepted order. The only reds on the screen, so a red thing
+     is always a late thing. */
+  --age-calm: #8a94a6;
+  --age-warn: #fbbf24;
+  --age-late: #ff4d3d;
+
+  --st-waiting: #ff4d3d;
+  --st-done: #34d399;
+  --st-printed: #8a94a6;
+
+  /* Legacy status names, kept because the demo page and /admin still use
+     them. Mapped onto the set above rather than given their own values, so
+     there is still only one red in the system. */
+  --new: var(--st-waiting);
+  --opened: var(--age-warn);
+  --completed: var(--st-done);
+  --printed: var(--st-printed);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+
+  /* Four steps. Anything outside them is a one-off that has to justify
+     itself in place. */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-md: 17px;
+  --text-lg: 24px;
+
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* The brand face, applied only where somebody reads across a room. */
+.brand,
+h1, h2,
+.app-head-count,
+.app .num {
+  font-family: var(--font-brand), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -381,6 +438,25 @@ button {
    of leaving one button stretched across the width on its own. */
 .action-bar .btn { flex: 1 1 8rem; justify-content: center; }
 
+/* What the last Print press did - sits directly on top of the fixed action
+   bar rather than in the scrolling page, because the person who needs to read
+   it is looking at the button they just pressed. Without this it rendered
+   somewhere above the fold on a long ticket and was never seen. */
+.print-note {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(68px + env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
 .form {
   display: flex;
   flex-direction: column;
@@ -431,9 +507,355 @@ table.admin-table th, table.admin-table td {
   border-bottom: 1px solid var(--border);
 }
 
+/* The login page's mark. Centred and given room: this is the first screen a
+   restaurant sees, and it was a text h1 in a sticky bar borrowed from the
+   admin pages. */
+.login-brand {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px 32px;
+}
+
 .muted { color: var(--text-dim); }
 .error-text { color: var(--new); font-size: 13px; }
 .success-text { color: var(--completed); font-size: 13px; }
+
+/* ==========================================================================
+   THE TABLET DASHBOARD, IN TWO LOOKS                          (2026-09-11)
+   ==========================================================================
+
+   Set per restaurant in the CRM (restaurants.display_mode, migration 028):
+
+     kitchen   large type, heavy contrast, an order's age counting up and
+               turning amber then red. Read across a room by somebody who is
+               not looking for it.
+
+     standard  quieter and roomier, for a tablet on a counter somebody stands
+               at, where the kitchen look reads as shouting.
+
+   Everything here is scoped under [data-display] on the dashboard wrapper, so
+   /admin, /login and the ticket view keep the styles they already had. The two
+   modes differ ONLY in scale, weight and how loudly they signal age - never in
+   what information is present. A quieter screen must not be a screen that
+   tells you less.
+   ========================================================================== */
+
+.app {
+  /* The palette lives on :root now (see the top of this file). What is left
+     here is what .app actually is: the dashboard's full-height surface. */
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Digits that line up in a column, for money and for timers. Without this a
+   timer jitters sideways as it counts and reads as a glitch. */
+.app .num { font-variant-numeric: tabular-nums; }
+
+/* --- header ------------------------------------------------------------- */
+
+.app-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-head-count {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.app-head-count.idle { color: var(--text-dim); }
+.app-head-count.busy { color: var(--st-waiting); }
+
+.app-head-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.app-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.app-live::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--age-late);
+}
+
+.app-live.live::before { background: var(--st-done); }
+.app-live.connecting::before { background: var(--age-warn); }
+
+.app-clock { color: var(--text-dim); font-weight: 700; }
+
+/* --- the order list ----------------------------------------------------- */
+
+.app-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scoped under .app rather than renamed. This block and the legacy .card at
+   the top of the file shared a name, and BOTH cascaded onto the login page's
+   "Check email" box - which is the bug. Scoping fixes it in one line.
+   Renaming would have meant chasing .card.age-warn, .card.settled,
+   [data-display=...] .card and six children across the file, and a rename
+   that misses one leaves a kitchen screen half-styled. */
+.app .card {
+  position: relative;
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: inherit;
+  overflow: hidden;
+}
+
+/* The urgency rail. Colour comes from AGE, not status: a cook does not care
+   that a ticket printed, they care that this one arrived eleven minutes ago
+   and nobody has picked it up. */
+.app .card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--age-calm);
+}
+
+.card.age-warn::before { background: var(--age-warn); }
+.card.age-late::before { background: var(--age-late); }
+.card.settled::before { background: var(--st-done); }
+
+.card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.card-no { font-weight: 800; letter-spacing: -0.02em; }
+
+.card-type {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+}
+
+.card-age {
+  margin-left: auto;
+  font-weight: 800;
+  color: var(--age-calm);
+}
+
+.card.age-warn .card-age { color: var(--age-warn); }
+.card.age-late .card-age { color: var(--age-late); }
+.card.settled .card-age { color: var(--st-done); }
+
+.card-who {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.card-name { font-weight: 700; }
+.card-total { margin-left: auto; font-weight: 800; }
+.card-sub { color: var(--text-dim); }
+
+.card-tap {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--brand);
+}
+
+.card-flag {
+  display: inline-block;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 999px;
+}
+
+.card-flag.waiting { background: var(--st-waiting); color: #fff; }
+.card-flag.done { background: var(--st-done); color: #06251a; }
+.card-flag.printed {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.card-flag.cancelled {
+  background: transparent;
+  color: var(--age-late);
+  border: 1px solid var(--age-late);
+}
+
+/* --- filters ------------------------------------------------------------ */
+
+.app-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-tabs::-webkit-scrollbar { display: none; }
+
+.app-tab {
+  flex: 0 0 auto;
+  background: var(--panel);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.app-tab.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+.app-empty {
+  text-align: center;
+  color: var(--text-dim);
+}
+
+/* ==========================================================================
+   KITCHEN
+   Sizes chosen for reading at roughly three metres on a 10in tablet, which is
+   where this actually lives. Touch targets are 64px and up because the hand
+   arriving at the screen may be holding something.
+   ========================================================================== */
+
+[data-display="kitchen"] { padding-bottom: 24px; }
+
+[data-display="kitchen"] .app-head { padding: 18px 20px; }
+[data-display="kitchen"] .app-head-count { font-size: 40px; }
+[data-display="kitchen"] .app-live { font-size: 14px; }
+[data-display="kitchen"] .app-clock { font-size: 22px; }
+
+[data-display="kitchen"] .app-tabs { padding: 14px 20px; gap: 10px; }
+[data-display="kitchen"] .app-tab {
+  padding: 16px 26px;
+  font-size: 17px;
+  min-height: 64px;
+}
+
+[data-display="kitchen"] .app-list { gap: 14px; padding: 0 20px; }
+
+[data-display="kitchen"] .card {
+  border-radius: 12px;
+  border-width: 2px;
+  padding: 20px 24px 20px 34px;
+}
+[data-display="kitchen"] .card::before { width: 12px; }
+
+[data-display="kitchen"] .card-no { font-size: 38px; }
+[data-display="kitchen"] .card-type { font-size: 16px; }
+[data-display="kitchen"] .card-age { font-size: 32px; }
+[data-display="kitchen"] .card-who { margin-top: 10px; }
+[data-display="kitchen"] .card-name {
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+[data-display="kitchen"] .card-total { font-size: 26px; }
+[data-display="kitchen"] .card-sub { font-size: 17px; margin-top: 8px; }
+[data-display="kitchen"] .card-tap { font-size: 14px; margin-top: 14px; display: block; }
+[data-display="kitchen"] .card-flag { font-size: 14px; padding: 6px 14px; }
+[data-display="kitchen"] .app-empty { padding: 70px 20px; font-size: 20px; }
+
+/* A ticket nobody has taken for over ten minutes breathes, so it pulls the
+   eye of someone walking past who was not looking at the screen. Slow and
+   low-contrast on purpose: a flashing screen in a kitchen gets turned off. */
+@keyframes card-breathe {
+  0%, 100% { border-color: var(--age-late); }
+  50% { border-color: #7a1d14; }
+}
+
+[data-display="kitchen"] .card.age-late:not(.settled) {
+  border-color: var(--age-late);
+  animation: card-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-display="kitchen"] .card.age-late:not(.settled) { animation: none; }
+}
+
+/* ==========================================================================
+   STANDARD
+   The same information, said quietly. Nothing is removed - a counter tablet
+   still needs to know an order is nine minutes old, it just does not need to
+   be shouted at about it.
+   ========================================================================== */
+
+[data-display="standard"] { padding-bottom: 40px; }
+
+[data-display="standard"] .app-head { padding: 20px 24px; }
+[data-display="standard"] .app-head-count { font-size: 22px; font-weight: 700; }
+[data-display="standard"] .app-head-count.busy { color: var(--text); }
+[data-display="standard"] .app-live { font-size: 12px; }
+[data-display="standard"] .app-clock { font-size: 15px; }
+
+[data-display="standard"] .app-tabs { padding: 16px 24px; }
+[data-display="standard"] .app-tab {
+  padding: 11px 20px;
+  font-size: 14px;
+  min-height: 48px;
+}
+
+[data-display="standard"] .app-list { gap: 14px; padding: 4px 24px; }
+
+[data-display="standard"] .card {
+  border-radius: 16px;
+  padding: 20px 22px 20px 26px;
+}
+[data-display="standard"] .card::before { width: 4px; }
+
+[data-display="standard"] .card-no { font-size: 21px; }
+[data-display="standard"] .card-type { font-size: 12px; }
+[data-display="standard"] .card-age { font-size: 15px; font-weight: 700; }
+[data-display="standard"] .card-who { margin-top: 8px; }
+[data-display="standard"] .card-name { font-size: 16px; }
+[data-display="standard"] .card-total { font-size: 17px; }
+[data-display="standard"] .card-sub { font-size: 14px; margin-top: 6px; }
+[data-display="standard"] .card-tap { display: none; }
+[data-display="standard"] .card-flag { font-size: 11px; padding: 4px 10px; }
+[data-display="standard"] .app-empty { padding: 60px 24px; font-size: 16px; }
+
+/* --- narrow screens ----------------------------------------------------- */
+/* A phone checking in on the restaurant, which happens. The kitchen scale
+   would overflow horizontally, so it steps down - still the larger of the two
+   looks, just not sized for a room. */
+@media (max-width: 560px) {
+  [data-display="kitchen"] .app-head-count { font-size: 28px; }
+  [data-display="kitchen"] .card-no { font-size: 27px; }
+  [data-display="kitchen"] .card-age { font-size: 23px; }
+  [data-display="kitchen"] .card-name { font-size: 18px; }
+  [data-display="kitchen"] .card-total { font-size: 20px; }
+  [data-display="kitchen"] .app-list,
+  [data-display="kitchen"] .app-tabs,
+  [data-display="kitchen"] .app-head { padding-left: 14px; padding-right: 14px; }
+  [data-display="standard"] .app-list,
+  [data-display="standard"] .app-tabs,
+  [data-display="standard"] .app-head { padding-left: 16px; padding-right: 16px; }
+}
 
 </style>
 <style>
@@ -530,7 +952,7 @@ table.admin-table th, table.admin-table td {
 </div>
 
 <script>
-const DEMO_ORDERS = [{"id":"demo0","number":"2bed4416","who":"Eileen Gutierrez","type":"Delivery","total":"$44.76","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Fri, Sep 11, 1:35 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #2bed4416     placed Fri, Sep 11, 12:55 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Eileen Gutierrez</div><div class=\"tl\">(931) 302-3610</div><div class=\"tl\"> </div><div class=\"tl tl-b\">254 Village Square, Pleasant View, 37146</div><div class=\"tl tl-b\">&gt;&gt; Gate code 4471</div><div class=\"tl tl-b\">&gt;&gt; Leave at side door</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  2   LOADED FRIES                        $13.00</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pepper x 1</div><div class=\"tl tl-b\">      &gt;&gt; No sour cream</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   SMASH BURGER                        $11.50</div><div class=\"tl tl-b\">      &gt;&gt; NO ONIONS</div><div class=\"tl tl-b\">      &gt;&gt; Add bacon</div><div class=\"tl tl-b\">      &gt;&gt; Medium well</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   CHOCOLATE MILKSHAKE                  $7.25</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $31.75</div><div class=\"tl\">Tax                                        $2.93</div><div class=\"tl\">Service                                    $1.59</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $6.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $44.76</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Allergy: shellfish. Ring the bell twice.</div></div></div>"},{"id":"demo1","number":"9fa21c07","who":"Marquita Clark","type":"Pickup","total":"$34.83","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  P I C K U P  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Fri, Sep 11, 1:19 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #9fa21c07     placed Fri, Sep 11, 12:56 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Marquita Clark</div><div class=\"tl\">(615) 555-0142</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  3   WINGS                               $24.00</div><div class=\"tl tl-b\">      &gt;&gt; Hot</div><div class=\"tl tl-b\">      &gt;&gt; Ranch on the side</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   LOADED FF                            $6.50</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pep. X 1</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $30.50</div><div class=\"tl\">Tax                                        $2.81</div><div class=\"tl\">Service                                    $1.52</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $34.83</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div></div></div>"},{"id":"demo2","number":"77c1e934","who":"Greg Bishop","type":"Delivery","total":"$74.53","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Fri, Sep 11, 1:52 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #77c1e934     placed Fri, Sep 11, 12:56 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Greg Bishop</div><div class=\"tl\">(931) 555-0177</div><div class=\"tl\"> </div><div class=\"tl tl-b\">88 Oak Ridge Rd, Ashland City, 37015</div><div class=\"tl tl-b\">&gt;&gt; Apartment 3B, buzzer broken</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  1   FAMILY PLATTER                      $48.00</div><div class=\"tl tl-b\">      &gt;&gt; No pork</div><div class=\"tl tl-b\">      &gt;&gt; Extra slaw</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  2   SWEET TEA                            $5.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $53.00</div><div class=\"tl\">Tax                                        $4.89</div><div class=\"tl\">Service                                    $2.65</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $9.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $74.53</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Please knock, doorbell does not work.</div></div></div>"}];
+const DEMO_ORDERS = [{"id":"demo0","number":"2bed4416","who":"Eileen Gutierrez","type":"Delivery","total":"$44.76","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:04 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #2bed4416      placed Mon, Sep 14, 6:24 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Eileen Gutierrez</div><div class=\"tl\">(931) 302-3610</div><div class=\"tl\"> </div><div class=\"tl tl-b\">254 Village Square, Pleasant View, 37146</div><div class=\"tl tl-b\">&gt;&gt; Gate code 4471</div><div class=\"tl tl-b\">&gt;&gt; Leave at side door</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  2   LOADED FRIES                        $13.00</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pepper x 1</div><div class=\"tl tl-b\">      &gt;&gt; No sour cream</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   SMASH BURGER                        $11.50</div><div class=\"tl tl-b\">      &gt;&gt; NO ONIONS</div><div class=\"tl tl-b\">      &gt;&gt; Add bacon</div><div class=\"tl tl-b\">      &gt;&gt; Medium well</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   CHOCOLATE MILKSHAKE                  $7.25</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $31.75</div><div class=\"tl\">Tax                                        $2.93</div><div class=\"tl\">Service                                    $1.59</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $6.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $44.76</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Allergy: shellfish. Ring the bell twice.</div></div></div>"},{"id":"demo1","number":"9fa21c07","who":"Marquita Clark","type":"Pickup","total":"$34.83","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  P I C K U P  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 6:48 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #9fa21c07      placed Mon, Sep 14, 6:25 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Marquita Clark</div><div class=\"tl\">(615) 555-0142</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  3   WINGS                               $24.00</div><div class=\"tl tl-b\">      &gt;&gt; Hot</div><div class=\"tl tl-b\">      &gt;&gt; Ranch on the side</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   LOADED FF                            $6.50</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pep. X 1</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $30.50</div><div class=\"tl\">Tax                                        $2.81</div><div class=\"tl\">Service                                    $1.52</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $34.83</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div></div></div>"},{"id":"demo2","number":"77c1e934","who":"Greg Bishop","type":"Delivery","total":"$74.53","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:21 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #77c1e934      placed Mon, Sep 14, 6:25 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Greg Bishop</div><div class=\"tl\">(931) 555-0177</div><div class=\"tl\"> </div><div class=\"tl tl-b\">88 Oak Ridge Rd, Ashland City, 37015</div><div class=\"tl tl-b\">&gt;&gt; Apartment 3B, buzzer broken</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  1   FAMILY PLATTER                      $48.00</div><div class=\"tl tl-b\">      &gt;&gt; No pork</div><div class=\"tl tl-b\">      &gt;&gt; Extra slaw</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  2   SWEET TEA                            $5.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $53.00</div><div class=\"tl\">Tax                                        $4.89</div><div class=\"tl\">Service                                    $2.65</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $9.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $74.53</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Please knock, doorbell does not work.</div></div></div>"}];
 
 let ctx = null;
 function audioContext() {

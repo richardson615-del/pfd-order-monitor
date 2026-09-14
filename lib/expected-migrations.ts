@@ -30,4 +30,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "027_password_column_not_readable_by_clients.sql",
   "028_display_mode.sql",
   "029_print_documents.sql",
+  "030_heartbeat_push_state.sql",
 ];

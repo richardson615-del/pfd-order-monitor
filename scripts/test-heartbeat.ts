@@ -186,7 +186,21 @@ test("the restaurant comes from the session, never the request body", () => {
   // the handler explains the rule, and a test tripping over its own
   // explanation is pushing back on documentation rather than behaviour.
   assert.match(route, /getCurrentUserRestaurantIds\(\)/);
-  assert.doesNotMatch(route, /req\.json\(\)/);
+  assert.match(route, /restaurantIds\.map\(\(restaurant_id\) =>/);
+
+  // This used to assert the route never called req.json() at all, which was a
+  // proxy for the rule rather than the rule. Migration 030 gave the beat one
+  // self-reported field - whether THIS screen holds a push subscription - and
+  // the blanket ban caught it.
+  //
+  // The property is unchanged and is now asserted directly: the body may only
+  // ever produce `pushSubscribed`, and restaurant_id comes from the session.
+  // A client reporting on its own push state cannot vouch for anywhere else,
+  // and it could already lie about being alive by not beating at all.
+  const body = route.slice(route.indexOf("req.json()"));
+  const readsFromBody = [...body.matchAll(/body\?\.(\w+)/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(readsFromBody)], ["pushSubscribed"]);
+  assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
 });
 
 test("it refuses an unauthenticated caller", () =>

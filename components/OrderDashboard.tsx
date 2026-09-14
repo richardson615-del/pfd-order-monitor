@@ -6,7 +6,7 @@ import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
 import { ageMs, elapsedLabel, type DisplayMode } from "@/lib/order-display";
 import { Brand } from "./Brand";
-import PushSetup from "./PushSetup";
+import AlertGate from "./AlertGate";
 import { armAudio, isAudioArmed, playAlertBeep } from "@/lib/sound";
 import {
   Connection,
@@ -209,7 +209,13 @@ export default function OrderDashboard({
       // the pill claimed the office could see this tablet with nothing behind
       // the claim, and "the office cannot see you" is a thing a restaurant can
       // act on.
-      void fetch("/api/dashboard/heartbeat", { method: "POST" })
+      void fetch("/api/dashboard/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // So the office can tell an open screen that will ring from an open
+        // screen that will not. null until AlertGate has answered.
+        body: JSON.stringify({ pushSubscribed }),
+      })
         .then((res) => {
           if (res.ok) setHeartbeatOkAt(Date.now());
         })
@@ -228,42 +234,15 @@ export default function OrderDashboard({
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+    // Re-run when the subscription answer changes: with [] this closure would
+    // capture the first value (null, before AlertGate has looked) and report
+    // it for the life of the tab.
+  }, [pushSubscribed]);
 
-  // --- Does this browser actually have a push subscription? -----------------
-  //
-  // Read rather than assumed. The old header showed an "Enable notifications"
-  // button on every load whether or not one existed, and the pill said "Live"
-  // either way - so a tablet that would never ring looked identical to one
-  // that would. Re-checked when the tab comes back to the foreground, since
-  // a subscription can expire while it is asleep.
-  useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      try {
-        if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-          if (!cancelled) setPushSubscribed(false);
-          return;
-        }
-        const reg = await navigator.serviceWorker.ready;
-        const sub = await reg.pushManager.getSubscription();
-        if (!cancelled) setPushSubscribed(Boolean(sub));
-      } catch {
-        // Unknown, not absent. Guessing "false" here would put an amber pill
-        // on a healthy tablet because one API call failed.
-        if (!cancelled) setPushSubscribed(null);
-      }
-    };
-    void check();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void check();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
+  // The push subscription is read and repaired by AlertGate, which owns that
+  // question - it reports the answer here through onSubscribedChange so the
+  // status pill and the gate cannot disagree about whether this tablet will
+  // ring. Two separate probes is how they start to.
 
   // --- Keep the screen on ---------------------------------------------------
   // A kiosk whose screen has gone to sleep is a kiosk nobody can see an order
@@ -341,6 +320,10 @@ export default function OrderDashboard({
 
   return (
     <div className="app" data-display={mode}>
+      {/* Above everything. Nothing below this renders while alerts are off -
+          a tablet that cannot ring is not a tablet, it is a screen. */}
+      <AlertGate restaurantName={restaurantName} onSubscribedChange={setPushSubscribed} />
+
       {warning && (
         <div className={`kiosk-banner kiosk-${warning.level}`} role="status">
           {warning.text}
@@ -375,10 +358,6 @@ export default function OrderDashboard({
           <span className="app-clock num">
             {new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
           </span>
-          {/* C3 replaces this with a gate that cannot be skipped. Kept until
-              then: removing it now would leave a window with no way at all to
-              turn alerts on, which is the opposite of where this is going. */}
-          <PushSetup />
         </div>
       </div>
 

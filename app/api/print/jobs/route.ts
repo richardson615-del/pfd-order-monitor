@@ -46,6 +46,14 @@ export async function GET(req: NextRequest) {
     )
     .eq("device_id", device.id)
     .eq("status", "queued")
+    // Orders only. The on-site agent (print-agent/agent.mjs) renders a ticket
+    // from this order JSON and has never heard of a document job (migration
+    // 029) - handing it one would be a job it claims, cannot draw, and
+    // reports nothing about. The endpoint that queues documents refuses any
+    // device that reports this transport, so in practice this filter should
+    // never have anything to do; it is here so that "should" is not the only
+    // thing standing between a login ticket and a silently lost job.
+    .eq("kind", "order")
     .order("queued_at", { ascending: true })
     .limit(10);
 
@@ -108,10 +116,15 @@ export async function POST(req: NextRequest) {
       .from("print_jobs")
       .update({ status: "printed", finished_at: new Date().toISOString() })
       .eq("id", job.id);
-    await admin
-      .from("orders")
-      .update({ status: "printed", printed_at: new Date().toISOString() })
-      .eq("id", job.order_id);
+    // A document job has no order to flip (migration 029). The GET above does
+    // not hand documents to this transport at all, so this is belt and
+    // braces - but `.eq("id", null)` is not a no-op, it is a malformed query.
+    if (job.order_id) {
+      await admin
+        .from("orders")
+        .update({ status: "printed", printed_at: new Date().toISOString() })
+        .eq("id", job.order_id);
+    }
     return NextResponse.json({ ok: true });
   }
 

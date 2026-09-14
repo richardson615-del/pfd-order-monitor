@@ -76,3 +76,23 @@ comment on column print_jobs.kind is
 
 comment on column print_jobs.document is
   'Ticket lines for a kind=''document'' job, in lib/ticket.ts''s TicketLine shape. Written by bridge code only - never by anything a restaurant or a device can reach.';
+
+-- --- the audit has to be able to say what happened ---------------------------
+--
+-- restaurant_login_audit.action is a CHECK list: 'created', 'password_reset'
+-- (023) and 'password_shown' (026). Printing a password is a fourth thing that
+-- happens to a credential, and it is the one that leaves the building.
+--
+-- Widening this is not tidiness. audit() deliberately never fails the request
+-- it is recording - an unwritable audit row must not leave somebody at a
+-- restaurant unable to sign a tablet in - so a rejected insert is a
+-- console.error and nothing else. Without this, every login print would
+-- succeed with no audit row at all, and the only sign would be a line in a
+-- Vercel log nobody reads. That is worse than not auditing on purpose.
+
+alter table restaurant_login_audit
+  drop constraint if exists restaurant_login_audit_action_check;
+
+alter table restaurant_login_audit
+  add constraint restaurant_login_audit_action_check
+  check (action in ('created', 'password_reset', 'password_shown', 'password_printed'));

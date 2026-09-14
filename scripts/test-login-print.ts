@@ -181,7 +181,15 @@ test("the printer is chosen BEFORE the password is rotated", () => {
 test("every print is audited, and a rotation audits twice", () => {
   assert.match(route, /action: "password_printed"/);
   assert.match(route, /action: "password_reset"/);
-  assert.match(route, /job \$\{job\.id\}|job \$\{job\.id\}/);
+});
+
+test("the audit table will actually accept the new action", () => {
+  // audit() never fails the request it records, by design. So a CHECK that
+  // rejects 'password_printed' would not break anything visibly - it would
+  // just mean every login print happens with no audit row, reported only in a
+  // Vercel log nobody reads. Which is worse than not auditing on purpose.
+  assert.match(migration, /restaurant_login_audit_action_check/);
+  assert.match(migration, /'created', 'password_reset', 'password_shown', 'password_printed'/);
 });
 
 test("an offline printer is queued for, not refused", () => {

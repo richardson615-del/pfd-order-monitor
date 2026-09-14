@@ -643,12 +643,12 @@ async function deliverByEmail(args: {
     return;
   }
 
-  const { composeTicketEmail, sendTicketEmail } = await import("./email-out");
-  const email = composeTicketEmail(args.order as any, {
-    footer: {
-      text: args.restaurant.ticket_footer_text,
-      url: args.restaurant.ticket_footer_url,
-    },
+  const { composeBrandedTicketEmail, sendTicketEmail } = await import("./email-out");
+  const r = args.restaurant as any;
+  const email = await composeBrandedTicketEmail(args.order as any, {
+    footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
+    logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
+    design: { style: r.ticket_design_style },
   });
 
   const result = await sendTicketEmail(to, email);

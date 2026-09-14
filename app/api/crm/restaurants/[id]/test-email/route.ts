@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
-import { composeTicketEmail, sendTicketEmail, SENDER_ADDRESS } from "@/lib/email-out";
+import { composeBrandedTicketEmail, sendTicketEmail, SENDER_ADDRESS } from "@/lib/email-out";
 import { SAMPLE_ORDER } from "@/lib/ticket-preview";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export async function POST(
 
   const { data: r } = await admin
     .from("restaurants")
-    .select("id, name, print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale")
+    .select("id, name, print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_logo_b64, ticket_design_style")
     .eq("id", params.id)
     .maybeSingle();
   if (!r) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
@@ -60,8 +60,10 @@ export async function POST(
     renderedOrder = o.order_number ?? o.id;
   }
 
-  const email = composeTicketEmail(source, {
+  const email = await composeBrandedTicketEmail(source, {
     footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
+    logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
+    design: { style: r.ticket_design_style },
   });
 
   const result = await sendTicketEmail(to, email);

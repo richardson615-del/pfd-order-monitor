@@ -314,3 +314,90 @@ export async function sendComposedEmail(
 ): Promise<SendResult> {
   return sendTicketEmail(to, email);
 }
+
+/**
+ * The branded ticket email - the same raster header and footer the Epson
+ * path prints, embedded as images.
+ *
+ * Images are data: URIs rather than CID attachments. AEM renders the HTML
+ * part through a Windows engine, and a data: URI survives the message being
+ * extracted and printed standalone, where a CID reference depends on the
+ * renderer still having the MIME container to resolve against. Self-contained
+ * is the safer bet for something whose renderer we cannot inspect.
+ *
+ * The PLAIN-TEXT part is unchanged and still complete - logo and QR degrade
+ * to the restaurant name and a bare URL. A client that shows text loses the
+ * branding and none of the order.
+ *
+ * Any failure to render falls back to the styled text-only HTML. A logo is
+ * decoration; the ticket is dinner.
+ */
+export async function composeBrandedTicketEmail(
+  order: TicketOrder,
+  opts: {
+    footer?: TicketFooter;
+    logo?: Buffer | null;
+    design?: { style?: string | null } | null;
+    cols?: number;
+  } = {}
+): Promise<TicketEmail> {
+  const base = composeTicketEmail(order, { footer: opts.footer, cols: opts.cols });
+  const hasBranding = Boolean(opts.logo) || Boolean(opts.footer?.url);
+  if (!hasBranding) return base;
+
+  try {
+    const { renderHeader, renderFooter, canvasToPng, DEFAULT_FOOTER_TEXT_MARK } =
+      await import("./ticket-raster");
+
+    const cols = opts.cols ?? EMAIL_TICKET_COLS;
+    const lines = buildTicket(order, cols, opts.footer ?? {}, { scale: "normal" });
+    const textLines = lines.map((l) => l.text ?? "");
+
+    // The body only: the raster blocks own everything above ORDER # and
+    // everything from the heavy rule down, exactly as on the Epson path.
+    const start = textLines.findIndex((t) => /^ORDER #/.test(t));
+    const end = textLines.findIndex((t, i) => i > start && /^=+$/.test(t));
+    const body = toPlainText(
+      lines.slice(start === -1 ? 0 : start, end === -1 ? lines.length : end),
+      cols
+    );
+
+    const dueLine = textLines.find((t) => /^DUE /.test(t)) ?? null;
+    const design = { style: (opts.design?.style as any) ?? "bold" };
+
+    const header = await renderHeader({
+      restaurantName: order.ticket_restaurant_name || "PFD ORDER",
+      orderType: order.order_type || "order",
+      dueText: dueLine,
+      design,
+      logo: opts.logo ?? null,
+    });
+    const footer = await renderFooter({
+      text: (opts.footer?.text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
+      url: opts.footer?.url ?? null,
+      design,
+    });
+
+    const img = (png: Buffer) =>
+      `<img src="data:image/png;base64,${png.toString("base64")}" ` +
+      `style="width:100%;display:block;margin:0" alt="">`;
+
+    const mono = "font-family:'Courier New',Courier,monospace";
+    const html =
+      `<html><body style="margin:0;${mono};color:#000">` +
+      `<div style="max-width:34ch">` +
+      img(canvasToPng(header)) +
+      `<pre style="${mono};font-size:13px;font-weight:bold;line-height:1.35;` +
+      `white-space:pre;margin:0">` + escapeHtml(body) + `</pre>` +
+      img(canvasToPng(footer)) +
+      `</div></body></html>`;
+
+    return { subject: base.subject, text: base.text, html };
+  } catch (err) {
+    console.error(
+      "branded ticket render failed, sending text-only:",
+      err instanceof Error ? err.message : err
+    );
+    return base;
+  }
+}

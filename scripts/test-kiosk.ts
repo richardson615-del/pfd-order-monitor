@@ -244,7 +244,14 @@ test("the dashboard says it is open, and again on returning to the foreground", 
 
 test("a failed heartbeat cannot disturb the thing it reports on", () => {
   // A tablet that cannot record a heartbeat is still showing orders.
-  assert.match(dash, /heartbeat[\s\S]{0,200}catch\(\(\) => \{\}\)/);
+  //
+  // Scoped to the beat function rather than "within 200 characters of the
+  // word heartbeat": the body grew when the beat started reporting whether
+  // this screen can ring, and a proximity window measures formatting, not
+  // whether the failure is swallowed.
+  const beat = dash.slice(dash.indexOf("const beat = () =>"), dash.indexOf("beat();"));
+  assert.ok(beat.length > 0, "the beat function should be findable");
+  assert.match(beat, /\.catch\(\(\) => \{\}\)/);
 });
 
 test("the chime is keyed on acceptance, not on status", () => {

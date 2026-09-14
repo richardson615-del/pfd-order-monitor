@@ -42,6 +42,18 @@ export async function POST(req: NextRequest) {
   const userAgent = (req.headers.get("user-agent") ?? "").slice(0, 300) || null;
   const now = new Date().toISOString();
 
+  /**
+   * Whether the screen that sent this beat can actually ring (migration 030).
+   *
+   * Taken from the body rather than inferred: only the browser knows whether
+   * its service worker holds a subscription right now. Anything that is not
+   * an explicit boolean is recorded as null - "has not told us" - because an
+   * older client that never sends the field must not be written down as
+   * having alerts off.
+   */
+  const body = await req.json().catch(() => null);
+  const pushSubscribed = typeof body?.pushSubscribed === "boolean" ? body.pushSubscribed : null;
+
   const { error } = await supabaseAdmin()
     .from("dashboard_heartbeats")
     .upsert(
@@ -49,6 +61,7 @@ export async function POST(req: NextRequest) {
         restaurant_id,
         last_seen_at: now,
         user_agent: userAgent,
+        push_subscribed: pushSubscribed,
       })),
       { onConflict: "restaurant_id" }
     );

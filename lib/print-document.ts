@@ -73,7 +73,7 @@ export interface LoginTicketInput {
 export const SETUP_STEPS = [
   "Open the Order Monitor app on the tablet",
   "Sign in with the username and password above",
-  'Tap "Enable notifications" when it asks',
+  'Tap "Turn on alerts" when it asks',
   "Leave the tablet plugged in and awake",
 ];
 

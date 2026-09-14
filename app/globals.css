@@ -595,6 +595,85 @@ table.admin-table th, table.admin-table td {
 
 .app-clock { color: var(--text-dim); font-weight: 700; }
 
+/* --- the alert gate ------------------------------------------------------ */
+
+/* Covers everything. There is deliberately no way past it and no close
+   button: a tablet that cannot ring is not a tablet, it is a screen, and the
+   old dismissible button is how one ran for a month with alerts off. */
+.alert-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.alert-gate-inner {
+  width: 100%;
+  max-width: 520px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.alert-gate-inner h1 {
+  margin: 4px 0 0;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.alert-gate-inner p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.alert-gate-restaurant {
+  font-weight: 800;
+  color: var(--text) !important;
+  font-size: var(--text-lg) !important;
+}
+
+/* Sized for a thumb on a wall-mounted tablet, not for a mouse. */
+.alert-gate-action {
+  margin-top: 8px;
+  min-height: 64px;
+  padding: 0 32px;
+  font-size: 19px;
+  border-radius: var(--radius-md);
+}
+
+.alert-gate-steps {
+  margin: 0;
+  padding-left: 22px;
+  text-align: left;
+  color: var(--text-dim);
+  font-size: var(--text-md);
+  line-height: 1.7;
+}
+
+.alert-gate-steps strong { color: var(--text); }
+
+.alert-gate-help { font-size: var(--text-sm) !important; }
+
+/* The real reason, not a shrug. The old button swallowed its errors into a
+   console nobody standing at a tablet can open. */
+.alert-gate-error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--age-late) 15%, transparent);
+  color: var(--text) !important;
+  font-size: var(--text-sm) !important;
+}
+
 /* --- who this screen belongs to ----------------------------------------- */
 
 /* The mark and the restaurant's name. A tablet signed into the wrong

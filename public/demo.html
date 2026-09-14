@@ -604,6 +604,85 @@ table.admin-table th, table.admin-table td {
 
 .app-clock { color: var(--text-dim); font-weight: 700; }
 
+/* --- the alert gate ------------------------------------------------------ */
+
+/* Covers everything. There is deliberately no way past it and no close
+   button: a tablet that cannot ring is not a tablet, it is a screen, and the
+   old dismissible button is how one ran for a month with alerts off. */
+.alert-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.alert-gate-inner {
+  width: 100%;
+  max-width: 520px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.alert-gate-inner h1 {
+  margin: 4px 0 0;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.alert-gate-inner p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.alert-gate-restaurant {
+  font-weight: 800;
+  color: var(--text) !important;
+  font-size: var(--text-lg) !important;
+}
+
+/* Sized for a thumb on a wall-mounted tablet, not for a mouse. */
+.alert-gate-action {
+  margin-top: 8px;
+  min-height: 64px;
+  padding: 0 32px;
+  font-size: 19px;
+  border-radius: var(--radius-md);
+}
+
+.alert-gate-steps {
+  margin: 0;
+  padding-left: 22px;
+  text-align: left;
+  color: var(--text-dim);
+  font-size: var(--text-md);
+  line-height: 1.7;
+}
+
+.alert-gate-steps strong { color: var(--text); }
+
+.alert-gate-help { font-size: var(--text-sm) !important; }
+
+/* The real reason, not a shrug. The old button swallowed its errors into a
+   console nobody standing at a tablet can open. */
+.alert-gate-error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--age-late) 15%, transparent);
+  color: var(--text) !important;
+  font-size: var(--text-sm) !important;
+}
+
 /* --- who this screen belongs to ----------------------------------------- */
 
 /* The mark and the restaurant's name. A tablet signed into the wrong
@@ -1017,7 +1096,7 @@ table.admin-table th, table.admin-table td {
 </div>
 
 <script>
-const DEMO_ORDERS = [{"id":"demo0","number":"2bed4416","who":"Eileen Gutierrez","type":"Delivery","total":"$44.76","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:12 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #2bed4416      placed Mon, Sep 14, 6:32 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Eileen Gutierrez</div><div class=\"tl\">(931) 302-3610</div><div class=\"tl\"> </div><div class=\"tl tl-b\">254 Village Square, Pleasant View, 37146</div><div class=\"tl tl-b\">&gt;&gt; Gate code 4471</div><div class=\"tl tl-b\">&gt;&gt; Leave at side door</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  2   LOADED FRIES                        $13.00</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pepper x 1</div><div class=\"tl tl-b\">      &gt;&gt; No sour cream</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   SMASH BURGER                        $11.50</div><div class=\"tl tl-b\">      &gt;&gt; NO ONIONS</div><div class=\"tl tl-b\">      &gt;&gt; Add bacon</div><div class=\"tl tl-b\">      &gt;&gt; Medium well</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   CHOCOLATE MILKSHAKE                  $7.25</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $31.75</div><div class=\"tl\">Tax                                        $2.93</div><div class=\"tl\">Service                                    $1.59</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $6.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $44.76</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Allergy: shellfish. Ring the bell twice.</div></div></div>"},{"id":"demo1","number":"9fa21c07","who":"Marquita Clark","type":"Pickup","total":"$34.83","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  P I C K U P  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 6:56 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #9fa21c07      placed Mon, Sep 14, 6:33 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Marquita Clark</div><div class=\"tl\">(615) 555-0142</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  3   WINGS                               $24.00</div><div class=\"tl tl-b\">      &gt;&gt; Hot</div><div class=\"tl tl-b\">      &gt;&gt; Ranch on the side</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   LOADED FF                            $6.50</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pep. X 1</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $30.50</div><div class=\"tl\">Tax                                        $2.81</div><div class=\"tl\">Service                                    $1.52</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $34.83</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div></div></div>"},{"id":"demo2","number":"77c1e934","who":"Greg Bishop","type":"Delivery","total":"$74.53","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:29 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #77c1e934      placed Mon, Sep 14, 6:33 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Greg Bishop</div><div class=\"tl\">(931) 555-0177</div><div class=\"tl\"> </div><div class=\"tl tl-b\">88 Oak Ridge Rd, Ashland City, 37015</div><div class=\"tl tl-b\">&gt;&gt; Apartment 3B, buzzer broken</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  1   FAMILY PLATTER                      $48.00</div><div class=\"tl tl-b\">      &gt;&gt; No pork</div><div class=\"tl tl-b\">      &gt;&gt; Extra slaw</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  2   SWEET TEA                            $5.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $53.00</div><div class=\"tl\">Tax                                        $4.89</div><div class=\"tl\">Service                                    $2.65</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $9.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $74.53</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Please knock, doorbell does not work.</div></div></div>"}];
+const DEMO_ORDERS = [{"id":"demo0","number":"2bed4416","who":"Eileen Gutierrez","type":"Delivery","total":"$44.76","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:20 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #2bed4416      placed Mon, Sep 14, 6:40 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Eileen Gutierrez</div><div class=\"tl\">(931) 302-3610</div><div class=\"tl\"> </div><div class=\"tl tl-b\">254 Village Square, Pleasant View, 37146</div><div class=\"tl tl-b\">&gt;&gt; Gate code 4471</div><div class=\"tl tl-b\">&gt;&gt; Leave at side door</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  2   LOADED FRIES                        $13.00</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pepper x 1</div><div class=\"tl tl-b\">      &gt;&gt; No sour cream</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   SMASH BURGER                        $11.50</div><div class=\"tl tl-b\">      &gt;&gt; NO ONIONS</div><div class=\"tl tl-b\">      &gt;&gt; Add bacon</div><div class=\"tl tl-b\">      &gt;&gt; Medium well</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   CHOCOLATE MILKSHAKE                  $7.25</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $31.75</div><div class=\"tl\">Tax                                        $2.93</div><div class=\"tl\">Service                                    $1.59</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $6.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $44.76</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Allergy: shellfish. Ring the bell twice.</div></div></div>"},{"id":"demo1","number":"9fa21c07","who":"Marquita Clark","type":"Pickup","total":"$34.83","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  P I C K U P  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:04 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #9fa21c07      placed Mon, Sep 14, 6:41 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Marquita Clark</div><div class=\"tl\">(615) 555-0142</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  3   WINGS                               $24.00</div><div class=\"tl tl-b\">      &gt;&gt; Hot</div><div class=\"tl tl-b\">      &gt;&gt; Ranch on the side</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  1   LOADED FF                            $6.50</div><div class=\"tl tl-b\">      &gt;&gt; Lemon pep. X 1</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $30.50</div><div class=\"tl\">Tax                                        $2.81</div><div class=\"tl\">Service                                    $1.52</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $34.83</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div></div></div>"},{"id":"demo2","number":"77c1e934","who":"Greg Bishop","type":"Delivery","total":"$74.53","ticket":"<div class=\"receipt\"><div class=\"receipt-paper\"><div class=\"tl tl-b tl-rev tl-2h tl-c\">  D E L I V E R Y  </div><div class=\"tl tl-b tl-2h tl-c\">DUE  Mon, Sep 14, 7:37 PM</div><div class=\"tl\">================================================</div><div class=\"tl tl-c\">Swezey's Pub</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">ORDER #77c1e934      placed Mon, Sep 14, 6:41 PM</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">Greg Bishop</div><div class=\"tl\">(931) 555-0177</div><div class=\"tl\"> </div><div class=\"tl tl-b\">88 Oak Ridge Rd, Ashland City, 37015</div><div class=\"tl tl-b\">&gt;&gt; Apartment 3B, buzzer broken</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\"> QTY  ITEM                                AMOUNT</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">  1   FAMILY PLATTER                      $48.00</div><div class=\"tl tl-b\">      &gt;&gt; No pork</div><div class=\"tl tl-b\">      &gt;&gt; Extra slaw</div><div class=\"tl\"> </div><div class=\"tl tl-b\">  2   SWEET TEA                            $5.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl\">Subtotal                                  $53.00</div><div class=\"tl\">Tax                                        $4.89</div><div class=\"tl\">Service                                    $2.65</div><div class=\"tl\">Delivery                                   $4.99</div><div class=\"tl tl-b\">TIP (driver)                               $9.00</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b tl-2h\">TOTAL                                     $74.53</div><div class=\"tl\">Paid                     CARD - Channel: zuppler</div><div class=\"tl\">------------------------------------------------</div><div class=\"tl tl-b\">NOTE:</div><div class=\"tl tl-b\">Please knock, doorbell does not work.</div></div></div>"}];
 
 let ctx = null;
 function audioContext() {

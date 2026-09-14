@@ -104,10 +104,13 @@ test("the setup steps are in the order they must be done, notifications included
   });
   // A tablet signed in but never subscribed looks completely set up and
   // receives nothing. It is the most expensive way this deployment fails.
-  assert.match(text, /Enable notifications/);
+  //
+  // "Turn on alerts" since the app stopped making that optional - the ticket
+  // has to name the button the person is actually looking for.
+  assert.match(text, /Turn on alerts/);
   assert.ok(
-    text.indexOf("Sign in with") < text.indexOf("Enable notifications"),
-    "sign in comes before enabling notifications"
+    text.indexOf("Sign in with") < text.indexOf("Turn on alerts"),
+    "sign in comes before turning alerts on"
   );
 });
 
@@ -117,7 +120,7 @@ test("the steps can be left off without losing the credentials", () => {
     appUrl: "https://x.test", actor: null, includeSetupSteps: false, rotated: false,
   });
   const text = textOf(bare);
-  assert.doesNotMatch(text, /Enable notifications/);
+  assert.doesNotMatch(text, /Turn on alerts/);
   assert.match(text, /Username:/);
   assert.match(text, /Password:/);
 });

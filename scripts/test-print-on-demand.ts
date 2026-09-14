@@ -114,16 +114,27 @@ test("Print sends to the restaurant's printer rather than the browser dialog", (
   assert.match(viewer, /async function sendToPrinter\(\)/);
 });
 
-test("the browser dialog survives as the fallback for a site with no Epson", () => {
-  // For a tablet-only site, or one whose paper comes by email, it is the only
-  // thing that could work at all.
-  assert.match(viewer, /data\.code === "no_active_printer" \|\| data\.code === "email_restaurant"/);
-  assert.match(viewer, /window\.print\(\)/);
+test("there is NO browser print dialog, ever", () => {
+  // Reported 2026-09-14: "it gives me options to print to printers on the
+  // local wifi but not the epson printer". The Android chooser lists system
+  // and network printers, and a Server Direct Print device cannot appear
+  // among them - so the dialog is a dead end dressed up as a choice, and the
+  // one printer the restaurant owns is the only one missing from it.
+  //
+  // Comments are stripped first, so the explanation above the handler (which
+  // names window.print() to say why it is gone) cannot satisfy the test, and
+  // a real call cannot hide behind it either.
+  const code = viewer
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /window\.print\(/, "OrderViewer must not call window.print()");
+  assert.doesNotMatch(viewer, /print dialog instead/);
 });
 
-test("which of the two happened is always stated", () => {
-  assert.match(viewer, /setPrintNote\(/);
-  assert.match(viewer, /print dialog instead/);
+test("a refusal is stated in words instead", () => {
+  // A refusal somebody can read beats a menu that cannot contain the right
+  // answer. The bridge's own message is shown, because it names the reason.
+  assert.match(viewer, /setPrintNote\(data\.error \?\? "Could not send that to the printer\."\)/);
 });
 
 test("it says queued, not printed", () => {

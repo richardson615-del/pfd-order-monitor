@@ -153,19 +153,51 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ ok: true, username: reveal, password: link.password_current });
   }
 
-  const { data: links } = await admin
+  // The error is READ, not discarded. Both reads below used to destructure
+  // `data` alone, so a failed query became `undefined`, then `[]`, and the
+  // console said "No logins yet." - a confident, wrong answer about a
+  // credential list, with nothing anywhere to contradict it.
+  //
+  // That is the worst shape this particular screen can fail in. Somebody
+  // reading "no logins" for a restaurant whose tablet is signed in right now
+  // does not conclude the list is broken; they conclude nobody set it up, and
+  // create a SECOND login for a kitchen that already had one.
+  const { data: links, error: linksError } = await admin
     .from("restaurant_users")
     .select("auth_user_id, role, created_at, password_current")
     .eq("restaurant_id", restaurant.id);
+
+  if (linksError) {
+    return NextResponse.json(
+      {
+        error: `could not read the logins for ${restaurant.name}: ${linksError.message}`,
+        code: "logins_unreadable",
+      },
+      { status: 500 }
+    );
+  }
 
   // getUserById per link rather than listUsers(): listUsers pages at 50 and
   // would silently omit logins once this database grows, which for a screen
   // answering "who can sign in here" is the worst possible way to be wrong.
   const logins = [];
+  // Rows that exist in restaurant_users but whose auth user could not be
+  // read. Counted rather than dropped: the row is real, somebody may be
+  // signed in on it, and the caller has to be told the list is incomplete.
+  let unresolved = 0;
   for (const link of links ?? []) {
-    const { data } = await admin.auth.admin.getUserById(link.auth_user_id);
+    const { data, error } = await admin.auth.admin.getUserById(link.auth_user_id);
     const email = data?.user?.email ?? "";
-    if (!email) continue;
+    if (!email) {
+      unresolved += 1;
+      console.error(
+        "restaurant_users row whose auth user could not be read -",
+        "restaurant", restaurant.id,
+        "auth_user_id", link.auth_user_id,
+        "-", error?.message ?? "no email on the account"
+      );
+      continue;
+    }
     logins.push({
       username: emailToUsername(email) ?? email,
       // A real address means an older, email-link account. Worth showing as
@@ -180,7 +212,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     });
   }
 
-  return NextResponse.json({ restaurant: { id: restaurant.id, name: restaurant.name }, logins });
+  return NextResponse.json({
+    restaurant: { id: restaurant.id, name: restaurant.name },
+    logins,
+    // Present only when something is wrong. A caller that ignores it is no
+    // worse off than before; one that reads it can say "this list is
+    // incomplete" instead of "there is nobody here".
+    ...(unresolved > 0 ? { unresolved } : {}),
+  });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

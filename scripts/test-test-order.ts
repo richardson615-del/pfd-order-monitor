@@ -30,12 +30,24 @@ const route = src("app/api/crm/restaurants/[id]/test-order/route.ts");
 
 console.log("safe to point at a live restaurant:");
 
-test("it never prints", () => {
-  // A test of the tablet that also produced paper would put a fake order on
-  // the spike in a working kitchen. The paper path has its own test.
+test("it reaches BOTH destinations", () => {
+  // Reversed on 2026-09-14 (Nick): "when i press test order it should send to
+  // both the printer and tablet". It used to print nothing, so that a test of
+  // the tablet could not put a fake order on the spike in a working kitchen.
+  // What that missed is WHEN the button is pressed - during setup, in front
+  // of the equipment, wanting to know both halves work.
   assert.match(route, /deliverToApp\(/);
-  assert.doesNotMatch(route, /print_jobs/, "the route must not queue a printer job");
-  assert.doesNotMatch(route, /print_devices/);
+  assert.match(route, /queueOrderToPrinters\(/);
+});
+
+test("the paper goes out before the push is awaited", () => {
+  // Paper is the destination that cannot report itself: a push says how many
+  // devices it reached, a queued job only says it was queued. So it goes in
+  // front of the printer first, for whoever is standing at it.
+  assert.ok(
+    route.indexOf("queueOrderToPrinters(") < route.indexOf("await deliverToApp("),
+    "the print queue call must come before the push"
+  );
 });
 
 test("the order says on its own face that it is not real", () => {
@@ -53,14 +65,32 @@ test("it carries a quantity, a modifier and a note", () => {
 
 console.log("\nfailing usefully:");
 
-test("no subscribed device is refused BEFORE an order is written", () => {
-  // With nothing to push to, the test would record a failure and tell whoever
-  // is standing at the tablet nothing they could act on.
+test("nowhere-to-receive is refused BEFORE an order is written", () => {
+  // With nothing to reach, the test would record a failure and tell whoever
+  // is standing there nothing they could act on.
   const check = route.indexOf("push_subscriptions");
   const insert = route.indexOf('.from("orders")');
   assert.ok(check > -1 && insert > -1);
-  assert.ok(check < insert, "the subscription check must come before the insert");
+  assert.ok(check < insert, "the destination check must come before the insert");
   assert.match(route, /Enable notifications/, "it must name the step that was missed");
+});
+
+test("a restaurant with a printer but no tablet is NOT refused", () => {
+  // The old refusal was "no push subscription", right when the tablet was the
+  // only destination. Kept as-is it would block the printer half at every
+  // site whose tablet is not set up yet - which is the set of sites being set
+  // up, i.e. everyone who presses this button.
+  assert.match(route, /const canPrint =/);
+  assert.match(route, /if \(!count && !canPrint\)/);
+});
+
+test("a print that worked is not reported as a failure because the tablet did not", () => {
+  assert.match(route, /push\.sent === 0 && paper\.queued\.length === 0/);
+});
+
+test("it says why paper did not go out, when it did not", () => {
+  // Silence here makes an email restaurant look identical to a broken printer.
+  assert.match(route, /paper\.refusal \? \{ print_note: paper\.message \}/);
 });
 
 test("a push that reached nobody is not reported as success", () => {
@@ -81,11 +111,11 @@ test("it works before app_expected is turned on, and says so", () => {
   assert.match(route, /appExpected: !!restaurant\.app_expected/);
   assert.match(route, /warning:/);
 
-  // Exactly one refusal, and it is the missing-subscription one. A second
+  // Still exactly one refusal, now "nowhere at all to receive". A second
   // would almost certainly be "not app_expected yet", which would block the
   // very step this exists to make possible.
   const refusals = route.match(/status: 409/g) ?? [];
-  assert.equal(refusals.length, 1, "there should be exactly one 409, for no subscribed device");
+  assert.equal(refusals.length, 1, "there should be exactly one 409, for nowhere to receive");
   assert.match(route, /Enable notifications[\s\S]*status: 409/);
 });
 

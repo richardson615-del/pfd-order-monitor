@@ -164,9 +164,17 @@ kitchen tablet is shared, runs locked to one app, and has no inbox anybody is
 watching. Supabase needs an email, so one is derived from the username and
 receives nothing.
 
-Both writes return the password **once**. Nothing retrieves it afterwards -
-a forgotten one is replaced, not recovered, because no reset email could ever
-reach a derived address.
+Both writes return the password. Since **migration 026** it is also stored, and
+can be shown again: `GET /api/crm/restaurants/:id/logins?reveal=<username>`,
+with the actor in an `x-crm-actor` header because a GET has no body, audited as
+`password_shown`. That reversed the original write-once design deliberately —
+no reset email can reach a derived address, so a password nobody can look up
+means a reset every time a tablet is replaced, which is a phone call during
+service. A login created *before* 026 has only Supabase's hash: `has_password`
+is false for those and reveal answers `409`.
+
+(This paragraph used to end "Nothing retrieves it afterwards", which stopped
+being true the day 026 landed.)
 
 | field | meaning |
 |---|---|
@@ -182,6 +190,62 @@ A `PATCH` only touches a login belonging to **that** restaurant. `409` on a
 username already taken. A reset says plainly that a tablet already signed in
 stays signed in until its session ends - resetting does not rescue a tablet
 that is currently stuck.
+
+### Print a login on the restaurant's own printer
+
+```
+POST /api/crm/restaurants/:id/logins/print
+  { username, mode: "existing" | "reset", device_id?, actor, include_setup_steps? }
+```
+
+Queues a ticket on that restaurant's Epson carrying the app address, the
+username, the password and the four setup steps.
+
+The gap this closes is a **channel**, not a feature. The CRM could already
+create a login, reset one and show the password on screen — and then somebody
+had to get it to the restaurant, in practice by reading it down the phone to a
+kitchen during service. This puts it on the printer already standing in that
+kitchen, so the person who has to type it is the person holding it.
+
+`mode: "existing"` prints the stored password and changes nothing.
+`mode: "reset"` rotates it first and the ticket says on its face that it is a
+new one. `include_setup_steps` defaults to true.
+
+**No order row is written.** `test_print` creates one deliberately; a
+credential must not. An `orders` row shows on the restaurant's own screens, is
+counted by the health checks, and is kept out of accounting by exactly one
+`.neq("source","test")` filter — one forgotten filter away from a password in a
+statement. Instead, migration **029** lets a `print_jobs` row carry a
+`document`: ticket lines composed by the bridge, rendered by the same renderer,
+with no order behind them. The ticket therefore carries **none** of the
+restaurant's branding — no logo header, no "scan to order again" QR under the
+password.
+
+The device is chosen **before** the password is touched. Rotating and then
+finding nowhere to print would leave a restaurant locked out with the only copy
+of the new password on a screen in another state.
+
+| status | `code` | meaning |
+|---|---|---|
+| `200` | — | `{ job_id, device {id,name}, username, mode, printed_at, device_last_seen_at, other_active_printers? }` |
+| `404` | `login_not_found` | that username is not a login for this restaurant |
+| `409` | `password_unavailable` | created before 026, so there is nothing to print. `resettable: true` — offer `mode: "reset"` |
+| `409` | `no_active_printer` | this restaurant has no active printer |
+| `400` | `device_not_for_restaurant` | the `device_id` given belongs elsewhere, or does not exist |
+| `400` | `device_inactive` | that printer's poll is rejected while inactive, so the job would queue forever |
+| `409` | `printer_not_supported` | that device prints through the on-site agent, which renders orders only |
+
+An **offline** printer is not refused. The job queues and prints on the next
+poll, which is the normal case: the usual reason to print a login is that
+somebody is at the restaurant plugging the thing in. `device_last_seen_at` is
+returned so the CRM can say so rather than implying it has already printed.
+
+With no `device_id`, the bridge picks the restaurant's active printer, most
+recently seen first, and returns `other_active_printers` when there was more
+than one — so a console can offer the choice rather than trusting the guess.
+
+Every print is audited as `password_printed`, and a `reset` audits
+`password_reset` as well.
 
 ### Test order to the tablet
 

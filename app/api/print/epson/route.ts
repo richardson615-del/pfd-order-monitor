@@ -95,7 +95,7 @@ async function handleGetRequest(deviceKey: string) {
   const { data: jobs } = await admin
     .from("print_jobs")
     .select(
-      `id, order_id,
+      `id, order_id, kind, document,
        orders ( order_number, source, ticket_restaurant_name, order_type, due_time,
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
@@ -115,7 +115,11 @@ async function handleGetRequest(deviceKey: string) {
 
   if (!jobs?.length) return empty();
 
-  const printable = jobs.filter((j: any) => j.orders);
+  // A job is printable if it has something to print: an order to render, or a
+  // document already composed for it (migration 029 - the tablet-login
+  // ticket). A job with neither is a bug upstream, and skipping it is what
+  // keeps the printer polling rather than being handed an empty ticket.
+  const printable = jobs.filter((j: any) => j.orders || Array.isArray(j.document));
   if (!printable.length) return empty();
 
   // Claim before handing them over, so a second poll cannot print them twice.
@@ -129,6 +133,19 @@ async function handleGetRequest(deviceKey: string) {
   const blocks = (
     await Promise.all(
       printable.map(async (job: any) => {
+        // A document carries its own lines and none of the restaurant's
+        // branding - no logo header, no "scan to order again" footer. That is
+        // the point: a ticket with a password on it should not also be a
+        // marketing surface, and the raster header names the restaurant as
+        // though this were their food.
+        if (Array.isArray(job.document)) {
+          const data =
+            `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">` +
+            toEposPrintXml(job.document, cols, { wrap: false }) +
+            `<feed line="3"/><cut type="feed"/></epos-print>`;
+          return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>20000</timeout></Parameter><PrintData>${data}</PrintData></ePOSPrint>`;
+        }
+
         const r = job.orders?.restaurants;
         // Device setting wins; null means inherit the restaurant's default.
         const scale = (device as any).text_scale || r?.ticket_text_scale || "normal";

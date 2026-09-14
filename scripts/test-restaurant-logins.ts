@@ -245,4 +245,27 @@ test("a taken username says which part is taken", () => {
   assert.match(route, /status: taken \? 409 : 400/);
 });
 
+console.log("\nit can say that it failed:");
+
+test("a failed read of restaurant_users is an error, not an empty list", () => {
+  // The shape that cost real confusion: the query error was discarded, so a
+  // failure became `undefined`, then `[]`, and the console reported
+  // "No logins yet." for a restaurant whose tablet was signed in. Nobody
+  // reads that as "the list is broken" - they read it as "nobody set this
+  // up", and create a second login for a kitchen that already had one.
+  assert.match(route, /const \{ data: links, error: linksError \}/);
+  assert.match(route, /if \(linksError\)/);
+  assert.match(route, /logins_unreadable/);
+});
+
+test("a link whose auth user cannot be read is counted, not dropped", () => {
+  // The row is real and somebody may be signed in on it. Silently skipping it
+  // makes the list wrong in the same direction as the bug above.
+  assert.match(route, /let unresolved = 0;/);
+  assert.match(route, /unresolved \+= 1;/);
+  assert.match(route, /unresolved > 0 \? \{ unresolved \}/);
+  // Logged with enough to find the row.
+  assert.match(route, /auth_user_id", link\.auth_user_id/);
+});
+
 console.log(`\n${passed} assertions passed.`);

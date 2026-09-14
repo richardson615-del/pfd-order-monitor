@@ -37,6 +37,13 @@
 
 -- An order job still has an order. A document job has no order at all -
 -- deliberately not a dangling reference to a placeholder row.
+--
+-- Note what this does to `unique (order_id, device_id)` from migration 002
+-- ("an order prints once per device"): Postgres treats NULLs as DISTINCT in a
+-- unique index unless told otherwise, so two document jobs to the same
+-- printer do not collide. That is what we want and it is load-bearing -
+-- printing a login twice, which people will do, must not silently fail on a
+-- constraint written about orders. Do not add NULLS NOT DISTINCT here.
 alter table print_jobs alter column order_id drop not null;
 
 -- 'order' | 'document'. Defaulted so every existing row is what it always

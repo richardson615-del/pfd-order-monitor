@@ -221,6 +221,15 @@ test("a document job carries no order, and an order job carries no document", ()
   assert.match(migration, /kind = 'document' and document is not null and order_id is null/);
 });
 
+test("the same login can be printed twice", () => {
+  // print_jobs has `unique (order_id, device_id)` from migration 002, written
+  // about orders. Postgres treats NULLs as distinct in a unique index unless
+  // told otherwise, so two document jobs to one printer do not collide -
+  // which is load-bearing, because people WILL print a login twice.
+  assert.match(migration, /NULLS NOT DISTINCT/);
+  assert.match(migration, /Do not add NULLS NOT DISTINCT here/);
+});
+
 test("the Epson endpoint still prints orders, and now also prints documents", () => {
   assert.match(epson, /j\.orders \|\| Array\.isArray\(j\.document\)/);
   assert.match(epson, /Array\.isArray\(job\.document\)/);

@@ -9,6 +9,9 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   const [order, setOrder] = useState(initialOrder);
   const [busy, setBusy] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  /** What the last Print press did. */
+  const [printNote, setPrintNote] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);
@@ -27,6 +30,50 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
 
   const setStatus = (status: OrderStatus) => patch({ status });
   const accept = () => patch({ accepted: true });
+
+  /**
+   * Send this ticket to the restaurant's own printer.
+   *
+   * This button used to call window.print(), the BROWSER's print dialog. On a
+   * kiosk tablet that reaches nothing - the Epson is not a system printer, it
+   * polls the server and prints what it is handed back - so the one device in
+   * the building that can make a ticket was the one thing this button could
+   * not talk to.
+   *
+   * The browser dialog stays as the fallback, because for a site with no
+   * Epson (tablet-only, or paper made by emailing a PC) it is the only thing
+   * that could work at all. Which of the two happened is always stated rather
+   * than left to be guessed at.
+   */
+  async function sendToPrinter() {
+    setPrinting(true);
+    setPrintNote(null);
+    try {
+      const res = await fetch(`/api/orders/${order.id}/print`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        const where = (data.devices ?? []).join(", ");
+        setPrintNote(`Sent to ${where || "the printer"}. It prints in a few seconds.`);
+        return;
+      }
+
+      // No printer here, or paper is made by email at this site. Neither is a
+      // fault, and the browser dialog is the only remaining way to get this
+      // ticket onto paper - so offer it rather than refusing.
+      if (data.code === "no_active_printer" || data.code === "email_restaurant") {
+        setPrintNote(`${data.error}. Opening this device's print dialog instead.`);
+        window.print();
+        return;
+      }
+
+      setPrintNote(data.error ?? "Could not send that to the printer.");
+    } catch {
+      setPrintNote("Could not reach the server. Nothing was sent to the printer.");
+    } finally {
+      setPrinting(false);
+    }
+  }
 
   const acceptedAt = order.accepted_at
     ? new Date(order.accepted_at).toLocaleTimeString(undefined, {
@@ -68,6 +115,12 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
         </div>
       )}
 
+      {printNote && (
+        <p className="no-print print-note" role="status">
+          {printNote}
+        </p>
+      )}
+
       <div className="action-bar no-print">
         {/*
           Prints the ticket above, not the original email - which a webhook
@@ -91,8 +144,8 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
             Call customer
           </a>
         )}
-        <button className="btn" disabled={busy} onClick={() => window.print()}>
-          Print
+        <button className="btn" disabled={busy || printing} onClick={sendToPrinter}>
+          {printing ? "Sending…" : "Print"}
         </button>
         {/*
           Accept is the loud one, and it is what stops the chime. Deliberately

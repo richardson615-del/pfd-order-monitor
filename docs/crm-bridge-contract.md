@@ -257,16 +257,28 @@ Sends a test order to the restaurant's TABLET: the screen lights up, chimes,
 and the order can be opened and accepted like any other. The only way to know
 a newly installed tablet works before a customer finds out it does not.
 
-**Never prints.** The paper path has its own test, and a tablet test that also
-produced a ticket would put a fake order on the spike in a working kitchen.
-Safe to point at a live restaurant: the order is `source: 'test'`, says on its
-face that it is not real, and touches nothing the printer reads.
+**Sends to BOTH destinations** since 2026-09-14 (Nick): the tablet chimes and
+the restaurant's printer gets the ticket.
+
+It used to print nothing, so a tablet test could not put a fake order on the
+spike in a working kitchen. What that missed is when the button is actually
+pressed - during setup, in front of the equipment, wanting to know both halves
+work. A restaurant receives orders on paper and on a screen; a test that proves
+only one of them leaves the other to be discovered the first time it matters.
+
+Safe to point at a live restaurant: the order is `source: 'test'` and says it
+is not real in three places - a `TEST-` order number, the item name, and the
+note.
+
+`printers_queued` and `printers` report the paper half; `print_note` says why
+paper did NOT go out when it did not, so an email restaurant cannot look
+identical to a broken printer.
 
 | status | meaning |
 |---|---|
 | `200 { ok: true, devices_reached }` | The tablet should be chiming |
-| `409` | No device has notifications enabled — checked *before* an order is written, because with nothing to push to the test tells nobody anything |
-| `502` | The order was created and reached none of the registered devices — tablet offline, or permission revoked |
+| `409` | **Nowhere at all to receive** — no notifications enabled *and* no active printer. Checked before an order is written. It is no longer "no subscription": that would block the printer half at every site whose tablet is not set up yet, which is the set of sites being set up |
+| `502` | The order was created and reached **nothing** — no device took the push *and* no printer took the job. A successful print is not reported as a failure because the tablet did not answer |
 
 It works **before** `app_expected` is turned on, and returns a `warning` saying
 so. That order matters: prove the tablet chimes first, then turn

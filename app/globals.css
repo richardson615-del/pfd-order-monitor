@@ -372,6 +372,25 @@ button {
    of leaving one button stretched across the width on its own. */
 .action-bar .btn { flex: 1 1 8rem; justify-content: center; }
 
+/* What the last Print press did - sits directly on top of the fixed action
+   bar rather than in the scrolling page, because the person who needs to read
+   it is looking at the button they just pressed. Without this it rendered
+   somewhere above the fold on a long ticket and was never seen. */
+.print-note {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(68px + env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
 .form {
   display: flex;
   flex-direction: column;

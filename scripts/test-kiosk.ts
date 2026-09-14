@@ -9,11 +9,14 @@
  */
 import assert from "node:assert/strict";
 import {
+  HEARTBEAT_EVERY_MS,
+  HEARTBEAT_STALE_AFTER_MS,
   POLL_DOWN_MS,
   POLL_LIVE_MS,
   STALE_AFTER_MS,
   isStale,
   kioskWarning,
+  liveState,
   pollIntervalMs,
   realtimeConnection,
   unaccepted,
@@ -251,6 +254,66 @@ test("the chime is keyed on acceptance, not on status", () => {
     /o\.status === "new"/,
     "'new' clears itself on a tap - that is what acceptance replaced"
   );
+});
+
+console.log("\nwhat the status pill is allowed to claim:");
+
+const base = {
+  connection: "live" as const,
+  stale: false,
+  soundArmed: true,
+  pushSubscribed: true,
+  heartbeatOkAt: 1_000_000,
+  now: 1_000_000,
+};
+
+test("everything working reads Live, with nothing to say", () => {
+  const s = liveState(base);
+  assert.equal(s.level, "live");
+  assert.equal(s.detail, null);
+});
+
+test("a dead channel is offline, whatever else is fine", () => {
+  assert.equal(liveState({ ...base, connection: "down" }).level, "offline");
+  assert.equal(liveState({ ...base, stale: true }).level, "offline");
+});
+
+test("silent sound outranks every other degradation", () => {
+  // A connected tablet that cannot chime looks perfectly healthy, and the
+  // whole point of the tablet is somebody noticing without watching it.
+  const s = liveState({ ...base, soundArmed: false, pushSubscribed: false, heartbeatOkAt: 0 });
+  assert.equal(s.level, "degraded");
+  assert.match(s.detail ?? "", /Sound is off/);
+});
+
+test("no push subscription is named, not hidden behind a green pill", () => {
+  const s = liveState({ ...base, pushSubscribed: false });
+  assert.equal(s.level, "degraded");
+  assert.match(s.detail ?? "", /Alerts are off/);
+});
+
+test("a stale heartbeat says the office cannot see it, and that orders still arrive", () => {
+  const s = liveState({ ...base, heartbeatOkAt: 0, now: HEARTBEAT_STALE_AFTER_MS + 1 });
+  assert.equal(s.level, "degraded");
+  assert.match(s.detail ?? "", /office cannot see/);
+});
+
+test("one missed heartbeat is not an outage", () => {
+  const s = liveState({ ...base, heartbeatOkAt: 0, now: HEARTBEAT_EVERY_MS + 1 });
+  assert.equal(s.level, "live");
+});
+
+test("not-yet-known is not the same as missing", () => {
+  // On first paint nothing has reported in. A screen that flashes amber for a
+  // second on every load is one nobody reads.
+  const s = liveState({ ...base, pushSubscribed: null, heartbeatOkAt: null });
+  assert.equal(s.level, "live");
+});
+
+test("connecting is degraded, never live and never offline", () => {
+  const s = liveState({ ...base, connection: "connecting" });
+  assert.equal(s.level, "degraded");
+  assert.equal(s.label, "Connecting");
 });
 
 console.log(`\n${passed} assertions passed.`);

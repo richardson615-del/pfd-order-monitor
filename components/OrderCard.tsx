@@ -33,7 +33,10 @@ export default function OrderCard({ order, now }: { order: Order; now: number })
   const age = ageClass(order, now);
 
   return (
-    <Link href={`/order/${order.id}`} className={`card ${age}`}>
+    <Link
+      href={`/order/${order.id}`}
+      className={`card ${age}${order.status === "cancelled" ? " cancelled" : ""}`}
+    >
       <div className="card-top">
         <span className="card-no num">#{order.order_number}</span>
         <span className="card-type">

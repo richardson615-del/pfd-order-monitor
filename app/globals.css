@@ -595,6 +595,71 @@ table.admin-table th, table.admin-table td {
 
 .app-clock { color: var(--text-dim); font-weight: 700; }
 
+/* --- who this screen belongs to ----------------------------------------- */
+
+/* The mark and the restaurant's name. A tablet signed into the wrong
+   restaurant used to look exactly like one signed into the right one. */
+.app-head-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-head-restaurant {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The oldest unaccepted order, beside the count. "3 waiting" is how much;
+   this is how bad. */
+.app-head-oldest {
+  display: block;
+  font-size: 0.42em;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--age-warn);
+}
+
+/* The sentence under the pill: what is wrong and what to do. The pill is one
+   word and cannot carry an instruction. */
+.app-head-detail {
+  margin: 0;
+  padding: 10px 20px;
+  background: color-mix(in srgb, var(--age-warn) 12%, transparent);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Three states, not two. "degraded" is the one that did not exist: a tablet
+   connected but unable to chime, or with no push subscription, or which the
+   office cannot see. All three used to show the same green Live as a
+   perfectly healthy screen. */
+.app-live.degraded { color: var(--age-warn); }
+.app-live.offline { color: var(--age-late); }
+
+[data-display="kitchen"] .app-head-restaurant { font-size: 22px; }
+[data-display="kitchen"] .app-head-detail { font-size: 17px; padding: 12px 20px; }
+[data-display="standard"] .app-head-restaurant { font-size: 16px; }
+
+/* The order detail's status badge, keyed on the flag's tone now rather than
+   on the raw database status. */
+.badge.status-waiting { background: color-mix(in srgb, var(--st-waiting) 18%, transparent); color: var(--st-waiting); }
+.badge.status-done { background: color-mix(in srgb, var(--st-done) 18%, transparent); color: var(--st-done); }
+.badge.status-cancelled { background: color-mix(in srgb, var(--text-dim) 20%, transparent); color: var(--text-dim); text-decoration: line-through; }
+.badge.status-printed { background: color-mix(in srgb, var(--st-printed) 20%, transparent); color: var(--st-printed); }
+
+/* A cancelled order is struck through wherever it appears, so "Done" cannot
+   be mistaken for "cooked". */
+.app .card.cancelled .card-name,
+.app .card.cancelled .card-no { text-decoration: line-through; opacity: 0.75; }
+
 /* --- the order list ----------------------------------------------------- */
 
 .app-list {

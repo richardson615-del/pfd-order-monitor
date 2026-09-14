@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { usernameToEmail } from "@/lib/usernames";
+import { Brand } from "@/components/Brand";
 
 /**
  * Username and password.
@@ -49,7 +50,7 @@ function LoginForm() {
         // this form is on the public internet, and confirming which usernames
         // exist is a favour to nobody except someone guessing.
         setError(
-          "That username and password didn't match. Check with PFD if you're not sure of them."
+          "That username and password didn't match. Check with Premium if you're not sure of them."
         );
         return;
       }
@@ -82,7 +83,7 @@ function LoginForm() {
     if (error) {
       setError(
         /signups? not allowed/i.test(error.message)
-          ? "That email address hasn't been set up yet. Ask PFD to add it."
+          ? "That email address hasn't been set up yet. Ask Premium to add it."
           : error.message
       );
     } else setSent(true);
@@ -90,8 +91,11 @@ function LoginForm() {
 
   return (
     <div className="page">
-      <div className="topbar" style={{ position: "static" }}>
-        <h1>PFD Order Monitor</h1>
+      {/* The mark, not a text heading. This is the first screen a restaurant
+          ever sees, and it used to say "PFD Order Monitor" - internal
+          shorthand for a company they know as Premium. */}
+      <div className="login-brand">
+        <Brand size="lg" withSubtitle />
       </div>
 
       <div style={{ padding: 16 }}>
@@ -133,7 +137,7 @@ function LoginForm() {
             </form>
 
             <p className="muted" style={{ marginTop: 16 }}>
-              Forgotten it? PFD can set a new one — there is no reset email for a
+              Forgotten it? Premium can set a new one — there is no reset email for a
               kitchen login.{" "}
               <button
                 className="link-button"

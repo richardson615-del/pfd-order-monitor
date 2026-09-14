@@ -20,7 +20,10 @@ self.addEventListener("push", (event) => {
   const options = {
     body: data.body,
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    // A badge is drawn as a silhouette in the status bar - Android keeps the
+    // alpha and discards the colour. The 192 icon used here before came out
+    // as a solid blob; badge-96 is white on transparent for that reason.
+    badge: "/icons/badge-96.png",
     vibrate: [200, 100, 200, 100, 200],
     tag: data.orderId ? `order-${data.orderId}` : undefined,
     data: { orderId: data.orderId },

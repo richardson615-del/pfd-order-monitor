@@ -111,7 +111,15 @@ test("the fallback still cannot create an account for an address nobody invited"
 test("it says a forgotten password is replaced, not emailed", () => {
   // There is no reset email for an address that receives nothing, and the
   // form must not imply one is coming.
-  assert.match(login, /PFD can set a new one/);
+  //
+  // "Premium" since 2026-09-14, not "PFD": the restaurant-facing screens say
+  // the name the restaurant knows. Matched on the promise rather than the
+  // brand word, so the next rename does not read as a broken guarantee.
+  assert.match(login, /can set a new one/);
+  // Deliberately NOT asserting the absence of "reset email" - the page says
+  // "there is no reset email for a kitchen login", which is the promise being
+  // tested, not a violation of it.
+  assert.match(login, /no reset email/);
 });
 
 console.log(`\n${passed} assertions passed.`);

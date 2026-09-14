@@ -18,7 +18,7 @@ export default async function DashboardPage() {
     return (
       <div className="page">
         <div className="empty-state">
-          Your account isn&apos;t linked to a restaurant yet. Ask PFD to add
+          Your account isn&apos;t linked to a restaurant yet. Ask Premium to add
           you from the admin panel.
         </div>
       </div>

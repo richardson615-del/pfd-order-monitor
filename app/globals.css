@@ -1,16 +1,73 @@
+/* ==========================================================================
+   ONE PALETTE                                                  (2026-09-14)
+   ==========================================================================
+
+   There used to be two. A legacy `:root` set (navy --bg, blue --accent) used
+   by /login, /order and /admin, and an `.app` set (warmer, darker, sky
+   --app-accent) added with the tablet dashboard. Walking from the dashboard
+   into a ticket changed the background and the accent colour mid-task, which
+   reads as two applications stitched together - on a screen a cook uses
+   without thinking about it.
+
+   The dashboard's palette won: it is the considered one, and it is the screen
+   that matters most. The legacy names are kept as aliases onto it rather than
+   rewritten at every call site. Same colour, both names, one place to change.
+   ========================================================================== */
+
 :root {
-  --bg: #0f1420;
-  --panel: #171d2b;
-  --panel-2: #1f2637;
-  --border: #2a3245;
-  --text: #e7ebf3;
-  --text-dim: #9aa4b8;
-  --accent: #4f8cff;
-  --new: #ff5a5f;
-  --opened: #f5a524;
-  --completed: #2ecc71;
-  --printed: #6c7a94;
+  /* Ground and panels. Warm and dark, so the status colours are the only
+     saturated things on any screen. */
+  --bg: #0b0d10;
+  --panel: #14181d;
+  --panel-2: #1b2026;
+  --border: #262c34;
+  --text: #f2f4f7;
+  --text-dim: #98a2b3;
+
+  /* The brand, and the gradient the mark is filled with. One accent, for
+     "this system is alive" and for the mark - nothing else. */
+  --brand: #38bdf8;
+  --brand-2: #7dd3fc;
+  --accent: var(--brand);
+
+  /* Age of an unaccepted order. The only reds on the screen, so a red thing
+     is always a late thing. */
+  --age-calm: #8a94a6;
+  --age-warn: #fbbf24;
+  --age-late: #ff4d3d;
+
+  --st-waiting: #ff4d3d;
+  --st-done: #34d399;
+  --st-printed: #8a94a6;
+
+  /* Legacy status names, kept because the demo page and /admin still use
+     them. Mapped onto the set above rather than given their own values, so
+     there is still only one red in the system. */
+  --new: var(--st-waiting);
+  --opened: var(--age-warn);
+  --completed: var(--st-done);
+  --printed: var(--st-printed);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+
+  /* Four steps. Anything outside them is a one-off that has to justify
+     itself in place. */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-md: 17px;
+  --text-lg: 24px;
+
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* The brand face, applied only where somebody reads across a room. */
+.brand,
+h1, h2,
+.app-head-count,
+.app .num {
+  font-family: var(--font-brand), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -441,6 +498,15 @@ table.admin-table th, table.admin-table td {
   border-bottom: 1px solid var(--border);
 }
 
+/* The login page's mark. Centred and given room: this is the first screen a
+   restaurant sees, and it was a text h1 in a sticky bar borrowed from the
+   admin pages. */
+.login-brand {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px 32px;
+}
+
 .muted { color: var(--text-dim); }
 .error-text { color: var(--new); font-size: 13px; }
 .success-text { color: var(--completed); font-size: 13px; }
@@ -466,31 +532,11 @@ table.admin-table th, table.admin-table td {
    ========================================================================== */
 
 .app {
-  /* Ground and panels. Warmer and darker than the old navy, so the status
-     colours are the only saturated things on the screen. */
-  --app-bg: #0b0d10;
-  --app-panel: #14181d;
-  --app-panel-2: #1b2026;
-  --app-line: #262c34;
-  --app-text: #f2f4f7;
-  --app-text-dim: #98a2b3;
-
-  /* One accent, for "this system is alive" and nothing else. */
-  --app-accent: #38bdf8;
-
-  /* Age of an unaccepted order. These are the only reds on the screen, so a
-     red thing is always a late thing. */
-  --age-calm: #8a94a6;
-  --age-warn: #fbbf24;
-  --age-late: #ff4d3d;
-
-  --st-waiting: #ff4d3d;
-  --st-done: #34d399;
-  --st-printed: #8a94a6;
-
+  /* The palette lives on :root now (see the top of this file). What is left
+     here is what .app actually is: the dashboard's full-height surface. */
   min-height: 100vh;
-  background: var(--app-bg);
-  color: var(--app-text);
+  background: var(--bg);
+  color: var(--text);
 }
 
 /* Digits that line up in a column, for money and for timers. Without this a
@@ -506,8 +552,8 @@ table.admin-table th, table.admin-table td {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: var(--app-bg);
-  border-bottom: 1px solid var(--app-line);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-head-count {
@@ -516,7 +562,7 @@ table.admin-table th, table.admin-table td {
   line-height: 1;
 }
 
-.app-head-count.idle { color: var(--app-text-dim); }
+.app-head-count.idle { color: var(--text-dim); }
 .app-head-count.busy { color: var(--st-waiting); }
 
 .app-head-right {
@@ -533,7 +579,7 @@ table.admin-table th, table.admin-table td {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--app-text-dim);
+  color: var(--text-dim);
 }
 
 .app-live::before {
@@ -547,7 +593,7 @@ table.admin-table th, table.admin-table td {
 .app-live.live::before { background: var(--st-done); }
 .app-live.connecting::before { background: var(--age-warn); }
 
-.app-clock { color: var(--app-text-dim); font-weight: 700; }
+.app-clock { color: var(--text-dim); font-weight: 700; }
 
 /* --- the order list ----------------------------------------------------- */
 
@@ -556,11 +602,17 @@ table.admin-table th, table.admin-table td {
   flex-direction: column;
 }
 
-.card {
+/* Scoped under .app rather than renamed. This block and the legacy .card at
+   the top of the file shared a name, and BOTH cascaded onto the login page's
+   "Check email" box - which is the bug. Scoping fixes it in one line.
+   Renaming would have meant chasing .card.age-warn, .card.settled,
+   [data-display=...] .card and six children across the file, and a rename
+   that misses one leaves a kitchen screen half-styled. */
+.app .card {
   position: relative;
   display: block;
-  background: var(--app-panel);
-  border: 1px solid var(--app-line);
+  background: var(--panel);
+  border: 1px solid var(--border);
   color: inherit;
   overflow: hidden;
 }
@@ -568,7 +620,7 @@ table.admin-table th, table.admin-table td {
 /* The urgency rail. Colour comes from AGE, not status: a cook does not care
    that a ticket printed, they care that this one arrived eleven minutes ago
    and nobody has picked it up. */
-.card::before {
+.app .card::before {
   content: "";
   position: absolute;
   left: 0;
@@ -593,7 +645,7 @@ table.admin-table th, table.admin-table td {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
-  color: var(--app-text-dim);
+  color: var(--text-dim);
 }
 
 .card-age {
@@ -614,13 +666,13 @@ table.admin-table th, table.admin-table td {
 
 .card-name { font-weight: 700; }
 .card-total { margin-left: auto; font-weight: 800; }
-.card-sub { color: var(--app-text-dim); }
+.card-sub { color: var(--text-dim); }
 
 .card-tap {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--app-accent);
+  color: var(--brand);
 }
 
 .card-flag {
@@ -635,8 +687,8 @@ table.admin-table th, table.admin-table td {
 .card-flag.done { background: var(--st-done); color: #06251a; }
 .card-flag.printed {
   background: transparent;
-  color: var(--app-text-dim);
-  border: 1px solid var(--app-line);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
 }
 .card-flag.cancelled {
   background: transparent;
@@ -656,23 +708,23 @@ table.admin-table th, table.admin-table td {
 
 .app-tab {
   flex: 0 0 auto;
-  background: var(--app-panel);
-  color: var(--app-text-dim);
-  border: 1px solid var(--app-line);
+  background: var(--panel);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
   border-radius: 999px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .app-tab.active {
-  background: var(--app-text);
-  color: var(--app-bg);
-  border-color: var(--app-text);
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
 }
 
 .app-empty {
   text-align: center;
-  color: var(--app-text-dim);
+  color: var(--text-dim);
 }
 
 /* ==========================================================================
@@ -748,7 +800,7 @@ table.admin-table th, table.admin-table td {
 
 [data-display="standard"] .app-head { padding: 20px 24px; }
 [data-display="standard"] .app-head-count { font-size: 22px; font-weight: 700; }
-[data-display="standard"] .app-head-count.busy { color: var(--app-text); }
+[data-display="standard"] .app-head-count.busy { color: var(--text); }
 [data-display="standard"] .app-live { font-size: 12px; }
 [data-display="standard"] .app-clock { font-size: 15px; }
 

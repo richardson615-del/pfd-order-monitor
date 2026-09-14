@@ -18,6 +18,22 @@ import { buildTicket, toPlainText, TicketOrder, TicketFooter } from "./ticket";
 
 export const SENDER_ADDRESS = process.env.TICKET_EMAIL_FROM || "info@pfdworks.com";
 
+/**
+ * Column width for emailed tickets.
+ *
+ * NOT 48. That is the thermal head's width at 203dpi; Automatic Email Manager
+ * prints through a Windows driver at its own font size, and on the first live
+ * ticket at Greek Style Gyro it cut everything past roughly column 33 - every
+ * item price, every subtotal, the TOTAL, and the tail of a modifier reading
+ * "no beef - only chicken &". A ticket without prices is not a degraded
+ * ticket, it is a broken one.
+ *
+ * 32 is the standard narrow-receipt width and leaves margin against a driver
+ * that renders slightly wider than measured. Override per deployment if a
+ * site's printer differs.
+ */
+export const EMAIL_TICKET_COLS = Number(process.env.TICKET_EMAIL_COLS || 32);
+
 /** Base64url, as the Gmail API expects a raw RFC822 message. */
 const b64url = (s: string) =>
   Buffer.from(s, "utf8").toString("base64")
@@ -61,7 +77,7 @@ export function composeTicketEmail(
   order: TicketOrder,
   opts: { footer?: TicketFooter; cols?: number } = {}
 ): TicketEmail {
-  const cols = opts.cols ?? 48;
+  const cols = opts.cols ?? EMAIL_TICKET_COLS;
   // ALWAYS normal scale, whatever the restaurant's ticket_text_scale says.
   //
   // Large print lays enlarged lines out at 24 columns because the thermal

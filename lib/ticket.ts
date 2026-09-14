@@ -168,7 +168,17 @@ export function buildTicket(
   lines.push(L(rule));
 
   const recv = localTime(order.received_at);
-  lines.push(L(pad(`ORDER #${order.order_number ?? "?"}`, recv ? `placed ${recv}` : "", cols)));
+  const orderLabel = `ORDER #${order.order_number ?? "?"}`;
+  const placed = recv ? `placed ${recv}` : "";
+  // pad() overflows rather than truncating when the two halves do not fit,
+  // which on a narrow ticket pushed this line past the paper edge - the order
+  // number survived and the time ran off. Split instead.
+  if (placed && orderLabel.length + placed.length + 1 > cols) {
+    lines.push(L(orderLabel));
+    lines.push(L(placed));
+  } else {
+    lines.push(L(pad(orderLabel, placed, cols)));
+  }
   lines.push(L(rule));
 
   // --- Who it is for -------------------------------------------------------

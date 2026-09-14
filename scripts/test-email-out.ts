@@ -48,10 +48,31 @@ test("cancellation subject is distinct and unmistakable", () => {
   assert.ok(!subject.startsWith("PFD ORDER"));
 });
 
-test("no line exceeds the paper width", () => {
+test("no line exceeds the AEM paper width", () => {
+  // The first live ticket at Greek Style Gyro was cut at roughly column 33:
+  // every price, every subtotal and the TOTAL fell off the paper. AEM prints
+  // through a Windows driver at its own font size, not at the thermal head's
+  // 48 columns.
+  const { EMAIL_TICKET_COLS } = require("@/lib/email-out");
+  assert.ok(EMAIL_TICKET_COLS <= 40, "must be narrow enough for a Windows print driver");
   for (const l of composeTicketEmail(ORDER).text.split("\n")) {
-    assert.ok(l.length <= 48, `overflow (${l.length}): ${l}`);
+    assert.ok(l.length <= EMAIL_TICKET_COLS, `overflow (${l.length}): ${l}`);
   }
+});
+
+test("the money survives - a ticket without prices is broken, not degraded", () => {
+  const t = composeTicketEmail(ORDER).text;
+  for (const money of ["$3.49", "$13.25", "$30.99", "$3.02", "$38.35"]) {
+    assert.ok(t.includes(money), `${money} missing from the ticket`);
+  }
+  assert.match(t, /^TOTAL\s+\$38\.35$/m);
+});
+
+test("a long header line splits rather than running off the paper", () => {
+  // pad() overflows instead of truncating when the halves do not fit.
+  const lines = composeTicketEmail(ORDER).text.split("\n");
+  assert.ok(lines.some((l) => l.startsWith("ORDER #")));
+  assert.ok(lines.some((l) => l.startsWith("placed ")));
 });
 
 test("large print is NOT used for email", () => {
@@ -59,15 +80,27 @@ test("large print is NOT used for email", () => {
   // them twice as wide. Plain text cannot, so the ticket would come out
   // ragged - the TOTAL landing mid-line while the subtotal sits at the margin.
   const emailText = composeTicketEmail(ORDER).text;
-  const large = toPlainText(buildTicket(ORDER, 48, {}, { scale: "large" }), 48);
+  const { EMAIL_TICKET_COLS } = require("@/lib/email-out");
+  const large = toPlainText(
+    buildTicket(ORDER, EMAIL_TICKET_COLS, {}, { scale: "large" }), EMAIL_TICKET_COLS
+  );
   assert.notEqual(emailText, large);
   const totalLine = emailText.split("\n").find(l => l.startsWith("TOTAL"))!;
-  assert.equal(totalLine.length, 48, "TOTAL must span the full width");
+  assert.equal(totalLine.length, EMAIL_TICKET_COLS, "TOTAL must span the full width");
 });
 
 test("modifiers survive - they are what ruins a plate if missed", () => {
-  const { text } = composeTicketEmail(ORDER);
-  assert.match(text, />> no beef - only chicken & lamb/);
+  // Asserted on the words, not the line breaks: at 32 columns a long
+  // modifier wraps across two ">>" lines, and pinning the exact wrap would
+  // make this test fail on a width change rather than on a real regression.
+  const text = composeTicketEmail(ORDER).text;
+  // Every modifier line is marked, so a cook can see it is an instruction...
+  const modLines = text.split("\n").filter((l) => l.trim().startsWith(">>"));
+  assert.ok(modLines.length >= 2, "modifiers must be marked with >>");
+  // ...and the words survive being wrapped across two of them.
+  const joined = modLines.map((l) => l.replace(/^\s*>>\s*/, "")).join(" ");
+  assert.match(joined, /no beef - only chicken & lamb/);
+  assert.match(joined, /white sauce on top please/);
 });
 
 test("quantity stays in its own column", () =>

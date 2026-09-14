@@ -72,6 +72,53 @@ function wrapTicketHtml(text: string): string {
   );
 }
 
+/**
+ * The HTML part, styled to match the Epson ticket.
+ *
+ * The thermal ticket leads with a knockout PICKUP/DELIVERY banner and sets
+ * DUE and TOTAL at double height, because those three facts decide what a
+ * cook does and when. The plain-text version cannot express any of that -
+ * text has no weight, no size and no reverse video - so the emailed ticket
+ * read flat next to its printed counterpart.
+ *
+ * HTML can. The banner is a black block with white type, DUE and TOTAL are
+ * simply larger, and the body stays in the monospace <pre> that is already
+ * printing correctly at 32 columns. Structure around the body, not through
+ * it: the column alignment is the part that took two rounds to get right and
+ * it is not worth risking for styling.
+ *
+ * The plain-text part is UNCHANGED and still complete, so a client that
+ * prefers text loses the styling and nothing else.
+ */
+function wrapTicketHtmlStyled(
+  text: string,
+  parts: { banner: string; due: string | null; total: string | null }
+): string {
+  const mono = "font-family:'Courier New',Courier,monospace";
+  const W = "max-width:34ch";
+  return (
+    `<html><body style="margin:0;${mono};color:#000">` +
+    `<div style="${W}">` +
+    // Knockout banner - the one fact that decides where the food goes.
+    `<div style="background:#000;color:#fff;font-weight:bold;font-size:19px;` +
+    `text-align:center;letter-spacing:3px;padding:4px 0;margin:0 0 4px">` +
+    escapeHtml(parts.banner) +
+    `</div>` +
+    (parts.due
+      ? `<div style="text-align:center;font-weight:bold;font-size:16px;margin:0 0 4px">` +
+        escapeHtml(parts.due) + `</div>`
+      : "") +
+    `<pre style="${mono};font-size:13px;font-weight:bold;line-height:1.35;` +
+    `white-space:pre;margin:0">` + escapeHtml(text) + `</pre>` +
+    (parts.total
+      ? `<div style="border-top:2px solid #000;margin-top:4px;padding-top:4px;` +
+        `font-weight:bold;font-size:17px;white-space:pre">` +
+        escapeHtml(parts.total) + `</div>`
+      : "") +
+    `</div></body></html>`
+  );
+}
+
 export interface TicketEmail {
   subject: string;
   text: string;
@@ -121,9 +168,26 @@ export function composeTicketEmail(
   const subject =
     `PFD ORDER #${order.order_number ?? "?"} - ${type}${due ? ` ${due}` : ""}`;
 
+  // The HTML part promotes the three lines the thermal ticket emphasises and
+  // drops them from the <pre>, so nothing is printed twice.
+  const bodyLines = text.split("\n");
+  const bannerIdx = bodyLines.findIndex((l) => /^\s*[A-Z](\s[A-Z])+\s*$/.test(l));
+  const dueIdx = bodyLines.findIndex((l) => /^\s*DUE\s/.test(l));
+  const totalIdx = bodyLines.findIndex((l) => /^TOTAL\s/.test(l));
+  const dueLine = dueIdx >= 0 ? bodyLines[dueIdx].trim() : null;
+  const totalLine = totalIdx >= 0 ? bodyLines[totalIdx] : null;
+  const htmlBody = bodyLines
+    .filter((_, i) => i !== bannerIdx && i !== dueIdx && i !== totalIdx)
+    .join("\n")
+    .replace(/^\n+/, "");
+
   // <pre> in a monospace face: the ticket is column-aligned, and a
   // proportional font would break every total and every quantity column.
-  const html = wrapTicketHtml(text);
+  const html = wrapTicketHtmlStyled(htmlBody, {
+    banner: type.split("").join(" "),
+    due: dueLine,
+    total: totalLine,
+  });
 
   return { subject, text, html };
 }

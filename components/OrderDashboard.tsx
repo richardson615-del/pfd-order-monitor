@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
-import { ageMs, elapsedLabel, type DisplayMode } from "@/lib/order-display";
+import { ageMs, elapsedLabel, isSettled, isWaiting, type DisplayMode } from "@/lib/order-display";
 import { Brand } from "./Brand";
 import AlertGate from "./AlertGate";
 import {
@@ -48,9 +48,9 @@ const TABS: { key: TabKey; label: string }[] = [
 
 function inTab(order: Order, key: TabKey): boolean {
   if (key === "all") return true;
-  if (order.status === "cancelled" || order.status === "completed") return key === "done";
+  if (!isSettled(order)) return key === "waiting";
   if (order.accepted_at) return key === "accepted";
-  return key === "waiting";
+  return key === "done";
 }
 
 export default function OrderDashboard({
@@ -89,6 +89,19 @@ export default function OrderDashboard({
    */
   const waiting = useMemo(() => unaccepted(orders), [orders]);
   const hasNewOrders = waiting.length > 0;
+
+  /**
+   * What the Waiting tab holds - and therefore what the headline says.
+   *
+   * Not the same set as `waiting` above, on purpose. That one is the chime's,
+   * and it drops anything past six hours so a tablet does not ring all day
+   * about orders nobody is going to cook. This one has no cutoff: an order
+   * nobody accepted is still owed a decision, and the tab shows it. The
+   * headline used to count the chime's set, so a screen with ten stale
+   * orders in Waiting announced "All clear" above them.
+   */
+  const waitingRows = useMemo(() => orders.filter(isWaiting), [orders]);
+  const anyWaiting = waitingRows.length > 0;
 
   /**
    * Reconcile against the database directly.
@@ -360,7 +373,7 @@ export default function OrderDashboard({
    * The oldest thing nobody has accepted. "3 waiting" says how much; this
    * says how bad, which is the number somebody in a kitchen acts on.
    */
-  const oldest = waiting.reduce<Order | null>((worst, o) => {
+  const oldest = waitingRows.reduce<Order | null>((worst, o) => {
     if (!worst) return o;
     return (ageMs(o, now) ?? 0) > (ageMs(worst, now) ?? 0) ? o : worst;
   }, null);
@@ -396,9 +409,9 @@ export default function OrderDashboard({
         {/* The count IS the headline. Everything else on this screen is
             detail about it, and on a kitchen tablet the only question being
             asked from across the room is "is anything waiting". */}
-        <span className={`app-head-count num ${hasNewOrders ? "busy" : "idle"}`}>
-          {hasNewOrders ? `${waiting.length} WAITING` : "All clear"}
-          {hasNewOrders && oldest && (
+        <span className={`app-head-count num ${anyWaiting ? "busy" : "idle"}`}>
+          {anyWaiting ? `${waitingRows.length} WAITING` : "All clear"}
+          {anyWaiting && oldest && (
             <span className="app-head-oldest num">oldest {elapsedLabel(oldest, now)}</span>
           )}
         </span>
@@ -423,12 +436,15 @@ export default function OrderDashboard({
         </p>
       )}
 
-      {/* Why the room is beeping, in one line, and what stops it. */}
-      {hasNewOrders && (
+      {/* Why the room is beeping, in one line, and what stops it. When
+          nothing is beeping but the list is not empty - everything in it is
+          past the chime window - say that instead, because "press Accept"
+          is still the only thing that clears them. */}
+      {anyWaiting && (
         <div className="waiting-bar" role="status">
-          {waiting.length === 1
-            ? "1 order waiting — open it and press Accept"
-            : `${waiting.length} orders waiting — open each one and press Accept`}
+          {waitingRows.length === 1
+            ? `1 order ${hasNewOrders ? "waiting" : "from earlier still waiting"} — open it and press Accept`
+            : `${waitingRows.length} orders ${hasNewOrders ? "waiting" : "from earlier still waiting"} — open each one and press Accept`}
         </div>
       )}
 

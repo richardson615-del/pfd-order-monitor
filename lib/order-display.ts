@@ -7,6 +7,7 @@
  * standard differ in size and loudness, never in what they claim.
  */
 import { Order } from "./types";
+import { STILL_ACTIONABLE_MS } from "./kiosk";
 
 /**
  * When an unaccepted order starts reading as late.
@@ -36,6 +37,38 @@ export function isSettled(order: Pick<Order, "status" | "accepted_at">): boolean
 }
 
 /**
+ * Still waiting for somebody here to accept it - the Waiting tab's rows.
+ *
+ * This is the SAME question isSettled asks, negated, and it is the one the
+ * headline, the tab count and the list must all answer alike. On 2026-09-15
+ * they did not: the headline counted unaccepted() from lib/kiosk.ts, which
+ * drops anything past the chime window, while the tab had no cutoff. A
+ * tablet with ten day-old orders in Waiting read "All clear" in the header
+ * and "Waiting (10)" an inch below it, and each was true about a different
+ * thing. The chime keeps its window - see unaccepted(). The list does not.
+ */
+export function isWaiting(order: Pick<Order, "status" | "accepted_at">): boolean {
+  return !isSettled(order);
+}
+
+/**
+ * Unaccepted for longer than anyone is going to cook it.
+ *
+ * The same window the chime stops at, because past it the tablet has already
+ * stopped asking for this order. It stays in Waiting - a real order nobody
+ * took all day is still owed a decision - but it stops being painted as an
+ * emergency, so that red on this screen goes on meaning "act on this now".
+ */
+export function isStaleWaiting(
+  order: Pick<Order, "status" | "accepted_at" | "received_at">,
+  now: number
+): boolean {
+  if (isSettled(order)) return false;
+  const age = ageMs(order, now);
+  return age !== null && age >= STILL_ACTIONABLE_MS;
+}
+
+/**
  * How old the order is, in ms, or null if we cannot tell.
  *
  * received_at is Zuppler's own timestamp rather than when we ingested it, so
@@ -55,14 +88,20 @@ export function ageMs(order: Pick<Order, "received_at">, now: number): number | 
  * A settled order is never late however old it is: an order from this morning
  * that was cooked and completed is history, not a problem, and colouring it
  * red would teach the kitchen that red means nothing.
+ *
+ * Nor is an order that has sat unaccepted past the chime window. It is not
+ * settled - it still needs a decision - but red and breathing for something
+ * that arrived yesterday is the same lesson: it teaches the room that red is
+ * background. Those go muted, with the age still on them.
  */
 export function ageClass(
   order: Pick<Order, "status" | "accepted_at" | "received_at">,
   now: number
-): "settled" | "age-calm" | "age-warn" | "age-late" {
+): "settled" | "age-calm" | "age-warn" | "age-late" | "age-stale" {
   if (isSettled(order)) return "settled";
   const age = ageMs(order, now);
   if (age === null) return "age-calm";
+  if (age >= STILL_ACTIONABLE_MS) return "age-stale";
   if (age >= AGE_LATE_MS) return "age-late";
   if (age >= AGE_WARN_MS) return "age-warn";
   return "age-calm";

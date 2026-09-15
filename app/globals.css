@@ -777,6 +777,12 @@ table.admin-table th, table.admin-table td {
 .card.age-late::before { background: var(--age-late); }
 .card.settled::before { background: var(--st-done); }
 
+/* Unaccepted past the chime window. Still in Waiting, still owed a decision,
+   but not painted as an emergency: the rail goes to the calm grey and the
+   whole card dims, so red on this screen keeps meaning "now". */
+.card.age-stale::before { background: var(--age-calm); }
+.card.age-stale { opacity: 0.72; }
+
 .card-top {
   display: flex;
   align-items: baseline;
@@ -800,6 +806,7 @@ table.admin-table th, table.admin-table td {
 
 .card.age-warn .card-age { color: var(--age-warn); }
 .card.age-late .card-age { color: var(--age-late); }
+.card.age-stale .card-age { color: var(--age-calm); }
 .card.settled .card-age { color: var(--st-done); }
 
 .card-who {

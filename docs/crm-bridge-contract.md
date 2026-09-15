@@ -103,6 +103,7 @@ Writable on `POST /api/crm/restaurants/:id`:
 | field | values |
 |---|---|
 | `app_expected` | `true` \| `false` — is this site meant to watch orders on the tablet? |
+| `display_mode` | `kitchen` \| `standard` — which look their tablet renders |
 
 `GET /api/crm/restaurants` adds:
 

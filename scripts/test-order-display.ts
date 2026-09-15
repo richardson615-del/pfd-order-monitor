@@ -172,4 +172,27 @@ test("the setting cannot affect delivery, chiming or alerting", () => {
   }
 });
 
+console.log("\na write returns what it wrote:");
+
+test("the update endpoint returns display_mode, not just accepts it", () => {
+  // It was writable and not returned - the only field in that state. A console
+  // that merges the response over its own row (which is how this endpoint is
+  // meant to be used, rather than guessing what the write did) therefore saw
+  // every field update EXCEPT the one it had just changed.
+  //
+  // On screen: set a restaurant to Kitchen, watch the button stay on Standard,
+  // conclude it failed, press it again. Nothing distinguishes "did not save"
+  // from "saved and will not say so". Reported from production 2026-09-14.
+  const route = readFileSync(new URL("../app/api/crm/restaurants/[id]/route.ts", import.meta.url), "utf8");
+  const select = route.slice(route.indexOf(".update(updates)"));
+  const returned = select.slice(select.indexOf(".select("), select.indexOf(".single()"));
+  assert.match(returned, /display_mode/);
+
+  // Everything writable should come back, or this recurs with the next field.
+  for (const field of ["print_method", "ticket_email_to", "app_expected", "display_mode"]) {
+    assert.ok(returned.includes(field), `${field} should be returned by the update`);
+  }
+});
+
+
 console.log(`\n${passed} assertions passed.`);

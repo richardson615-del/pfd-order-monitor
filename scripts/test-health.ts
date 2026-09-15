@@ -45,6 +45,7 @@ const healthy: HealthSnapshot = {
     { job: "gmail_poll", last_run_at: minsAgo(1) },
     { job: "monitor_check", last_run_at: minsAgo(5) },
   ],
+  restaurantVolumes: [],
 };
 
 console.log("healthy system:");

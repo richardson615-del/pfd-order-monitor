@@ -7,6 +7,7 @@ import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 import { planZupplerMapping, type ExistingMapping, type RequestedListing } from "@/lib/zuppler-mapping";
 import { tabletStatus, type HeartbeatRow } from "@/lib/tablet-status";
 import { minShellVersion } from "@/lib/app-update";
+import { isValidTimeZone } from "@/lib/clock";
 
 export const dynamic = "force-dynamic";
 
@@ -157,11 +158,35 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "JSON body required" }, { status: 400 });
   }
-  const requested: RequestedListing[] = Array.isArray(body.zuppler_ids) ? body.zuppler_ids : [];
+  const requested: RequestedListing[] = Array.isArray(body.zuppler_ids) ? [...body.zuppler_ids] : [];
+  // E1 shape: a single zuppler_restaurant_id is the primary listing. Folded
+  // into the same list so both callers get the same rules.
+  if (typeof body.zuppler_restaurant_id === "string" && body.zuppler_restaurant_id.trim()) {
+    requested.unshift({ zuppler_restaurant_id: body.zuppler_restaurant_id.trim(), label: "primary" });
+  }
+
+  // Settings the CRM may set on create-or-ensure (E1). Each validated the
+  // same way the per-restaurant update route validates it; absent = untouched.
+  const settings: Record<string, unknown> = {};
+  if ("timezone" in body) {
+    if (body.timezone === null || body.timezone === "") settings.timezone = null;
+    else if (isValidTimeZone(body.timezone)) settings.timezone = String(body.timezone).trim();
+    else return NextResponse.json({ error: "timezone must be an IANA zone name such as America/Chicago, or null", code: "invalid_timezone" }, { status: 400 });
+  }
+  if ("app_expected" in body) {
+    if (typeof body.app_expected !== "boolean") return NextResponse.json({ error: "app_expected must be true or false" }, { status: 400 });
+    settings.app_expected = body.app_expected;
+  }
+  if ("display_mode" in body) {
+    if (body.display_mode !== "kitchen" && body.display_mode !== "standard") {
+      return NextResponse.json({ error: "display_mode must be 'kitchen' or 'standard'" }, { status: 400 });
+    }
+    settings.display_mode = body.display_mode;
+  }
 
   const resolved = await resolveOrCreateRestaurant({
     crmRestaurantId: body.crm_restaurant_id,
-    restaurantName: body.restaurant_name,
+    restaurantName: body.restaurant_name ?? body.name,
   });
   if (resolved.error || !resolved.restaurant) {
     return NextResponse.json({ error: resolved.error ?? "could not resolve restaurant" }, { status: 400 });
@@ -169,6 +194,10 @@ export async function POST(req: NextRequest) {
   const restaurant = resolved.restaurant;
 
   const admin = supabaseAdmin();
+  if (Object.keys(settings).length) {
+    const { error: settingsError } = await admin.from("restaurants").update(settings).eq("id", restaurant.id);
+    if (settingsError) return NextResponse.json({ error: settingsError.message }, { status: 500 });
+  }
   const wanted = requested.map((r) => String(r?.zuppler_restaurant_id ?? "").trim()).filter(Boolean);
 
   // Who already owns any of these ids, in either table.
@@ -203,33 +232,42 @@ export async function POST(req: NextRequest) {
     currentPrimary = (self as any)?.zuppler_restaurant_id ?? null;
   }
 
-  const outcome = planZupplerMapping({
-    restaurantId: restaurant.id,
-    currentPrimary,
-    requested,
-    existing,
-  });
-  if ("error" in outcome) {
-    return NextResponse.json({ error: outcome.error }, { status: outcome.status });
-  }
+  // No listings is a valid call (E1's create-or-ensure with settings only);
+  // the mapping rules apply only when there is something to map.
+  if (wanted.length) {
+    const outcome = planZupplerMapping({
+      restaurantId: restaurant.id,
+      currentPrimary,
+      requested,
+      existing,
+    });
+    if ("error" in outcome) {
+      // A machine-readable code beside the sentence, so the CRM can offer
+      // "link to that restaurant instead" rather than parsing prose.
+      return NextResponse.json(
+        { error: outcome.error, code: outcome.status === 409 ? "zuppler_id_conflict" : "invalid_zuppler_id" },
+        { status: outcome.status }
+      );
+    }
 
-  const { plan } = outcome;
-  const { error: upsertError } = await admin
-    .from("restaurant_zuppler_ids")
-    .upsert(plan.upserts, { onConflict: "zuppler_restaurant_id" });
-  if (upsertError) return NextResponse.json({ error: upsertError.message }, { status: 500 });
+    const { plan } = outcome;
+    const { error: upsertError } = await admin
+      .from("restaurant_zuppler_ids")
+      .upsert(plan.upserts, { onConflict: "zuppler_restaurant_id" });
+    if (upsertError) return NextResponse.json({ error: upsertError.message }, { status: 500 });
 
-  if (plan.setPrimary) {
-    const { error: primaryError } = await admin
-      .from("restaurants")
-      .update({ zuppler_restaurant_id: plan.setPrimary })
-      .eq("id", restaurant.id);
-    if (primaryError) return NextResponse.json({ error: primaryError.message }, { status: 500 });
+    if (plan.setPrimary) {
+      const { error: primaryError } = await admin
+        .from("restaurants")
+        .update({ zuppler_restaurant_id: plan.setPrimary })
+        .eq("id", restaurant.id);
+      if (primaryError) return NextResponse.json({ error: primaryError.message }, { status: 500 });
+    }
   }
 
   const { data: after } = await admin
     .from("restaurants")
-    .select("id, name, crm_restaurant_id, zuppler_restaurant_id")
+    .select("id, name, crm_restaurant_id, zuppler_restaurant_id, is_active, app_expected, display_mode, timezone")
     .eq("id", restaurant.id)
     .single();
   const { data: afterIds } = await admin

@@ -13,6 +13,20 @@ const nextConfig = {
       "/api/print/epson": ["./assets/fonts/**"],
     },
   },
+  /**
+   * The build this bundle came from, inlined into the client.
+   *
+   * Compared against what /api/version reports at RUNTIME - which is served
+   * by the CURRENT deployment - so a tablet running yesterday's JavaScript
+   * can notice that fact itself. Without it, a page that stays open for weeks
+   * (which is what a kiosk is) keeps whatever it loaded until somebody
+   * manually relaunches the app, and there is no reason anyone ever would.
+   *
+   * "dev" locally, where the two always agree and nothing reloads.
+   */
+  env: {
+    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA || "dev",
+  },
   async headers() {
     return [
       {

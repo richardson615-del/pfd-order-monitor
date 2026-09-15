@@ -7,6 +7,11 @@ import OrderCard from "./OrderCard";
 import { ageMs, elapsedLabel, type DisplayMode } from "@/lib/order-display";
 import { Brand } from "./Brand";
 import AlertGate from "./AlertGate";
+import {
+  VERSION_CHECK_EVERY_MS,
+  shouldReloadNow,
+  updateAvailable,
+} from "@/lib/app-update";
 import { armAudio, isAudioArmed, playAlertBeep } from "@/lib/sound";
 import {
   Connection,
@@ -243,6 +248,55 @@ export default function OrderDashboard({
   // question - it reports the answer here through onSubscribedChange so the
   // status pill and the gate cannot disagree about whether this tablet will
   // ring. Two separate probes is how they start to.
+
+  // --- Take new code without anybody relaunching the app --------------------
+  //
+  // A TWA loads the live site, so a deploy reaches the tablet immediately -
+  // except that this page has been open for weeks and is still running the
+  // JavaScript it downloaded then. Nothing reloads a kiosk.
+  //
+  // It waits for a quiet moment. A reload destroys the AudioContext and
+  // browsers only let one be resumed from a gesture, so reloading while an
+  // order is waiting would silence the chime on a screen somebody needs right
+  // now. Nothing waiting means nothing to interrupt. The push notification -
+  // the real alarm - is an Android notification and survives either way.
+  const [newBuild, setNewBuild] = useState(false);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch("/api/version", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (updateAvailable(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev", data?.buildId)) {
+          setNewBuild(true);
+        }
+      } catch {
+        // A version check that cannot reach the server tells us nothing, and
+        // must never be the reason a working screen does anything at all.
+      }
+    };
+    void check();
+    const id = setInterval(check, VERSION_CHECK_EVERY_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !shouldReloadNow({
+        updateAvailable: newBuild,
+        waitingCount: waiting.length,
+        visible: typeof document !== "undefined" && document.visibilityState === "visible",
+      })
+    ) {
+      return;
+    }
+    // A short delay so this cannot fire in the same tick as an order being
+    // accepted - the list settles first, and a reload that races a write is
+    // the one way this could lose something.
+    const id = setTimeout(() => window.location.reload(), 3_000);
+    return () => clearTimeout(id);
+  }, [newBuild, waiting.length]);
 
   // --- Keep the screen on ---------------------------------------------------
   // A kiosk whose screen has gone to sleep is a kiosk nobody can see an order

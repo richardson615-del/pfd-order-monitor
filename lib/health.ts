@@ -102,6 +102,20 @@ export interface HealthSnapshot {
    * open. A push subscription survives being signed out, so this is the only
    * thing that tells a screen somebody is watching from a dead one.
    */
+  /**
+   * Orders on tablet restaurants that nobody has accepted yet (E2 follow-up,
+   * Nick 2026-09-15: "10 minutes before it sends a notification if the
+   * restaurant didn't accept the order"). Customer orders only - a test
+   * order has no customer waiting - and only within the chime window, past
+   * which the order is dead however it got there.
+   */
+  unacceptedOrders: {
+    id: string;
+    order_number: string | null;
+    restaurant_id: string;
+    restaurant_name: string | null;
+    received_at: string;
+  }[];
   tabletsNotWatching: {
     id: string;
     name: string;
@@ -158,6 +172,8 @@ export interface HealthThresholds {
   emailUnsentMinutes: number;
   /** An app alert undelivered this long never went. Same reasoning as email. */
   appUndeliveredMinutes: number;
+  /** An order nobody at the restaurant has accepted after this long is one somebody in the office needs to chase. */
+  orderUnacceptedMinutes: number;
   /** No dashboard heartbeat for this long, while orders are arriving. */
   tabletSilentMinutes: number;
   /** Only count a restaurant as live if an order arrived this recently. */
@@ -186,6 +202,10 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   // Same: the push goes out during ingest. Nothing about it is queued for
   // later, so an alert with no sent_at after this did not arrive late.
   appUndeliveredMinutes: 5,
+  // Ten minutes, Nick's number. The card on the tablet goes red at the same
+  // ten (AGE_LATE_MS), so the office is told at the moment the screen in the
+  // kitchen starts shouting - not before, and not long after.
+  orderUnacceptedMinutes: 10,
   // Seven missed beats. Generous on purpose: a browser throttles timers on a
   // backgrounded tab, and an alert that fires on ordinary throttling is one
   // people stop reading.
@@ -326,6 +346,23 @@ export function evaluateHealth(
   // restaurant has its tablet off and that is not a fault - without the gate
   // this would fire at four in the morning, every morning, which is how a
   // channel gets muted before the night it matters.
+  // --- orders sitting unaccepted on a tablet ---
+  // One finding per order, keyed on the order, so it clears the moment
+  // somebody taps Accept and never re-fires for the same order. Critical:
+  // this is a customer waiting, and the only fix is a phone call to the
+  // kitchen right now.
+  for (const o of snap.unacceptedOrders) {
+    const mins = minutesSince(o.received_at, now);
+    if (mins === null || mins < thresholds.orderUnacceptedMinutes) continue;
+    issues.push({
+      key: `order_unaccepted:${o.id}`,
+      restaurant_id: o.restaurant_id,
+      severity: "critical",
+      title: `Order not accepted: #${o.order_number ?? o.id.slice(0, 8)} at ${o.restaurant_name ?? "unknown restaurant"}`,
+      detail: `Arrived ${ago(mins)} and nobody at ${where(o.restaurant_name)} has pressed Accept on the tablet. Call the kitchen - the customer is waiting.`,
+    });
+  }
+
   for (const t of snap.tabletsNotWatching) {
     const silent = minutesSince(t.lastSeenAt, now);
     if (silent !== null && silent < thresholds.tabletSilentMinutes) continue;
@@ -739,6 +776,32 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
 
   const appRestaurants = restaurants.filter((r: any) => r.is_active && r.app_expected);
   const tabletsNotWatching: HealthSnapshot["tabletsNotWatching"] = [];
+  const unacceptedOrders: HealthSnapshot["unacceptedOrders"] = [];
+
+  if (appRestaurants.length) {
+    // Customer orders only (never a test order: no customer is waiting on
+    // one), still live, and within the chime window - the same six hours
+    // past which the tablet itself stops asking (STILL_ACTIONABLE_MS).
+    const { data: openOrders } = await admin
+      .from("orders")
+      .select("id, order_number, restaurant_id, received_at")
+      .in("restaurant_id", appRestaurants.map((r: any) => r.id))
+      .is("accepted_at", null)
+      .not("status", "in", "(cancelled,completed)")
+      .neq("source", "test")
+      .gte("received_at", new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
+      .order("received_at", { ascending: true })
+      .limit(500);
+    for (const o of openOrders ?? []) {
+      unacceptedOrders.push({
+        id: o.id,
+        order_number: o.order_number ?? null,
+        restaurant_id: o.restaurant_id,
+        restaurant_name: nameOf(o.restaurant_id),
+        received_at: o.received_at,
+      });
+    }
+  }
 
   if (appRestaurants.length) {
     const ids = appRestaurants.map((r: any) => r.id);
@@ -811,6 +874,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     restaurantsWithoutDevice,
     restaurantsWithoutAppDevice,
     tabletsNotWatching,
+    unacceptedOrders,
     pendingJobs: paperJobs
       .filter((j: any) => j.status === "queued" || j.status === "claimed")
       .map((j: any) => ({ ...jobShape(j), queued_at: j.queued_at, status: j.status, attempts: j.attempts ?? 0 })),

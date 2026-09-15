@@ -16,7 +16,7 @@ export const maxDuration = 30;
  *     it is about one restaurant or one printer, `restaurant_id`,
  *     `crm_restaurant_id` (the CRM account, when linked) and `device_id`;
  *   - `first_seen_at` / `notified_at` come from monitor_alerts, which the
- *     15-minute monitor writes - so a brand-new issue on this live
+ *     five-minute monitor writes - so a brand-new issue on this live
  *     evaluation has null until that run has stamped it;
  *   - `resolved[]` lists keys that monitor_alerts closed in the last 24h
  *     (or since `since`), each with its `resolved_at`. Resolution is

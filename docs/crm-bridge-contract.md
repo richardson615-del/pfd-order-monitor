@@ -221,13 +221,20 @@ Each issue: `key` (deterministic — the same problem always has the same
 key, so the CRM can open one ticket per key and never two), `severity`,
 `title`, `detail`, `restaurant_id` / `crm_restaurant_id` / `device_id`
 (null for a fleet-wide issue such as a webhook or a cron), `first_seen_at`
-and `notified_at` (from the 15-minute monitor's `monitor_alerts` record —
+and `notified_at` (from the five-minute monitor's `monitor_alerts` record —
 **null until that run has stamped a brand-new issue**, so treat null as
 "just now"). `resolved[]` lists keys the monitor closed in the last 24 h
 (or since `since`) with `resolved_at`; resolution is observed by the
 monitor run, never by this call, so two polls cannot disagree. `since`
 narrows both lists to what changed after it; unstamped issues are always
 included.
+
+`order_unaccepted:<order id>` is **critical** and per order (2026-09-15): a
+customer order on a tablet restaurant that nobody has accepted ten minutes
+after it arrived — the same ten at which the card on the tablet goes red.
+Never for a test order (no customer is waiting), never past the six-hour
+chime window. It clears the moment Accept is pressed. The monitor runs
+every five minutes, so the office hears within 10–15 minutes.
 
 ### Restaurant logins
 

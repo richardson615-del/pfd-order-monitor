@@ -69,9 +69,22 @@ BUNDLE="app/build/outputs/bundle/release/app-release.aab"
 
 [ -f "$BUNDLE" ] && cp "$BUNDLE" app-release-bundle.aab
 
+# Versioned copies, named for the MDM console and the GitHub release. The
+# code is the one in twa-manifest.json - the same number the shell reports
+# on ?shell= and the heartbeat records, so "which build is on that wall"
+# and "which file did we upload" are the same number.
+CODE="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("twa-manifest.json","utf8")).appVersionCode)')"
+cp app-release-signed.apk "premium-orders-$CODE.apk"
+[ -f app-release-bundle.aab ] && cp app-release-bundle.aab "premium-orders-$CODE.aab"
+
+# What /install.html serves for staff, until the MDM hosts the build.
+cp app-release-signed.apk ../public/app/pfd-orders.apk
+
 echo ""
 echo "Built:"
 ls -1 ./*.apk ./*.aab 2>/dev/null || true
 echo ""
-echo "app-release-signed.apk is the one to install on a tablet."
-echo "app-release-bundle.aab is for the Play Store, if it ever goes there."
+echo "premium-orders-$CODE.apk is the file the MDM console uploads (and the"
+echo "GitHub release attaches). It is also now public/app/pfd-orders.apk for"
+echo "staff-only sideloading from /install.html. The .aab is for the Play"
+echo "Store, if it ever goes there. Restaurants never install anything."

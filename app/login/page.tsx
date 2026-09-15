@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { usernameToEmail } from "@/lib/usernames";
+import { rememberShellVersion, useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 import { Brand } from "@/components/Brand";
 
 /**
@@ -29,6 +30,20 @@ function LoginForm() {
   const [useEmailLink, setUseEmailLink] = useState(false);
   const [linkEmail, setLinkEmail] = useState("");
   const [sent, setSent] = useState(false);
+
+  // The TWA's ?shell= param arrives here first when the tablet is signed
+  // out; remember it before the redirect to the dashboard drops it.
+  useEffect(() => {
+    rememberShellVersion();
+  }, []);
+
+  // A new deployment is taken when the tablet comes back to the foreground -
+  // unless somebody has started typing, in which case the form wins.
+  const untouched = useCallback(
+    () => !busy && username === "" && password === "" && linkEmail === "" && !sent,
+    [busy, username, password, linkEmail, sent]
+  );
+  useFreshBuildOnReturn(untouched);
 
   const next = params.get("next") || "/dashboard";
 

@@ -9,7 +9,9 @@ import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
 import {
-  VERSION_CHECK_EVERY_MS,
+  SHELL_VERSION_KEY,
+  readShellVersion,
+  shellNeedsUpdate,
   shouldReloadNow,
   updateAvailable,
 } from "@/lib/app-update";
@@ -87,6 +89,28 @@ export default function OrderDashboard({
    */
   const [heartbeatOkAt, setHeartbeatOkAt] = useState<number | null>(null);
   const [pushSubscribed, setPushSubscribed] = useState<boolean | null>(null);
+
+  /**
+   * Which Android shell this page runs inside, from the TWA's ?shell= param
+   * (remembered, because the login redirect drops it), and the oldest shell
+   * the office is happy with, from the heartbeat. Neither asks the
+   * restaurant for anything: the MDM pushes shells.
+   */
+  const [shellVersion, setShellVersion] = useState<number | null>(null);
+  const [minShell, setMinShell] = useState<number>(0);
+  useEffect(() => {
+    let remembered: string | null = null;
+    try {
+      remembered = window.localStorage.getItem(SHELL_VERSION_KEY);
+    } catch {}
+    const v = readShellVersion(window.location.href, remembered);
+    setShellVersion(v);
+    if (v !== null && String(v) !== remembered) {
+      try {
+        window.localStorage.setItem(SHELL_VERSION_KEY, String(v));
+      } catch {}
+    }
+  }, []);
   const [now, setNow] = useState(() => Date.now());
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -241,13 +265,25 @@ export default function OrderDashboard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // So the office can tell an open screen that will ring from an open
-        // screen that will not. null until AlertGate has answered.
-        body: JSON.stringify({ pushSubscribed }),
+        // screen that will not. null until AlertGate has answered. And which
+        // shell this is, so the office can see who needs one pushed.
+        body: JSON.stringify({ pushSubscribed, shellVersion }),
       })
-        .then((res) => {
+        .then(async (res) => {
           if (res.ok) setHeartbeatOkAt(Date.now());
+          // The beat answers with what deployment is serving. This is the
+          // version check: one request on a cadence that already exists,
+          // rather than a second one on the same cadence.
+          const data = await res.json().catch(() => null);
+          if (updateAvailable(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev", data?.buildId)) {
+            setNewBuild(true);
+          }
+          if (typeof data?.minShellVersion === "number") setMinShell(data.minShellVersion);
         })
-        .catch(() => {});
+        .catch(() => {
+          // A beat that cannot reach the server tells us nothing, and must
+          // never be the reason a working screen does anything at all.
+        });
     };
     beat();
     const id = setInterval(beat, HEARTBEAT_EVERY_MS);
@@ -265,7 +301,7 @@ export default function OrderDashboard({
     // Re-run when the subscription answer changes: with [] this closure would
     // capture the first value (null, before AlertGate has looked) and report
     // it for the life of the tab.
-  }, [pushSubscribed]);
+  }, [pushSubscribed, shellVersion]);
 
   // The push subscription is read and repaired by AlertGate, which owns that
   // question - it reports the answer here through onSubscribedChange so the
@@ -285,31 +321,32 @@ export default function OrderDashboard({
   // the real alarm - is an Android notification and survives either way.
   const [newBuild, setNewBuild] = useState(false);
 
+  // When the glass was last touched. "Nothing waiting" says nobody needs the
+  // screen; this says nobody is using it. Starts at mount so a fresh page is
+  // "untouched since it opened", which is true.
+  const lastTouchRef = useRef<number>(Date.now());
   useEffect(() => {
-    const check = async () => {
-      try {
-        const res = await fetch("/api/version", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (updateAvailable(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev", data?.buildId)) {
-          setNewBuild(true);
-        }
-      } catch {
-        // A version check that cannot reach the server tells us nothing, and
-        // must never be the reason a working screen does anything at all.
-      }
+    const touched = () => {
+      lastTouchRef.current = Date.now();
     };
-    void check();
-    const id = setInterval(check, VERSION_CHECK_EVERY_MS);
-    return () => clearInterval(id);
+    window.addEventListener("pointerdown", touched, { passive: true });
+    window.addEventListener("keydown", touched, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", touched);
+      window.removeEventListener("keydown", touched);
+    };
   }, []);
 
+  // Re-evaluated on every heartbeat (heartbeatOkAt changes each beat), so a
+  // reload that was not safe this time is simply tried again next time -
+  // the busy restaurant updates at its next quiet moment, not never.
   useEffect(() => {
     if (
       !shouldReloadNow({
         updateAvailable: newBuild,
         waitingCount: waiting.length,
         visible: typeof document !== "undefined" && document.visibilityState === "visible",
+        idleMs: Date.now() - lastTouchRef.current,
       })
     ) {
       return;
@@ -319,7 +356,7 @@ export default function OrderDashboard({
     // the one way this could lose something.
     const id = setTimeout(() => window.location.reload(), 3_000);
     return () => clearTimeout(id);
-  }, [newBuild, waiting.length]);
+  }, [newBuild, waiting.length, heartbeatOkAt]);
 
   // --- Keep the screen on ---------------------------------------------------
   // A kiosk whose screen has gone to sleep is a kiosk nobody can see an order
@@ -441,6 +478,15 @@ export default function OrderDashboard({
       {live.detail && live.level !== "offline" && (
         <p className="app-head-detail" role="status">
           {live.detail}
+        </p>
+      )}
+
+      {/* The one thing the web app cannot fix by reloading: the Android shell
+          around it. Amber, not blocking, and it asks for nothing - the office
+          sees the same fact on the heartbeat and the MDM pushes the update. */}
+      {shellNeedsUpdate(shellVersion, minShell) && (
+        <p className="app-head-detail shell-old" role="status">
+          This tablet needs an update from Premium — we&apos;ll handle it.
         </p>
       )}
 

@@ -23,7 +23,7 @@ plugins {
 def twaManifest = [
     applicationId: 'com.pfdworks.orders',
     hostName: 'pfd-order-monitor.vercel.app', // The domain being opened in the TWA.
-    launchUrl: '/dashboard', // The start path for the TWA. Must be relative to the domain.
+    launchUrl: '/dashboard?shell=4', // The start path for the TWA. Must be relative to the domain.
     name: 'Premium Orders', // The application name.
     launcherName: 'Premium', // The name shown on the Android Launcher.
     themeColor: '#111827', // The color used for the status bar.
@@ -57,8 +57,8 @@ android {
         applicationId "com.pfdworks.orders"
         minSdkVersion 21
         targetSdkVersion 36
-        versionCode 3
-        versionName "1.1.0"
+        versionCode 4
+        versionName "1.2.0"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name

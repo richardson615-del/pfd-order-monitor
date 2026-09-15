@@ -33,4 +33,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "030_heartbeat_push_state.sql",
   "031_cron_runs.sql",
   "032_restaurant_timezone.sql",
+  "033_heartbeat_shell_version.sql",
 ];

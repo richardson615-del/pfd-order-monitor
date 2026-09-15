@@ -42,9 +42,10 @@ test("every scheduled cron has a liveness entry, at the right cadence", () => {
   const cfg = JSON.parse(readFileSync("vercel.json", "utf8"));
   const byPath = new Map<string, number>();
   for (const c of cfg.crons ?? []) {
-    const m = /^\*\/(\d+) \* \* \* \*$/.exec(c.schedule);
-    assert.ok(m, `unsupported schedule "${c.schedule}" for ${c.path} - teach this test to read it`);
-    byPath.set(c.path, Number(m![1]));
+    // "* * * * *" is every minute; "*/N * * * *" is every N.
+    const every = c.schedule === "* * * * *" ? 1 : Number(/^\*\/(\d+) \* \* \* \*$/.exec(c.schedule)?.[1]);
+    assert.ok(Number.isInteger(every) && every > 0, `unsupported schedule "${c.schedule}" for ${c.path} - teach this test to read it`);
+    byPath.set(c.path, every);
   }
   for (const [path, every] of byPath) {
     const spec = CRON_JOBS.find((j) => j.path === path);

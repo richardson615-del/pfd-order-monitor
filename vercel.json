@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/monitor/check",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }

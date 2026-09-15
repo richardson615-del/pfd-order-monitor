@@ -251,7 +251,11 @@ test("a failed heartbeat cannot disturb the thing it reports on", () => {
   // whether the failure is swallowed.
   const beat = dash.slice(dash.indexOf("const beat = () =>"), dash.indexOf("beat();"));
   assert.ok(beat.length > 0, "the beat function should be findable");
-  assert.match(beat, /\.catch\(\(\) => \{\}\)/);
+  // The catch may carry a comment now (the beat also answers the version
+  // check), but it must still do nothing: no state, no reload, no rethrow.
+  const caught = beat.slice(beat.indexOf(".catch(() => {"));
+  assert.ok(caught.length > 0, "the failure must be caught");
+  assert.doesNotMatch(caught.slice(0, caught.indexOf("});") + 3), /set[A-Z]\w+\(|reload|throw/);
 });
 
 test("the chime is keyed on acceptance, not on status", () => {

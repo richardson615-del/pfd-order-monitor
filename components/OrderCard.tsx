@@ -3,26 +3,19 @@ import { Order } from "@/lib/types";
 import { ageClass, elapsedLabel, orderFlag } from "@/lib/order-display";
 
 /**
- * What staff should see an order's origin called.
- *
- * 'email' covers the orders we learn about by reading a Zuppler receipt from
- * the inbox rather than from their webhook - two transports, one platform, and
- * the difference is ours to worry about and not the kitchen's. Labelling those
- * "Email" would put an operational distinction nobody there can act on in
- * front of them, and get the answer to "which platform?" wrong.
- */
-const SOURCE_LABELS: Record<string, string> = {
-  zuppler: "Zuppler",
-  email: "Zuppler",
-  test: "Test",
-};
-
-/**
  * One order in the list.
  *
  * Reads the same in both display modes - what changes between kitchen and
  * standard is size and how loudly age is signalled, never which facts are on
  * screen. The CSS does that; this decides what is true.
+ *
+ * Five things and the flag: number, pickup/delivery, timer, customer, total.
+ * Nothing else - if it does not change what the kitchen does next it goes on
+ * the ticket or in the CRM, not here. Where the order came from used to be
+ * printed after the flag (the platform name), and it is exactly that kind of thing:
+ * the restaurant does not care, and cannot act on it. orders.source stays in
+ * the data and the admin views; it just never renders on the tablet. The one
+ * exception is a TEST order, which gets a muted chip so nobody cooks it.
  *
  * `now` is passed in rather than read here so every card on the screen agrees
  * about the time, and so the timers move when the dashboard ticks instead of
@@ -54,12 +47,8 @@ export default function OrderCard({ order, now }: { order: Order; now: number })
 
       <div className="card-sub">
         <span className={`card-flag ${flag.tone}`}>{flag.label}</span>
-        {order.source && SOURCE_LABELS[order.source] ? ` ${SOURCE_LABELS[order.source]}` : ""}
+        {order.source === "test" && <span className="card-test">Test — do not make</span>}
       </div>
-
-      {/* Kitchen only - CSS hides it in standard, where a tablet somebody is
-          standing at does not need telling that a card is tappable. */}
-      <span className="card-tap">Tap to open the ticket</span>
     </Link>
   );
 }

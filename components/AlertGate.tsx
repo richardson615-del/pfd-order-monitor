@@ -232,14 +232,13 @@ export default function AlertGate({
           <>
             <h1 id="alert-gate-title">Open this in the Premium app</h1>
             <p>
-              This browser cannot receive order alerts. Install the app on the tablet and sign in
-              there — the alert is the whole point of the screen.
+              This browser cannot receive order alerts. Orders should be watched in the Premium
+              app on the tablet Premium set up for you — the alert is the whole point of the
+              screen.
             </p>
-            <a className="btn primary alert-gate-action" href="/install.html">
-              How to install it
-            </a>
             <p className="alert-gate-help">
-              Stuck? Call Premium on <strong>{SUPPORT_PHONE}</strong>.
+              Call Premium on <strong>{SUPPORT_PHONE}</strong> and we&apos;ll sort the tablet out.
+              There is nothing to download.
             </p>
           </>
         )}

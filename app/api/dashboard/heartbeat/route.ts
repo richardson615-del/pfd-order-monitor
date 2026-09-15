@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer, supabaseAdmin } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
+import { minShellVersion } from "@/lib/app-update";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const pushSubscribed = typeof body?.pushSubscribed === "boolean" ? body.pushSubscribed : null;
 
+  // Which Android shell this screen runs in (migration 033). Same rule as
+  // push_subscribed: only an explicit, sane integer is recorded; anything
+  // else is null, "has not said", never "zero".
+  const shellVersion =
+    Number.isInteger(body?.shellVersion) && body.shellVersion > 0 && body.shellVersion < 1_000_000_000
+      ? (body.shellVersion as number)
+      : null;
+
   const { error } = await supabaseAdmin()
     .from("dashboard_heartbeats")
     .upsert(
@@ -62,6 +71,7 @@ export async function POST(req: NextRequest) {
         last_seen_at: now,
         user_agent: userAgent,
         push_subscribed: pushSubscribed,
+        shell_version: shellVersion,
       })),
       { onConflict: "restaurant_id" }
     );
@@ -71,8 +81,21 @@ export async function POST(req: NextRequest) {
     // still showing orders, and breaking the dashboard over a monitoring
     // write would turn a reporting gap into an outage.
     console.error("heartbeat not recorded:", error.message);
-    return NextResponse.json({ ok: false, recorded: 0 });
+    return NextResponse.json({ ok: false, recorded: 0, ...serving() });
   }
 
-  return NextResponse.json({ ok: true, recorded: restaurantIds.length });
+  return NextResponse.json({ ok: true, recorded: restaurantIds.length, ...serving() });
+}
+
+/**
+ * What deployment answered, on the beat the tablet already sends. The
+ * dashboard used to ask /api/version separately on the same cadence; one
+ * request that says both is one fewer thing to reason about, and a beat
+ * that failed to record still tells the tablet whether it is stale.
+ */
+function serving() {
+  return {
+    buildId: process.env.VERCEL_GIT_COMMIT_SHA || "dev",
+    minShellVersion: minShellVersion(),
+  };
 }

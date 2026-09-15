@@ -38,6 +38,8 @@ const healthy: HealthSnapshot = {
     lastAcceptedAt: minsAgo(5),
     recentTotal: 3,
     recentRejected: 0,
+    recentWindowHours: 6,
+    recentRejectedSources: [],
   },
 };
 
@@ -165,14 +167,14 @@ console.log("inbound webhook:");
   test("a webhook that has never delivered is not flagged", () => {
     // Before go-live, silence is the expected state. Alerting on it nightly
     // would train someone to ignore the channel before it ever matters.
-    const s = { ...healthy, webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] } };
     assert.deepEqual(evaluateHealth(s, NOW), []);
   });
 
   test("receipts arriving and ALL being rejected is critical", () => {
     // The 2026-08-27 case: two POSTs, no orders, and nothing able to tell
     // that apart from nobody sending.
-    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: hoursAgo(30), recentTotal: 2, recentRejected: 2 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: hoursAgo(30), recentTotal: 2, recentRejected: 2, recentWindowHours: 6, recentRejectedSources: [] } };
     const issues = evaluateHealth(s, NOW);
     const i = issues.find((x) => x.key === "webhook_all_rejected");
     assert.ok(i, "must flag a webhook refusing everything");
@@ -183,12 +185,12 @@ console.log("inbound webhook:");
   test("a partial rejection is not flagged as total failure", () => {
     // One unmapped restaurant among live traffic is a different, quieter
     // problem than the pipe being shut.
-    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: minsAgo(10), recentTotal: 5, recentRejected: 2 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: minsAgo(10), recentTotal: 5, recentRejected: 2, recentWindowHours: 6, recentRejectedSources: [] } };
     assert.equal(evaluateHealth(s, NOW).find((x) => x.key === "webhook_all_rejected"), undefined);
   });
 
   test("receipts that have never once been accepted is critical", () => {
-    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: null, recentTotal: 0, recentRejected: 0 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: minsAgo(10), lastAcceptedAt: null, recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] } };
     const i = evaluateHealth(s, NOW).find((x) => x.key === "webhook_never_accepted");
     assert.ok(i);
     assert.equal(i!.severity, "critical");
@@ -196,20 +198,20 @@ console.log("inbound webhook:");
 
   test("silence past the threshold is a warning, not a critical", () => {
     // Nobody should be woken because a restaurant had a slow Tuesday.
-    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(30), lastAcceptedAt: hoursAgo(30), recentTotal: 0, recentRejected: 0 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(30), lastAcceptedAt: hoursAgo(30), recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] } };
     const i = evaluateHealth(s, NOW).find((x) => x.key === "webhook_silent");
     assert.ok(i, "must flag a pipe with no orders for over a day");
     assert.equal(i!.severity, "warning");
   });
 
   test("silence just under the threshold is not flagged", () => {
-    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(23), lastAcceptedAt: hoursAgo(23), recentTotal: 0, recentRejected: 0 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(23), lastAcceptedAt: hoursAgo(23), recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] } };
     assert.equal(evaluateHealth(s, NOW).find((x) => x.key === "webhook_silent"), undefined);
   });
 
   test("an overnight gap does not fire", () => {
     // 10pm close to 8am open is 10 hours of legitimate quiet.
-    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(10), lastAcceptedAt: hoursAgo(10), recentTotal: 0, recentRejected: 0 } };
+    const s = { ...healthy, webhook: { lastReceiptAt: hoursAgo(10), lastAcceptedAt: hoursAgo(10), recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] } };
     assert.deepEqual(evaluateHealth(s, NOW), []);
   });
 }
@@ -323,6 +325,75 @@ console.log("email delivery leg:");
     assert.ok(composeSmsAlert([i]), "criticals must reach a phone");
   });
 }
+
+console.log("partial webhook rejection (the blind spot that cost 1,996 orders):");
+
+const partial = (
+  total: number,
+  rejected: number,
+  sources: { label: string; count: number }[] = []
+) => ({
+  ...healthy,
+  webhook: {
+    lastReceiptAt: minsAgo(10),
+    lastAcceptedAt: minsAgo(10),
+    recentTotal: total,
+    recentRejected: rejected,
+    recentWindowHours: 6,
+    recentRejectedSources: sources,
+  },
+});
+
+const TORINOS = [{ label: "zuppler_restaurant_id 32770", count: 40 }];
+
+test("a mostly-rejecting webhook is flagged even while some succeed", () => {
+  // The exact shape of the miss: 72% refused, 28% accepted, and every
+  // pre-existing branch satisfied.
+  const i = evaluateHealth(partial(100, 72, TORINOS), NOW)
+    .find((x) => x.key === "webhook_partial_rejected");
+  assert.ok(i, "must flag a webhook refusing a sustained share of arrivals");
+  assert.equal(i!.severity, "critical");
+});
+
+test("the finding names the offending listing, not just a count", () => {
+  // An alert that says "72 rejected" sends you to the SQL editor. One that
+  // says which listing is the difference between acting and investigating.
+  const i = evaluateHealth(partial(100, 72, TORINOS), NOW)
+    .find((x) => x.key === "webhook_partial_rejected")!;
+  assert.match(i.detail, /32770/);
+});
+
+test("a few refusals inside a healthy stream stay quiet", () => {
+  // Below the count floor. A late cancellation for an order we never saw is
+  // ordinary, and alerting on it is how a channel gets muted.
+  const s = partial(100, 4, [{ label: "zuppler_restaurant_id 999", count: 4 }]);
+  assert.equal(
+    evaluateHealth(s, NOW).find((x) => x.key === "webhook_partial_rejected"),
+    undefined
+  );
+});
+
+test("a tiny sample with a high share still needs the count floor", () => {
+  // 3 of 6 is 50%, but three receipts is not evidence of anything.
+  assert.equal(
+    evaluateHealth(partial(6, 3), NOW).find((x) => x.key === "webhook_partial_rejected"),
+    undefined
+  );
+});
+
+test("a total outage raises one finding, not two", () => {
+  const keys = evaluateHealth(partial(20, 20), NOW).map((x) => x.key);
+  assert.ok(keys.includes("webhook_all_rejected"), "total refusal is its own finding");
+  assert.ok(!keys.includes("webhook_partial_rejected"), "one problem, one alert");
+});
+
+test("rejected orders reach a phone", async () => {
+  const { composeSmsAlert } = await import("@/lib/alerts");
+  const i = evaluateHealth(partial(100, 72, TORINOS), NOW)
+    .find((x) => x.key === "webhook_partial_rejected")!;
+  assert.ok(composeSmsAlert([i]), "lost orders must reach a phone");
+});
+
 
 console.log(
   process.exitCode

@@ -84,7 +84,7 @@ const base: HealthSnapshot = {
   unreconciledOrders: [],
   unsentEmailJobs: [],
   undeliveredAppAlerts: [],
-  webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0 },
+  webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] },
 };
 const NOW = new Date("2026-09-11T12:00:00Z");
 

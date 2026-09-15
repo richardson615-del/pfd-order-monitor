@@ -111,6 +111,15 @@ export interface HealthSnapshot {
     /** Receipts inside the recent window, and how many were turned away. */
     recentTotal: number;
     recentRejected: number;
+    /** How wide that window is, so a finding can state it accurately. */
+    recentWindowHours: number;
+    /**
+     * Who is being turned away, worst first. `webhook_receipts.detail`
+     * already records the reason ("zuppler_restaurant_id 32770"), and
+     * carrying it here is the difference between an alert somebody can act
+     * on and one that just sends them to the SQL editor.
+     */
+    recentRejectedSources: { label: string; count: number }[];
   };
 }
 
@@ -123,6 +132,10 @@ export interface HealthThresholds {
   jobPendingMinutes: number;
   /** No accepted webhook order for this long means the pipe may be dead. */
   webhookSilentHours: number;
+  /** Fewer refusals than this in the window is noise, not a misconfiguration. */
+  webhookRejectedMinCount: number;
+  /** This share of arrivals refused, while others succeed, is a fault. */
+  webhookRejectedShare: number;
   /** An email ticket unsent this long has not been delayed, it has failed. */
   emailUnsentMinutes: number;
   /** An app alert undelivered this long never went. Same reasoning as email. */
@@ -142,6 +155,13 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   // Long on purpose. Restaurants close, and a quiet night is not an outage -
   // an alert that fires every morning at 4am is one nobody reads.
   webhookSilentHours: 24,
+  // Small numbers are ordinary: a late cancellation for an order we never
+  // saw, a probe, a listing retired mid-week. A sustained share is not.
+  webhookRejectedMinCount: 5,
+  // A quarter of arrivals refused WHILE THE REST SUCCEED is a configuration
+  // gap rather than an outage - precisely what webhook_all_rejected cannot
+  // see, because it only fires when NOTHING is accepted.
+  webhookRejectedShare: 0.25,
   // The send is synchronous with ingest, so anything still unsent after this
   // is not slow - it never went.
   emailUnsentMinutes: 5,
@@ -340,6 +360,47 @@ export function evaluateHealth(
           "Receipts have arrived but none has ever become an order. Check webhook_receipts for the rejection reason.",
       });
     } else {
+      // Arriving, largely working, and quietly refusing a slice of it.
+      //
+      // This is the gap webhook_all_rejected leaves. That check fires only
+      // when the rejected count EQUALS the total, so a handful of
+      // misconfigured restaurants inside an otherwise healthy stream reads as
+      // perfect health: the all-rejected branch is false, an order was
+      // accepted recently so the never-accepted branch is false, and the
+      // silent check below passes too. Every branch satisfied, nothing said.
+      // That blind spot swallowed 1,996 orders between 2026-08-28 and
+      // 2026-09-15 - 72% of every receipt refused - while the 28% that
+      // succeeded kept all three quiet.
+      //
+      // Deliberately ONE finding rather than one per source: on first run a
+      // per-source key would fire once per offending restaurant, and a
+      // hundred alerts at once is a muted channel, which is the same failure
+      // in a different costume. The offenders are named in the detail
+      // instead. The accepted trade-off is that a new offender appearing
+      // while this is already open joins the existing alert rather than
+      // raising its own.
+      const share = w.recentTotal > 0 ? w.recentRejected / w.recentTotal : 0;
+      if (
+        w.recentRejected >= thresholds.webhookRejectedMinCount &&
+        share >= thresholds.webhookRejectedShare
+      ) {
+        const worst = w.recentRejectedSources
+          .slice(0, 5)
+          .map((x) => `${x.label} (${x.count})`)
+          .join(", ");
+        issues.push({
+          key: "webhook_partial_rejected",
+          severity: "critical",
+          title: `Order webhook refusing ${Math.round(share * 100)}% of deliveries (${w.recentRejected} of ${w.recentTotal})`,
+          detail:
+            `${w.recentRejected} receipts turned away in the last ${w.recentWindowHours}h while ` +
+            `${w.recentTotal - w.recentRejected} were accepted, so from the outside nothing looks wrong. ` +
+            (worst ? `Worst: ${worst}. ` : "") +
+            `Each refusal is a live order that will not print and will not be paid. ` +
+            `An unmapped id is usually a Zuppler listing with no restaurant_zuppler_ids row.`,
+        });
+      }
+
       const mins = minutesSince(w.lastAcceptedAt, now);
       if (mins !== null && mins >= thresholds.webhookSilentHours * 60) {
         issues.push({
@@ -452,24 +513,35 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   // Recent window for the "arriving but all rejected" check. Wide enough to
   // survive a quiet stretch, short enough that yesterday's fixed problem does
   // not keep firing today.
-  const recentSince = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const RECENT_WINDOW_HOURS = 6;
+  const recentSince = new Date(Date.now() - RECENT_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
   const [lastReceiptRes, lastAcceptedRes, recentRes] = await Promise.all([
     admin.from("webhook_receipts").select("received_at")
       .order("received_at", { ascending: false }).limit(1),
     admin.from("webhook_receipts").select("received_at")
       .in("status", ACCEPTED_STATUSES)
       .order("received_at", { ascending: false }).limit(1),
-    admin.from("webhook_receipts").select("status")
+    admin.from("webhook_receipts").select("status, detail")
       .gte("received_at", recentSince),
   ]);
   const recent = recentRes.data ?? [];
+  const rejected = recent.filter((r: any) => !ACCEPTED_STATUSES.includes(r.status));
+  // Grouped by the reason the receipt writer already recorded, so the finding
+  // can name the offending listings instead of only counting them.
+  const bySource = new Map<string, number>();
+  for (const r of rejected) {
+    const label = String((r as any).detail ?? "").trim() || "no reason recorded";
+    bySource.set(label, (bySource.get(label) ?? 0) + 1);
+  }
   const webhook = {
     lastReceiptAt: lastReceiptRes.data?.[0]?.received_at ?? null,
     lastAcceptedAt: lastAcceptedRes.data?.[0]?.received_at ?? null,
     recentTotal: recent.length,
-    recentRejected: recent.filter(
-      (r: any) => !ACCEPTED_STATUSES.includes(r.status)
-    ).length,
+    recentRejected: rejected.length,
+    recentWindowHours: RECENT_WINDOW_HOURS,
+    recentRejectedSources: [...bySource.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count),
   };
 
   // Recent window only: a historic gap that has been explained should not

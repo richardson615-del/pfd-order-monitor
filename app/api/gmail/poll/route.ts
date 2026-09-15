@@ -22,7 +22,16 @@ export const maxDuration = 60;
  * them, and sends a push notification. Designed to be called on a schedule
  * (see vercel.json) and protected by CRON_SECRET.
  */
+/**
+ * The poll has a 60 s function budget (maxDuration). At five hundred
+ * restaurants the loop below is the thing that grows, so its wall time is
+ * logged on every run and shouted about past 45 s - the point at which the
+ * next run is already due and Gmail is being read late.
+ */
+const POLL_SLOW_MS = 45_000;
+
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
   const auth = req.headers.get("authorization");
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -207,8 +216,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const durationMs = Date.now() - startedAt;
+  const inboxCount = Object.keys(results).length;
+  console.log(`gmail poll: ${inboxCount} inbox(es) in ${durationMs} ms`);
+  if (durationMs > POLL_SLOW_MS) {
+    console.error(`gmail poll SLOW: ${durationMs} ms for ${inboxCount} inbox(es) - within ${POLL_SLOW_MS / 1000}s of the 60s budget`);
+  }
   await recordCronRun(admin, "gmail_poll", {
-    detail: `${Object.keys(results).length} inbox(es)`,
+    detail: `${inboxCount} inbox(es) in ${durationMs} ms`,
   });
 
   // The health monitor cannot report its own death: every check that would

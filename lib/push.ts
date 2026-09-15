@@ -55,7 +55,8 @@ export async function notifyRestaurant(
   const { data: subs, error } = await admin
     .from("push_subscriptions")
     .select("*")
-    .eq("restaurant_id", restaurantId);
+    .eq("restaurant_id", restaurantId)
+    .order("created_at", { ascending: false });
 
   if (error) return { ...empty, error: error.message };
   if (!subs?.length) return empty;
@@ -63,8 +64,14 @@ export async function notifyRestaurant(
   let sent = 0;
   let failed = 0;
 
-  await Promise.all(
-    subs.map(async (sub) => {
+  // A restaurant with hundreds of subscriptions is not a restaurant with
+  // hundreds of tablets - it is stale endpoints from reinstalls that have
+  // not yet 410'd. The newest are the live ones; the rest get a turn on the
+  // next order, and the dead ones prune themselves as they fail.
+  const targets = subs.slice(0, MAX_SUBSCRIPTIONS_PER_RESTAURANT);
+
+  await mapWithConcurrency(targets, PUSH_CONCURRENCY, async (sub) => {
+    {
       try {
         await webpush.sendNotification(
           {
@@ -88,8 +95,24 @@ export async function notifyRestaurant(
           );
         }
       }
-    })
-  );
+    }
+  });
 
   return { subscriptions: subs.length, sent, failed };
+}
+
+/** How many pushes are in flight at once. Web push endpoints rate-limit; a burst of five hundred is how they say no. */
+export const PUSH_CONCURRENCY = 20;
+/** Newest-first cap per restaurant, see notifyRestaurant. */
+export const MAX_SUBSCRIPTIONS_PER_RESTAURANT = 50;
+
+export async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i] as T);
+    }
+  });
+  await Promise.all(workers);
 }

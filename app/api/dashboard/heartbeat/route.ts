@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer, supabaseAdmin } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
 import { minShellVersion } from "@/lib/app-update";
+import { HEARTBEAT_MIN_INTERVAL_MS } from "@/lib/kiosk";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,21 @@ export async function POST(req: NextRequest) {
     Number.isInteger(body?.shellVersion) && body.shellVersion > 0 && body.shellVersion < 1_000_000_000
       ? (body.shellVersion as number)
       : null;
+
+  // Once a minute per restaurant is plenty (the client beats every two).
+  // Anything faster is a bug or abuse, and at five hundred tablets a
+  // runaway beat loop is the difference between a quiet database and a
+  // busy one. 429, and the client treats it as "the server already has a
+  // fresh beat" - which is true.
+  const { data: recent } = await supabaseAdmin()
+    .from("dashboard_heartbeats")
+    .select("restaurant_id, last_seen_at")
+    .in("restaurant_id", restaurantIds);
+  const cutoff = Date.now() - HEARTBEAT_MIN_INTERVAL_MS;
+  const tooSoon = (recent ?? []).every((r: any) => new Date(r.last_seen_at).getTime() > cutoff) && (recent ?? []).length === restaurantIds.length;
+  if (tooSoon) {
+    return NextResponse.json({ ok: false, recorded: 0, rate_limited: true, ...serving() }, { status: 429 });
+  }
 
   const { error } = await supabaseAdmin()
     .from("dashboard_heartbeats")

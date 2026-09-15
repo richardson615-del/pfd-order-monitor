@@ -2,13 +2,13 @@
 
 Paste this file into Claude Code opened at `C:\Users\richa\dev\pfd-order-monitor`. Read `README.md` and `docs/crm-bridge-contract.md` first. This is **Workstream C**, companion to `prs-crm/docs/briefs/2026-09-14-devices-redesign-and-login-print.md` (Workstreams A/B target the CRM; this one targets the restaurant-facing tablet app that lives in this repo).
 
-Author: Nick Davies (Premium Restaurant Solutions). Date: 2026-09-14.
+Author: Nick Davies (Premium Restaurant Solutions). Date: 2026-09-14, revised 2026-09-15 (no source labels; C4 auto-update).
 
 ---
 
 ## 0. Scope in one paragraph
 
-The restaurant tablet app (`/login`, `/dashboard`, `/order/[id]`) should (1) carry a **"Premium"** brand — a smooth, modern wordmark/logo on the login screen, dashboard header, PWA/TWA icon and notification icon; (2) get a **modern dashboard** with one unified design system, the **restaurant's name in the header**, and a **truthful live/offline indicator**; and (3) make **notifications always on** — no "Enable notifications" button, no optional state: the app does not let a restaurant use the dashboard until order alerts are enabled, re-subscribes itself silently whenever it can, and surfaces "alerts off" as a blocking condition, not a setting.
+The restaurant tablet app (`/login`, `/dashboard`, `/order/[id]`) should (1) carry a **"Premium"** brand — a smooth, modern wordmark/logo on the login screen, dashboard header, PWA/TWA icon and notification icon; (2) get a **modern dashboard** with one unified design system, the **restaurant's name in the header**, and a **truthful live/offline indicator**; and (3) make **notifications always on** — no "Enable notifications" button, no optional state: the app does not let a restaurant use the dashboard until order alerts are enabled, re-subscribes itself silently whenever it can, and surfaces "alerts off" as a blocking condition, not a setting; and (4) **updates itself** — restaurants never download anything (C4).
 
 No changes to ingest, printing, CRM bridge routes, or the orders data model in this workstream.
 
@@ -55,7 +55,7 @@ Browsers only grant `Notification.requestPermission()` from a **user gesture**, 
 
 ## 2. Workstream C — deliverables
 
-Order: C1 → C2 → C3, three PRs. C3 may start in parallel with C2 once C1 is merged (C3 reuses C1's tokens).
+Order: C1 → C2 → C3 → C4, four PRs. C3 and C4 may start in parallel with C2 once C1 is merged. Ship C4 §1 (silent web refresh) **before** C1's APK goes out so the icon build is the last time anyone reinstalls by hand.
 
 ### C1 — Brand + design tokens (PR `brand/premium`)
 **Intent — ASSUMPTION:** the on-screen brand becomes **"Premium"** (wordmark), the product name becomes **"Premium Orders"**, and "PFD" disappears from restaurant-facing text (restaurants know the company as Premium; PFD is internal). Confirm in §4 Q1.
@@ -82,7 +82,8 @@ No data-model change. Behaviors preserved: realtime + polling cadence, heartbeat
 2. **Truthful status pill** — one `liveState()` pure function in `lib/kiosk.ts` with unit tests in `scripts/test-kiosk.ts`, inputs: realtime channel state, last successful sync age, heartbeat POST last ok age, push subscription present, audio armed. Output one of: `live` (green: channel live, sync fresh, push subscribed, audio armed), `degraded` (amber: any one of push/audio/heartbeat missing but orders still flowing — text names the missing thing), `offline` (red: channel down or sync stale). The pill label is the restaurant-facing word; the sentence under the name explains what to do ("Touch the screen to turn sound on", "Reconnecting — check wifi"). Keep the existing full-width red banner only for `offline`.
 3. **Waiting count** becomes the hero on kitchen mode: number + "waiting" with the oldest order's age beside it ("oldest 7:32"). "All clear" state shows a calm check mark, not empty space.
 4. **Tabs**: replace New/Opened/Completed/Printed with **Waiting / Accepted / Done** (Done = completed + cancelled + printed-and-settled) — matches the card flags in `order-display.ts`, which already hide the new/opened distinction. Keep a small "Show all" toggle. Cancelled orders get a visible strike style, not a hidden tab.
-5. **Order cards** (`.order`): keep the age rail and breathe animation (reduced-motion respected); larger order number and customer name on kitchen; source shown as a small chip; total right-aligned; whole card is the tap target (already a `Link`).
+5. **Order cards** (`.order`): keep the age rail and breathe animation (reduced-motion respected); larger order number and customer name on kitchen; total right-aligned; whole card is the tap target (already a `Link`). **No order-source label anywhere** (Nick, 2026-09-15): delete the Zuppler/Email/Test source text from `OrderCard.tsx` (`sourceLabel`, `:14-18, :54`) and from `OrderViewer.tsx`; the restaurant does not care where the order came from. Keep `orders.source` in data and admin — it stays in the CRM/admin views and in the `source <> 'test'` exclusions; it just never renders on the tablet. Exception: a **test order** shows a single muted "Test" chip so staff don't cook it (`source === "test"` only).
+   **Clean rules for the whole dashboard:** each card shows at most five things — order number, pickup/delivery, timer, customer name, total — plus the flag. No secondary metadata rows, no icons-for-decoration, no borders inside cards (use spacing), one accent color, one font family, 8-pt spacing grid, and nothing on screen the cook cannot act on. If a piece of information doesn't change what the kitchen does next, it doesn't go on the dashboard — it goes on the ticket or in the CRM.
 6. **Order detail** (`OrderViewer.tsx`): same header component; status badge uses `orderFlag()` label, never the raw DB string; remove inline `style` spacing in favor of classes; action bar buttons sized for gloves on kitchen mode (≥64px).
 7. Viewport: allow pinch-zoom (`userScalable: true`, drop `maximumScale`) unless kiosk testing shows accidental zooms — decide and record in the PR.
 
@@ -106,10 +107,32 @@ Acceptance: pure-function tests for `liveState()`; manual test log covering real
 
 Acceptance (on a real Android tablet with the TWA): fresh install → login → gate appears → one tap → notifications and chime both work → reload → **no gate, no button**; clear site data → reload → gate reappears; block in Android settings → gate shows blocked copy and "Check again" works after re-allowing; a test order from the CRM ("Test order") triggers a system notification with the new icon and the on-screen chime.
 
+### C4 — Updates without the restaurant re-downloading anything (PR `feat/auto-update`)
+**Nick's requirement (2026-09-15):** a restaurant must never have to go to a website and download a new version.
+
+**How updates actually work today — FACT:** the Android app is a Trusted Web Activity (Bubblewrap) — a thin shell that opens `https://pfd-order-monitor.vercel.app/dashboard` in Chrome. Everything the restaurant sees (login, dashboard, cards, colors, wordmark, alert gate) is **web content served by Vercel**. Merging to `main` deploys it, and every tablet gets it on its next page load — **no APK, no download, no store**. `public/sw.js` has no caching (line 2), so there is no stale-cache problem either. Only the **shell** needs a new APK: launcher icon, launcher name, package id, `startUrl`, notification delegation, Android permissions, signing key. C1's icon/name change is therefore the **one** shell rebuild in this brief; C2/C3/C4 and everything after ship as web deploys.
+
+Build so that the web deploy reaches tablets without anyone touching them, and so that the rare shell update never requires a website visit:
+
+1. **Silent web refresh on deploy** (web, ships now):
+   - Expose the build id: `GET /api/version` → `{ build: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev" }` (no auth, no secrets). Also return it in the heartbeat response so no extra request is needed on the 2-min cycle.
+   - The dashboard remembers the build it booted with. When the heartbeat reports a different one, reload — but **only when safe**: no order in `waiting` that hasn't been accepted, no `/order/[id]` open, screen idle (no pointer event in 60 s). If not safe, retry at the next heartbeat. Kitchen never sees a reload mid-order.
+   - Login page and order page do the same check on `visibilitychange`.
+   - Pure decision function `shouldReload({currentBuild, latestBuild, waitingUnaccepted, onOrderPage, idleMs})` in `lib/kiosk.ts` with tests in `scripts/test-kiosk.ts`.
+   - If a future change needs the service worker updated: `sw.js` keeps `skipWaiting` + `clients.claim` (already there), so a new SW takes over on the same reload.
+2. **Shell updates without a website** — pick one distribution path (Q6 in §4). Facts on each:
+   - **Managed tablets (MDM/EMM)** — Nick's stated plan for the tablet programme is to buy and manage the tablets. Any Android EMM (Android Enterprise with a managed Google Play account, or vendors like Esper, Hexnode, Scalefusion, Samsung Knox) can push an APK/AAB silently and force-update it; it also handles kiosk lock, auto-launch on boot, keep-screen-on and remote reboot — three of which the app currently begs for with banners. This is the only path that gives zero-touch shell updates on **sideloaded** builds. Cost/vendor choice is outside this brief.
+   - **Google Play (private/closed track)** — the new Play Console org account (play@pfdworks.com) can host `com.pfdworks.orders` on a closed testing track or as a managed-Google-Play private app; Play then auto-updates the shell on every tablet. Needs the account's identity verification finished, `assetlinks.json` published (UNKNOWN whether it is — check `public/.well-known/assetlinks.json` exists and matches the signing key), and a Play listing. Once C1's APK is on Play, Nick never rebuilds for restaurants by hand again.
+   - **Stay sideloaded** (status quo) — a shell change means a human reinstalls on each tablet. Acceptable only if shell changes are frozen after C1. In that case, `install.html` is for PFD staff during setup, never for restaurants.
+   Whichever path is chosen, the app itself adds one safety net: `GET /api/version` also returns `min_shell_version` (from an env var, default `0`); the TWA passes its `appVersionCode` via a `?shell=` param on `startUrl`; if the shell is below the minimum, the dashboard shows a non-blocking amber line "This tablet needs an update from Premium — we'll handle it" and the heartbeat records `shell_version` so the CRM can list tablets that need the shell update. No restaurant action is ever requested.
+3. **Never link restaurants to `/install.html`** in-app or on the login ticket; `SETUP_STEPS` already says "Open the Order Monitor app" — keep it that way.
+
+Acceptance: deploy a trivial CSS change to a preview → tablet on the previous build reloads within one heartbeat cycle when idle, and does **not** reload while an unaccepted order is waiting; `shouldReload` unit tests cover all four gates; `/api/version` returns the commit sha in production; heartbeat rows carry `shell_version`.
+
 ---
 
 ## 3. Delivery rules for this package
-- Branches: `brand/premium`, `design/dashboard`, `feat/alerts-required`. PR per branch, CI green (`tsc --noEmit` + `npm test`), squash-merge. `main` deploys to Vercel.
+- Branches: `brand/premium`, `design/dashboard`, `feat/alerts-required`, `feat/auto-update`. PR per branch, CI green (`tsc --noEmit` + `npm test`), squash-merge. `main` deploys to Vercel.
 - Migrations: hand-pasted SQL, idempotent (`if not exists`, named constraints in `do $$` blocks), every schema-relied-on migration listed in `REQUIRED_SCHEMA` (`lib/schema-check.ts`). Never edit an applied migration.
 - Do not touch: ingest, `orderDestinations()` in `lib/canonical.ts`, `orders.status` semantics, `print_jobs` writers, any `/api/crm/*` shape (contract changes are their own bridge-first PR), `lib/usernames.ts` domain constant.
 - Never print `.env*` values. Do not run the Android build in CI; list the manual APK rebuild step in the C1 PR body.
@@ -121,3 +144,4 @@ Acceptance (on a real Android tablet with the TWA): fresh install → login → 
 3. Wordmark style: **text lockup generated in code** (fast, crisp at any size) vs a logo file you supply.
 4. Pinch-zoom on the tablet: **keep disabled** (kitchen kiosk) vs allow.
 5. Blocked-permission case: **hard block with instructions** (as specified) vs allow the dashboard through with a persistent red banner. (Nick's instruction "it should always be on" implies the hard block.)
+6. Shell distribution after C1 (C4 §2): **MDM-managed tablets** (matches the tablet programme; zero-touch) vs Google Play closed track vs stay sideloaded with shell changes frozen. Web updates are automatic in all three.

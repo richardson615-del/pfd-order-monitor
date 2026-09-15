@@ -39,8 +39,20 @@ hardware fault.
 | method | path | body | returns |
 |---|---|---|---|
 | GET | `/api/crm/restaurants` | — | `{ default_footer_text, restaurants: [...] }` |
+| POST | `/api/crm/restaurants` | `{ crm_restaurant_id, restaurant_name, zuppler_ids: [{ zuppler_restaurant_id, label? }] }` | `{ ok, restaurant_created, warning?, restaurant }` |
 | POST | `/api/crm/restaurants/:id` | any subset below | `{ ok, conversions?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/ticket-preview` | any subset below | **`image/png`** |
+
+`POST /api/crm/restaurants` links an account's Zuppler listings to its
+restaurant here, find-or-creating the restaurant by `crm_restaurant_id` the
+same way devices do. **Additive and idempotent**: ids not in the list are
+left alone (a sync never unmaps), the same list twice changes nothing. The
+**first id is the primary** and fills `restaurants.zuppler_restaurant_id`
+only when that column is empty — accounting joins on it. Any id already
+owned by a different restaurant refuses the whole request with `409` naming
+that restaurant; a non-numeric id is `400`. The roster (`GET`) carries
+`zuppler_ids: string[]`, primary first, so the console can show which of an
+account's listings will route and which will be dropped on arrival.
 
 Writable fields — send only what changes:
 

@@ -213,6 +213,22 @@ terms, and a site running both must not get a quieter alert than a tablet-only
 one. `restaurant_no_app_device` is a warning: `app_expected` is on but no device
 has notifications enabled, so nothing can alert.
 
+### The issues feed (E2)
+
+`GET /api/crm/issues[?since=<iso>]` → `{ checked_at, since, counts, issues[], resolved[] }`.
+
+Each issue: `key` (deterministic — the same problem always has the same
+key, so the CRM can open one ticket per key and never two), `severity`,
+`title`, `detail`, `restaurant_id` / `crm_restaurant_id` / `device_id`
+(null for a fleet-wide issue such as a webhook or a cron), `first_seen_at`
+and `notified_at` (from the 15-minute monitor's `monitor_alerts` record —
+**null until that run has stamped a brand-new issue**, so treat null as
+"just now"). `resolved[]` lists keys the monitor closed in the last 24 h
+(or since `since`) with `resolved_at`; resolution is observed by the
+monitor run, never by this call, so two polls cannot disagree. `since`
+narrows both lists to what changed after it; unstamped issues are always
+included.
+
 ### Restaurant logins
 
 ```

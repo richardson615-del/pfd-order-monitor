@@ -24,12 +24,20 @@ export interface HealthIssue {
   severity: IssueSeverity;
   title: string;
   detail: string;
+  /**
+   * Which restaurant and which device this is about, when it is about one
+   * (E2). The CRM turns these into trouble tickets on the right account;
+   * a fleet-wide issue (webhook, cron) carries neither.
+   */
+  restaurant_id?: string | null;
+  device_id?: string | null;
 }
 
 export interface HealthSnapshot {
   devices: {
     id: string;
     name: string;
+    restaurant_id: string | null;
     restaurant_name: string | null;
     is_active: boolean;
     last_seen_at: string | null;
@@ -37,6 +45,7 @@ export interface HealthSnapshot {
   inboxes: {
     id: string;
     email_address: string;
+    restaurant_id: string | null;
     restaurant_name: string | null;
     is_active: boolean;
     has_token: boolean;
@@ -48,6 +57,7 @@ export interface HealthSnapshot {
   pendingJobs: {
     id: string;
     order_number: string | null;
+    restaurant_id?: string | null;
     restaurant_name: string | null;
     queued_at: string;
     status: string;
@@ -57,6 +67,7 @@ export interface HealthSnapshot {
   failedJobs: {
     id: string;
     order_number: string | null;
+    restaurant_id?: string | null;
     restaurant_name: string | null;
     error: string | null;
   }[];
@@ -226,6 +237,8 @@ export function evaluateHealth(
     if (mins === null) {
       issues.push({
         key: `device_never_seen:${d.id}`,
+        restaurant_id: d.restaurant_id,
+        device_id: d.id,
         severity: "warning",
         title: `Printer never checked in: ${d.name}`,
         detail: `${where(d.restaurant_name)} - registered but has never contacted the server. Finish the printer's Direct Print setup, or deactivate the device.`,
@@ -233,6 +246,8 @@ export function evaluateHealth(
     } else if (mins >= thresholds.deviceSilentMinutes) {
       issues.push({
         key: `device_silent:${d.id}`,
+        restaurant_id: d.restaurant_id,
+        device_id: d.id,
         severity: "critical",
         title: `Printer offline: ${d.name}`,
         detail: `${where(d.restaurant_name)} - last checked in ${ago(mins)}. Orders will not print. Check power, network and paper.`,
@@ -316,6 +331,7 @@ export function evaluateHealth(
     if (silent !== null && silent < thresholds.tabletSilentMinutes) continue;
     issues.push({
       key: `tablet_not_watching:${t.id}`,
+      restaurant_id: t.id,
       severity: "critical",
       title: `Nobody watching the tablet: ${t.name}`,
       detail:
@@ -329,6 +345,7 @@ export function evaluateHealth(
   for (const r of snap.restaurantsWithoutAppDevice) {
     issues.push({
       key: `restaurant_no_app_device:${r.id}`,
+      restaurant_id: r.id,
       severity: "warning",
       title: `No tablet notifications: ${r.name}`,
       detail: `${r.name} is set up to take orders on the app, but no device there has notifications enabled - so nothing will alert when an order arrives. Open the dashboard on their tablet and tap "Enable notifications".`,
@@ -444,6 +461,7 @@ export function evaluateHealth(
     if (!i.has_token) {
       issues.push({
         key: `inbox_disconnected:${i.id}`,
+        restaurant_id: i.restaurant_id,
         severity: "critical",
         title: `Inbox not connected: ${i.email_address}`,
         detail: `${where(i.restaurant_name)} - active but has no Gmail access, so nothing is being read. Reconnect it in the admin panel.`,
@@ -454,6 +472,7 @@ export function evaluateHealth(
     if (mins === null || mins >= thresholds.inboxSilentMinutes) {
       issues.push({
         key: `inbox_stalled:${i.id}`,
+        restaurant_id: i.restaurant_id,
         severity: "critical",
         title: `Inbox not polling: ${i.email_address}`,
         detail: `${where(i.restaurant_name)} - last successful poll ${ago(mins)}. Orders arriving by email are not being picked up. Usually expired Gmail access.`,
@@ -465,6 +484,7 @@ export function evaluateHealth(
   for (const r of snap.restaurantsWithoutDevice) {
     issues.push({
       key: `restaurant_no_device:${r.id}`,
+      restaurant_id: r.id,
       severity: "warning",
       title: `No printer: ${r.name}`,
       detail: `Orders for ${r.name} will be recorded but never printed - no active print device is registered.`,
@@ -477,6 +497,7 @@ export function evaluateHealth(
     if (mins !== null && mins >= thresholds.jobPendingMinutes) {
       issues.push({
         key: `job_stuck:${j.id}`,
+        restaurant_id: j.restaurant_id ?? null,
         severity: "critical",
         title: `Ticket not printed: order ${j.order_number ?? "?"}`,
         detail: `${where(j.restaurant_name)} - queued ${ago(mins)} and still ${j.status} after ${j.attempts} attempt(s).`,
@@ -488,6 +509,7 @@ export function evaluateHealth(
   for (const j of snap.failedJobs) {
     issues.push({
       key: `job_failed:${j.id}`,
+      restaurant_id: j.restaurant_id ?? null,
       severity: "critical",
       title: `Ticket failed to print: order ${j.order_number ?? "?"}`,
       detail: `${where(j.restaurant_name)} - gave up after 3 attempts${j.error ? `: ${j.error}` : ""}.`,
@@ -641,6 +663,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const devices = (devicesRes.data ?? []).map((d: any) => ({
     id: d.id,
     name: d.name,
+    restaurant_id: d.restaurant_id ?? null,
     restaurant_name: nameOf(d.restaurant_id),
     is_active: d.is_active,
     last_seen_at: d.last_seen_at,
@@ -649,6 +672,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const inboxes = (inboxesRes.data ?? []).map((i: any) => ({
     id: i.id,
     email_address: i.email_address,
+    restaurant_id: i.restaurant_id ?? null,
     restaurant_name: nameOf(i.restaurant_id),
     is_active: i.is_active,
     has_token: !!i.gmail_refresh_token,
@@ -753,6 +777,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
   const jobShape = (j: any) => ({
     id: j.id,
     order_number: j.orders?.order_number ?? null,
+    restaurant_id: j.orders?.restaurant_id ?? null,
     restaurant_name: nameOf(j.orders?.restaurant_id ?? null),
   });
   // Paper only. These two checks say "ticket not printed" and "ticket failed

@@ -23,8 +23,8 @@ const NOW = new Date("2026-08-14T12:00:00Z");
 const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60000).toISOString();
 
 const healthy: HealthSnapshot = {
-  devices: [{ id: "d1", name: "Kitchen printer", restaurant_name: "China One", is_active: true, last_seen_at: minsAgo(0) }],
-  inboxes: [{ id: "i1", email_address: "a@b.com", restaurant_name: "China One", is_active: true, has_token: true, last_poll_at: minsAgo(1) }],
+  devices: [{ id: "d1", name: "Kitchen printer", restaurant_id: "r1", restaurant_name: "China One", is_active: true, last_seen_at: minsAgo(0) }],
+  inboxes: [{ id: "i1", email_address: "a@b.com", restaurant_id: "r1", restaurant_name: "China One", is_active: true, has_token: true, last_poll_at: minsAgo(1) }],
   restaurantsWithoutDevice: [],
   pendingJobs: [],
   failedJobs: [],
@@ -139,8 +139,8 @@ test("keys distinguish two printers with the same problem", () => {
   const s = {
     ...healthy,
     devices: [
-      { id: "d1", name: "P1", restaurant_name: "A", is_active: true, last_seen_at: minsAgo(30) },
-      { id: "d2", name: "P2", restaurant_name: "B", is_active: true, last_seen_at: minsAgo(30) },
+      { id: "d1", name: "P1", restaurant_id: "ra", restaurant_name: "A", is_active: true, last_seen_at: minsAgo(30) },
+      { id: "d2", name: "P2", restaurant_id: "rb", restaurant_name: "B", is_active: true, last_seen_at: minsAgo(30) },
     ],
   };
   const keys = evaluateHealth(s, NOW).map((i) => i.key);
@@ -423,3 +423,34 @@ console.log(
     ? "\nSOME TESTS FAILED"
     : `\nAll assertions passed (${passed} checks).`
 );
+
+console.log("\nthe issues feed carries where (E2):");
+
+test("a keyed issue names its restaurant and, for a printer, its device", () => {
+  const s = {
+    ...healthy,
+    devices: [{ id: "d9", name: "P9", restaurant_id: "r9", restaurant_name: "Nine", is_active: true, last_seen_at: minsAgo(60) }],
+    restaurantsWithoutAppDevice: [{ id: "r8", name: "Eight" }],
+  };
+  const issues = evaluateHealth(s, NOW);
+  const printer = issues.find((i) => i.key === "device_silent:d9");
+  assert.ok(printer);
+  assert.equal(printer!.restaurant_id, "r9");
+  assert.equal(printer!.device_id, "d9");
+  const tablet = issues.find((i) => i.key === "restaurant_no_app_device:r8");
+  assert.ok(tablet);
+  assert.equal(tablet!.restaurant_id, "r8");
+  assert.equal(tablet!.device_id, undefined);
+});
+
+test("the feed route maps restaurant to CRM account, reads resolutions from the record, and honours since", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const route = src("app/api/crm/issues/route.ts");
+  assert.match(route, /crm_restaurant_id: i\.restaurant_id \? \(crmIdOf\.get\(i\.restaurant_id\) \?\? null\) : null/);
+  assert.match(route, /\.not\("resolved_at", "is", null\)/);
+  assert.match(route, /searchParams\.get\("since"\)/);
+  assert.match(route, /!i\.first_seen_at \|\| new Date\(i\.first_seen_at\) >= since/, "unstamped issues are always new");
+  assert.doesNotMatch(route, /\.update\(|\.insert\(|\.upsert\(/, "the feed reads the record; only the monitor writes it");
+  assert.match(src("docs/crm-bridge-contract.md"), /### The issues feed \(E2\)/);
+});

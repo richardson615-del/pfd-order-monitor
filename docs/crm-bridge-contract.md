@@ -39,7 +39,8 @@ hardware fault.
 | method | path | body | returns |
 |---|---|---|---|
 | GET | `/api/crm/restaurants` | — | `{ default_footer_text, restaurants: [...] }` |
-| POST | `/api/crm/restaurants` | `{ crm_restaurant_id, restaurant_name, zuppler_ids: [{ zuppler_restaurant_id, label? }] }` | `{ ok, restaurant_created, warning?, restaurant }` |
+| POST | `/api/crm/restaurants` | `{ crm_restaurant_id, name, zuppler_restaurant_id?, zuppler_ids?, timezone?, app_expected?, display_mode? }` | `{ ok, restaurant_created, warning?, restaurant }` |
+| POST | `/api/crm/restaurants/:id/provision` | `{ actor? }` | `{ ok, restaurant, login, printers, destinations, changed }` |
 | POST | `/api/crm/restaurants/:id` | any subset below | `{ ok, conversions?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/ticket-preview` | any subset below | **`image/png`** |
 
@@ -53,6 +54,24 @@ owned by a different restaurant refuses the whole request with `409` naming
 that restaurant; a non-numeric id is `400`. The roster (`GET`) carries
 `zuppler_ids: string[]`, primary first, so the console can show which of an
 account's listings will route and which will be dropped on arrival.
+
+`POST /api/crm/restaurants/:id/provision` is the bridge half of **"Go
+live on tablet"** as one call: makes the restaurant active, sets
+`app_expected`, creates a tablet login if none exists (username = slug of
+the restaurant name, `-2`/`-3` on collision — nobody invents one), and
+returns `login {username, password?, created}` (the password **only when
+newly created**), `printers[]`, `destinations` and `changed[]` (what this
+call actually did). **Idempotent** — a second call returns the same state
+with `changed: []` — and it **never resets** an existing password: the one
+on the wall is the one that works, and `?reveal=` shows it again.
+
+`POST /api/crm/restaurants` (create-or-ensure) also accepts `name` (alias of
+`restaurant_name`), a single `zuppler_restaurant_id` (the primary; folded
+into `zuppler_ids`), and the settings `timezone`, `app_expected`,
+`display_mode`, each validated like the update route. Errors carry a `code`:
+`zuppler_id_conflict` (409, the id belongs to another restaurant — the
+message names it), `invalid_zuppler_id`, `invalid_timezone`. Sending no
+listings is a valid ensure.
 
 Writable fields — send only what changes:
 

@@ -32,7 +32,7 @@ export default async function DashboardPage() {
   // rather than the quiet one - see displayMode().
   const { data: restaurant } = await supabase
     .from("restaurants")
-    .select("name, display_mode")
+    .select("name, display_mode, timezone")
     .eq("id", restaurantId)
     .maybeSingle();
 
@@ -49,6 +49,7 @@ export default async function DashboardPage() {
       restaurantId={restaurantId}
       mode={displayMode(restaurant?.display_mode)}
       restaurantName={restaurant?.name ?? "this restaurant"}
+      timezone={restaurant?.timezone ?? null}
     />
   );
 }

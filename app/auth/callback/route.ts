@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     // Supabase quietly substitutes the Site URL and the code never travels.
     return fail(
       req,
-      "That link didn't carry a sign-in code. Ask PFD to check the Redirect URLs allowlist in Supabase, and that this address was invited rather than signed up."
+      "That link didn't carry a sign-in code. Ask Premium to check the Redirect URLs allowlist in Supabase, and that this address was invited rather than signed up."
     );
   }
 

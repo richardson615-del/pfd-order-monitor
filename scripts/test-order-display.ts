@@ -179,15 +179,28 @@ test("an unknown display mode falls back to the loud one", () => {
 test("the modes differ in size, never in what is on screen", () => {
   // The single property that makes two looks safe to have. Every rule under a
   // [data-display] selector may change type, spacing, colour or animation -
-  // and the only display:none is the tap hint, which is an affordance rather
-  // than a fact about the order.
+  // and none of them may hide anything. (The tap hint used to be the one
+  // exception; it is gone, so there are none.)
   const css = src("app/globals.css");
   const scoped = [...css.matchAll(/\[data-display="(kitchen|standard)"\][^{]*\{([^}]*)\}/g)];
   assert.ok(scoped.length > 20, "expected the mode rules to be there");
   const hidden = scoped.filter(([, , body]) => /display:\s*none/.test(body));
-  for (const [rule] of hidden) {
-    assert.match(rule, /\.card-tap/, `a mode must not hide information: ${rule.slice(0, 60)}`);
+  assert.deepEqual(hidden.map(([rule]) => rule.slice(0, 60)), [], "a mode must not hide information");
+});
+
+test("a card shows five things and the flag - never where the order came from", () => {
+  // Nick, 2026-09-15: the restaurant does not care which platform an order
+  // arrived on, and cannot act on it. It stays in the data and the admin
+  // views. The one exception is a test order, which says so quietly so that
+  // nobody cooks it.
+  const card = src("components/OrderCard.tsx");
+  assert.doesNotMatch(card, /SOURCE_LABELS|Zuppler|"Email"/);
+  assert.doesNotMatch(card, /card-tap|Tap to open/, "no secondary rows");
+  assert.match(card, /order\.source === "test" && <span className="card-test">/);
+  for (const fact of ["card-no", "card-type", "card-age", "card-name", "card-total", "card-flag"]) {
+    assert.match(card, new RegExp(`className=[{"]\`?${fact}`), `card must still show ${fact}`);
   }
+  assert.doesNotMatch(src("components/OrderViewer.tsx"), /order\.source(?!\s*===\s*"test")/, "the ticket view does not name the platform either");
 });
 
 test("the age rail is keyed on age, not on status", () => {

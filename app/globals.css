@@ -819,11 +819,12 @@ table.admin-table th, table.admin-table td {
 .card-total { margin-left: auto; font-weight: 800; }
 .card-sub { color: var(--text-dim); }
 
-.card-tap {
+/* The one thing besides the flag allowed on that line: a test order says so,
+   quietly, so nobody cooks it. Muted on purpose - it is not a status. */
+.card-test {
+  margin-left: 10px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--brand);
+  color: var(--text-dim);
 }
 
 .card-flag {
@@ -919,7 +920,6 @@ table.admin-table th, table.admin-table td {
 }
 [data-display="kitchen"] .card-total { font-size: 26px; }
 [data-display="kitchen"] .card-sub { font-size: 17px; margin-top: 8px; }
-[data-display="kitchen"] .card-tap { font-size: 14px; margin-top: 14px; display: block; }
 [data-display="kitchen"] .card-flag { font-size: 14px; padding: 6px 14px; }
 [data-display="kitchen"] .app-empty { padding: 70px 20px; font-size: 20px; }
 
@@ -977,7 +977,6 @@ table.admin-table th, table.admin-table td {
 [data-display="standard"] .card-name { font-size: 16px; }
 [data-display="standard"] .card-total { font-size: 17px; }
 [data-display="standard"] .card-sub { font-size: 14px; margin-top: 6px; }
-[data-display="standard"] .card-tap { display: none; }
 [data-display="standard"] .card-flag { font-size: 11px; padding: 4px 10px; }
 [data-display="standard"] .app-empty { padding: 60px 24px; font-size: 16px; }
 

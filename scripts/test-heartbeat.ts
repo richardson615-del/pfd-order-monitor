@@ -196,12 +196,14 @@ test("the restaurant comes from the session, never the request body", () => {
   // the blanket ban caught it.
   //
   // The property is unchanged and is now asserted directly: the body may only
-  // ever produce `pushSubscribed`, and restaurant_id comes from the session.
-  // A client reporting on its own push state cannot vouch for anywhere else,
-  // and it could already lie about being alive by not beating at all.
+  // ever produce facts about THIS screen - `pushSubscribed` (migration 030)
+  // and `shellVersion` (migration 033) - and restaurant_id comes from the
+  // session. A client reporting on its own push state or its own Android
+  // shell cannot vouch for anywhere else, and it could already lie about
+  // being alive by not beating at all.
   const body = route.slice(route.indexOf("req.json()"));
   const readsFromBody = [...body.matchAll(/body\?\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(readsFromBody)], ["pushSubscribed"]);
+  assert.deepEqual([...new Set(readsFromBody)], ["pushSubscribed", "shellVersion"]);
   assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
 });
 

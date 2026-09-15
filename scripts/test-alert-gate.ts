@@ -182,7 +182,7 @@ test("the page re-records the subscription on every return to the foreground", (
 });
 
 test("the heartbeat reports whether this screen can ring", () => {
-  assert.match(dashboard, /pushSubscribed \}\)/);
+  assert.match(dashboard, /JSON\.stringify\(\{ pushSubscribed, shellVersion \}\)/);
   assert.match(migration, /push_subscribed boolean/);
   // Nullable and undefaulted: existing rows genuinely do not know, and
   // defaulting them either way states something on no evidence.

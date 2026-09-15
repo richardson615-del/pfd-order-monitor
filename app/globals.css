@@ -725,6 +725,10 @@ table.admin-table th, table.admin-table td {
 
 [data-display="kitchen"] .app-head-restaurant { font-size: 22px; }
 [data-display="kitchen"] .app-head-detail { font-size: 17px; padding: 12px 20px; }
+
+/* The shell-behind line. Same amber strip as a degraded status - it is
+   information, not an instruction, and never a block. */
+.app-head-detail.shell-old { color: var(--text-dim); }
 [data-display="standard"] .app-head-restaurant { font-size: 16px; }
 
 /* The order detail's status badge, keyed on the flag's tone now rather than

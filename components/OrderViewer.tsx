@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Order, OrderStatus } from "@/lib/types";
 import OrderTicket from "./OrderTicket";
 import { orderFlag } from "@/lib/order-display";
+import { useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 
 export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   const [order, setOrder] = useState(initialOrder);
@@ -13,6 +14,12 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   /** What the last Print press did. */
   const [printNote, setPrintNote] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
+
+  // A new deployment is taken only when the tablet comes back to the
+  // foreground on this ticket, and never mid-Accept or mid-Print. Not on a
+  // timer: a ticket somebody is reading is not reloaded to get new code.
+  const idle = useCallback(() => !busy && !printing, [busy, printing]);
+  useFreshBuildOnReturn(idle);
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);

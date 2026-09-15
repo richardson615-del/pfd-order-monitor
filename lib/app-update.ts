@@ -42,18 +42,86 @@ export function updateAvailable(currentBuildId: string, serverBuildId: unknown):
   return serverBuildId !== currentBuildId;
 }
 
+/**
+ * How long the screen must have gone untouched before a reload is allowed.
+ *
+ * "Nothing waiting" says nobody NEEDS the screen. It does not say nobody is
+ * USING it: somebody can be reading the Done tab or halfway through a tap.
+ * A minute with no finger on the glass is a screen nobody is using.
+ */
+export const IDLE_BEFORE_RELOAD_MS = 60_000;
+
 export function shouldReloadNow(args: {
   updateAvailable: boolean;
   /** Unaccepted orders. Anything above zero means somebody is needed. */
   waitingCount: number;
   /** Reloading a tab nobody is looking at achieves nothing and risks a background throttle mid-load. */
   visible: boolean;
+  /**
+   * Milliseconds since the last pointer or key event on the page. `null`
+   * means the page has not been measuring, which is treated as "not idle" -
+   * a reload must be earned by evidence of quiet, not by the absence of it.
+   */
+  idleMs: number | null;
 }): boolean {
   if (!args.updateAvailable) return false;
   if (args.waitingCount > 0) return false;
   if (!args.visible) return false;
+  if (args.idleMs === null || args.idleMs < IDLE_BEFORE_RELOAD_MS) return false;
   return true;
 }
 
-/** How often to ask. Cheap, and matched to the heartbeat so it is one more request every two minutes, not a new cadence to reason about. */
-export const VERSION_CHECK_EVERY_MS = 2 * 60_000;
+/**
+ * Which Android shell this page is running inside, if it said.
+ *
+ * The TWA's startUrl carries `?shell=<appVersionCode>` (android/twa-manifest
+ * .json), so the web app can tell the office which shell a tablet has
+ * without anyone at the restaurant being asked. The param survives only the
+ * first navigation - a login redirect, or any in-app link, drops it - so the
+ * page that first sees it remembers it, and every later page reads the
+ * memory. Scanned as a substring of the whole (decoded) URL rather than
+ * parsed as a query, because the login redirect nests the dashboard URL
+ * inside its own `?next=`.
+ *
+ * `null` means nothing has ever said: a shell from before the param existed,
+ * or a plain browser. Not zero - zero would read as "older than everything".
+ */
+export function readShellVersion(url: string, remembered: string | null | undefined): number | null {
+  let decoded = url;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    // A malformed escape is not our problem; scan what we were given.
+  }
+  const m = /[?&]shell=(\d{1,9})(?:\D|$)/.exec(decoded);
+  if (m) return Number(m[1]);
+  if (remembered && /^\d{1,9}$/.test(remembered)) return Number(remembered);
+  return null;
+}
+
+/**
+ * Whether the office needs to push a newer shell to this tablet.
+ *
+ * Purely informational on the tablet: the line it produces is amber, not
+ * blocking, and asks nothing of the restaurant, because there is nothing a
+ * restaurant can do about an APK - the MDM pushes it. An unknown shell is
+ * not "too old"; it is unknown, and the heartbeat records it as such.
+ */
+export function shellNeedsUpdate(shellVersion: number | null, minShellVersion: unknown): boolean {
+  const min = typeof minShellVersion === "number" && Number.isFinite(minShellVersion) ? minShellVersion : 0;
+  if (shellVersion === null || min <= 0) return false;
+  return shellVersion < min;
+}
+
+/** localStorage key the shell version is remembered under. */
+export const SHELL_VERSION_KEY = "premium.shell";
+
+/**
+ * The oldest Android shell (appVersionCode) the office is happy to see on a
+ * wall. MIN_SHELL_VERSION in the environment; 0 means no opinion. Server
+ * only - the client learns it from the heartbeat or /api/version.
+ */
+export function minShellVersion(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.MIN_SHELL_VERSION ?? 0);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}

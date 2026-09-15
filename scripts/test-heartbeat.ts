@@ -48,6 +48,7 @@ const quiet: HealthSnapshot = {
   unsentEmailJobs: [],
   undeliveredAppAlerts: [],
   webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] },
+  cronRuns: [],
 };
 
 const tablet = (over: Partial<HealthSnapshot["tabletsNotWatching"][number]> = {}) => ({

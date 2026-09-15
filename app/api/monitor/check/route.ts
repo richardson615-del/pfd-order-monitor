@@ -3,6 +3,7 @@ import { constantTimeEquals } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
+import { recordCronRun, MONITOR_JOB } from "@/lib/cron-liveness";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -163,6 +164,14 @@ export async function GET(req: NextRequest) {
   if (resolvedKeys.length) {
     await sendWebhook(`✅ Order Monitor: ${resolvedKeys.length} issue(s) cleared.`);
   }
+
+  // Stamped on COMPLETION, not on entry: a cron that fires every 15 minutes
+  // and throws every time is dead in every way that matters, and recording it
+  // on arrival would report it as healthy. Clearing silent_alerted_at here is
+  // what re-arms the Gmail poll's watchdog after a recovery.
+  await recordCronRun(admin, MONITOR_JOB, {
+    detail: `${issues.length} open, ${fresh.length} new, ${resolvedKeys.length} resolved`,
+  });
 
   return NextResponse.json({
     ok: true,

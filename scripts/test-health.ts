@@ -41,6 +41,10 @@ const healthy: HealthSnapshot = {
     recentWindowHours: 6,
     recentRejectedSources: [],
   },
+  cronRuns: [
+    { job: "gmail_poll", last_run_at: minsAgo(1) },
+    { job: "monitor_check", last_run_at: minsAgo(5) },
+  ],
 };
 
 console.log("healthy system:");

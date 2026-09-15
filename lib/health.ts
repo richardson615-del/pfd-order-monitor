@@ -13,6 +13,8 @@
  * quiet during the outage it existed to catch.
  */
 
+import { cronIssues, staleCronJobs, type CronRunRow } from "@/lib/cron-liveness";
+
 export type IssueSeverity = "critical" | "warning";
 
 export interface HealthIssue {
@@ -121,6 +123,8 @@ export interface HealthSnapshot {
      */
     recentRejectedSources: { label: string; count: number }[];
   };
+  /** Last run per scheduled job (migration 029). */
+  cronRuns: CronRunRow[];
 }
 
 export interface HealthThresholds {
@@ -199,6 +203,12 @@ export function evaluateHealth(
 ): HealthIssue[] {
   const issues: HealthIssue[] = [];
   const where = (name: string | null) => name ?? "unknown restaurant";
+
+  // --- did the scheduled jobs run at all? ---
+  // First, because it is the question every check below assumes the answer
+  // to: a job that stopped produces no orders, no receipts and no errors,
+  // and every other check reads that as a quiet night.
+  issues.push(...cronIssues(staleCronJobs(snap.cronRuns, now)));
 
   // --- printers that stopped checking in ---
   for (const d of snap.devices) {
@@ -544,6 +554,11 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
       .sort((a, b) => b.count - a.count),
   };
 
+  const { data: cronRows } = await admin
+    .from("cron_runs")
+    .select("job, last_run_at, silent_alerted_at");
+  const cronRuns = (cronRows ?? []) as CronRunRow[];
+
   // Recent window only: a historic gap that has been explained should not
   // keep warning, and the tripwire exists to catch NEW capture failures.
   const { data: unsentRows } = await admin
@@ -732,6 +747,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     undeliveredAppAlerts,
     unreconciledOrders,
     webhook,
+    cronRuns,
     devices,
     inboxes,
     restaurantsWithoutDevice,

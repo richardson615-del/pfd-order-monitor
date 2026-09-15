@@ -11,6 +11,9 @@ import { ingestOrder } from "@/lib/canonical";
 import { extractZupplerOrderUuid, isZupplerOrderEmail } from "@/lib/zuppler-email";
 import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
 
+import { recordCronRun, checkMonitorAlive } from "@/lib/cron-liveness";
+import { composeSmsAlert, sendSms, sendWebhook } from "@/lib/alerts";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -204,5 +207,30 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, results });
+  await recordCronRun(admin, "gmail_poll", {
+    detail: `${Object.keys(results).length} inbox(es)`,
+  });
+
+  // The health monitor cannot report its own death: every check that would
+  // notice runs inside it, so when it stops, the silence is indistinguishable
+  // from health - which is the exact failure mode this whole monitoring
+  // surface exists to remove. This job runs every 2 minutes on an independent
+  // Vercel schedule, which makes it the only thing positioned to notice.
+  //
+  // It reports once (checkMonitorAlive stamps silent_alerted_at) and re-arms
+  // when the monitor next completes a run.
+  const monitorDown = await checkMonitorAlive(admin);
+  if (monitorDown) {
+    const text = `🔴 ${monitorDown.title}\n   ${monitorDown.detail}`;
+    await sendWebhook(text);
+    const sms = composeSmsAlert([monitorDown]);
+    if (sms) await sendSms(sms);
+    console.error("cron watchdog:", monitorDown.title);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    results,
+    ...(monitorDown ? { watchdog: monitorDown.key } : {}),
+  });
 }

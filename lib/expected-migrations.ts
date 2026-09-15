@@ -31,4 +31,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "028_display_mode.sql",
   "029_print_documents.sql",
   "030_heartbeat_push_state.sql",
+  "031_cron_runs.sql",
 ];

@@ -14,6 +14,7 @@
  */
 
 import { cronIssues, staleCronJobs, type CronRunRow } from "@/lib/cron-liveness";
+import { collectRestaurantVolumes, volumeIssues, type RestaurantVolume } from "@/lib/volume-baseline";
 
 export type IssueSeverity = "critical" | "warning";
 
@@ -125,6 +126,8 @@ export interface HealthSnapshot {
   };
   /** Last run per scheduled job (migration 031). */
   cronRuns: CronRunRow[];
+  /** Per-restaurant order counts, recent window against its own baseline. */
+  restaurantVolumes: RestaurantVolume[];
 }
 
 export interface HealthThresholds {
@@ -209,6 +212,12 @@ export function evaluateHealth(
   // to: a job that stopped produces no orders, no receipts and no errors,
   // and every other check reads that as a quiet night.
   issues.push(...cronIssues(staleCronJobs(snap.cronRuns, now)));
+
+  // --- revenue that should be here and is not ---
+  // Last, because it is the only check that reports a business problem
+  // rather than a broken component - and the only one that can be true while
+  // every piece of the system is working perfectly.
+  issues.push(...volumeIssues(snap.restaurantVolumes));
 
   // --- printers that stopped checking in ---
   for (const d of snap.devices) {
@@ -565,6 +574,11 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     .select("job, last_run_at, silent_alerted_at");
   const cronRuns = (cronRows ?? []) as CronRunRow[];
 
+  const restaurantNames = new Map<string, string>(
+    (restaurantsRes.data ?? []).map((r: any) => [r.id as string, r.name as string])
+  );
+  const restaurantVolumes = await collectRestaurantVolumes(admin, restaurantNames);
+
   // Recent window only: a historic gap that has been explained should not
   // keep warning, and the tripwire exists to catch NEW capture failures.
   const { data: unsentRows } = await admin
@@ -754,6 +768,7 @@ export async function collectSnapshot(): Promise<HealthSnapshot> {
     unreconciledOrders,
     webhook,
     cronRuns,
+    restaurantVolumes,
     devices,
     inboxes,
     restaurantsWithoutDevice,

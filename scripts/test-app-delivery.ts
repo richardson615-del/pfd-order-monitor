@@ -45,6 +45,7 @@ const quiet: HealthSnapshot = {
   undeliveredAppAlerts: [],
   webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] },
   cronRuns: [],
+  restaurantVolumes: [],
 };
 
 const alert = (over: Partial<HealthSnapshot["undeliveredAppAlerts"][number]> = {}) => ({

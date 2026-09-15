@@ -16,8 +16,11 @@ import {
   displayMode,
   elapsedLabel,
   isSettled,
+  isStaleWaiting,
+  isWaiting,
   orderFlag,
 } from "@/lib/order-display";
+import { STILL_ACTIONABLE_MS, unaccepted } from "@/lib/kiosk";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -92,6 +95,55 @@ test("a missing or unreadable timestamp does not crash or colour", () => {
   assert.equal(elapsedLabel(order({ received_at: null }), NOW), "");
 });
 
+test("past the chime window an unaccepted order goes muted, not redder", () => {
+  // Red and breathing for something from yesterday teaches the room that red
+  // is background. It is still waiting - see below - it just stops shouting.
+  const stale = order({ received_at: agoMs(STILL_ACTIONABLE_MS) });
+  assert.equal(ageClass(stale, NOW), "age-stale");
+  assert.equal(ageClass(order({ received_at: agoMs(STILL_ACTIONABLE_MS - 1) }), NOW), "age-late");
+  assert.equal(isStaleWaiting(stale, NOW), true);
+  assert.equal(isStaleWaiting(order({ received_at: agoMs(AGE_LATE_MS) }), NOW), false);
+  // Settled beats stale: yesterday's completed order is history, not stale.
+  assert.equal(ageClass(order({ ...stale, status: "completed" }), NOW), "settled");
+  assert.equal(isStaleWaiting(order({ ...stale, accepted_at: agoMs(1000) }), NOW), false);
+});
+
+console.log("\nthe headline, the tab and the list agree:");
+
+test("stale is still waiting - the list has no cutoff, only the chime does", () => {
+  // 2026-09-15, Willie Mae's: ten test orders from the night before sat in
+  // Waiting, painted red, under a header that said "All clear". The header
+  // was counting the chime's set, which drops anything past six hours.
+  const stale = order({ received_at: agoMs(STILL_ACTIONABLE_MS + 60_000) });
+  assert.equal(isWaiting(stale), true, "the tab keeps it");
+  assert.equal(unaccepted([stale], NOW).length, 0, "the chime lets it go");
+});
+
+test("isWaiting is exactly not-settled, so the tab and the flag cannot drift", () => {
+  for (const o of [
+    order(),
+    order({ status: "opened" }),
+    order({ status: "printed" }),
+    order({ status: "completed" }),
+    order({ status: "cancelled" }),
+    order({ accepted_at: agoMs(1000) }),
+  ]) {
+    assert.equal(isWaiting(o), !isSettled(o));
+    assert.equal(isWaiting(o), orderFlag(o).tone === "waiting");
+  }
+});
+
+test("the dashboard's headline counts the tab's rows, not the chime's", () => {
+  const dash = src("components/OrderDashboard.tsx");
+  // The chime keeps unaccepted(); nothing on screen may take its count.
+  assert.match(dash, /orders\.filter\(isWaiting\)/, "headline rows come from isWaiting");
+  assert.doesNotMatch(dash, /\$\{waiting\.length\} WAITING/, "the headline must not count the chime's set");
+  assert.doesNotMatch(dash, /\$\{waiting\.length\} orders? /, "nor may the waiting bar");
+  // And the tab itself is defined in the same terms, not a hand-copied list
+  // of statuses that can fall out of step with isSettled().
+  assert.match(dash, /if \(!isSettled\(order\)\) return key === "waiting"/);
+});
+
 console.log("\nthe timer:");
 
 test("it counts up in m:ss, so it reads as live", () => {
@@ -141,7 +193,16 @@ test("the modes differ in size, never in what is on screen", () => {
 test("the age rail is keyed on age, not on status", () => {
   const css = src("app/globals.css");
   assert.match(css, /\.card\.age-late::before/);
+  assert.match(css, /\.card\.age-stale::before/);
   assert.match(css, /\.card\.settled::before/);
+});
+
+test("only a late order breathes - a stale one is not an emergency", () => {
+  const css = src("app/globals.css");
+  const animated = [...css.matchAll(/([^{}]*)\{[^}]*animation: card-breathe[^}]*\}/g)].map((m) => m[1]);
+  assert.ok(animated.length > 0);
+  for (const sel of animated) assert.match(sel, /\.card\.age-late/);
+  for (const sel of animated) assert.doesNotMatch(sel, /age-stale/);
 });
 
 test("the breathing card respects reduced motion", () => {

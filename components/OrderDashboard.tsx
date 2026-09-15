@@ -6,6 +6,7 @@ import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
 import { ageMs, elapsedLabel, isSettled, isWaiting, type DisplayMode } from "@/lib/order-display";
 import { Brand } from "./Brand";
+import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
 import {
   VERSION_CHECK_EVERY_MS,
@@ -58,12 +59,21 @@ export default function OrderDashboard({
   restaurantId,
   mode,
   restaurantName,
+  timezone,
 }: {
   initialOrders: Order[];
   restaurantId: string;
   /** kitchen or standard, from the restaurant's own setting. */
   mode: DisplayMode;
   restaurantName: string;
+  /**
+   * IANA zone for the header clock, from restaurants.timezone (migration
+   * 032). Null means nobody has told us, and the clock shows device time -
+   * the CRM pushes the account's real zone, because tablets are provisioned
+   * in Nashville and a screen in eastern Kentucky would otherwise read an
+   * hour slow all day.
+   */
+  timezone: string | null;
 }) {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [tab, setTab] = useState<TabKey>("waiting");
@@ -422,9 +432,7 @@ export default function OrderDashboard({
           <span className={`app-live ${live.level}`} title={live.detail ?? undefined}>
             {live.label}
           </span>
-          <span className="app-clock num">
-            {new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-          </span>
+          <span className="app-clock num">{clockLabel(now, timezone)}</span>
         </div>
       </div>
 

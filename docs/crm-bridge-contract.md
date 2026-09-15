@@ -104,12 +104,14 @@ Writable on `POST /api/crm/restaurants/:id`:
 |---|---|
 | `app_expected` | `true` \| `false` — is this site meant to watch orders on the tablet? |
 | `display_mode` | `kitchen` \| `standard` — which look their tablet renders |
+| `timezone` | IANA zone (`America/New_York`) the tablet clock shows, or `null` for the device's own time. 400 for a name Intl cannot render. Presentation only (migration 032) |
 
 `GET /api/crm/restaurants` adds:
 
 | field | meaning |
 |---|---|
 | `app_expected` | as above |
+| `timezone` | as above, `null` when never set |
 | `has_active_printer` | whether an active print device exists — a fact, not an intention |
 | `destinations` | `["printer"]`, `["app"]`, `["printer","app"]`, `["email","app"]`, or `[]` |
 

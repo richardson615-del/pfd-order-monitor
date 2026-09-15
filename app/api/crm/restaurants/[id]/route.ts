@@ -5,6 +5,7 @@ import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
 import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-image";
 import { ENABLED_TEMPLATES } from "@/lib/footer-engine";
 import { orderDestinations } from "@/lib/canonical";
+import { isValidTimeZone } from "@/lib/clock";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,24 @@ export async function POST(
       );
     }
     updates.display_mode = v;
+  }
+
+  // Which clock their tablet shows. An IANA name Intl can render, or null to
+  // go back to device time. Validated here because a name the platform does
+  // not know would make the tablet fall back silently every second, and the
+  // console would have no way to tell "saved" from "saved and ignored".
+  if ("timezone" in body) {
+    const raw = body.timezone;
+    if (raw === null || raw === "") {
+      updates.timezone = null;
+    } else if (isValidTimeZone(raw)) {
+      updates.timezone = raw.trim();
+    } else {
+      return NextResponse.json(
+        { error: "timezone must be an IANA zone name such as America/Chicago, or null" },
+        { status: 400 }
+      );
+    }
   }
 
   if ("ticket_email_to" in body) {
@@ -240,7 +259,7 @@ export async function POST(
     // from "saved and will not say so".
     //
     // Anything added to the writable set above belongs here too.
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, app_expected, display_mode")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, app_expected, display_mode, timezone")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

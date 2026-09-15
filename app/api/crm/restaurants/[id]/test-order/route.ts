@@ -102,7 +102,7 @@ export async function POST(
       order_type: "pickup",
       // Everything a cook would check, so the test proves the SCREEN rather
       // than proving a notification arrived: a quantity, a modifier, a note.
-      customer_name: "PFD test order",
+      customer_name: "Premium test order",
       items: [
         { name: "2x Test item", price: "$0.00", modifiers: ["This is a test", "Do not make"] },
       ],
@@ -133,7 +133,7 @@ export async function POST(
     // every subsequent order raise a critical alert.
     appExpected: !!restaurant.app_expected,
     orderNumber: order.order_number,
-    customerName: "PFD test order",
+    customerName: "Premium test order",
     customerTotal: 0,
   });
 

@@ -228,7 +228,19 @@ export async function POST(
     .from("restaurants")
     .update(updates)
     .eq("id", restaurant.id)
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, app_expected")
+    // display_mode is in this list because it is WRITABLE here. It was the one
+    // field a caller could change and not get back, so a console that merges
+    // the response over its own row - which is the documented way to use this
+    // endpoint, rather than guessing what the write did - saw every field
+    // update except the one it had just changed.
+    //
+    // The visible effect was worse than it sounds: set a restaurant to
+    // Kitchen, watch the button stay on Standard, conclude it failed, and
+    // press it again. There is no way from the screen to tell "did not save"
+    // from "saved and will not say so".
+    //
+    // Anything added to the writable set above belongs here too.
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, app_expected, display_mode")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

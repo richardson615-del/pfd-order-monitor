@@ -5,6 +5,8 @@ import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
 import { orderDestinations } from "@/lib/canonical";
 import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 import { planZupplerMapping, type ExistingMapping, type RequestedListing } from "@/lib/zuppler-mapping";
+import { tabletStatus, type HeartbeatRow } from "@/lib/tablet-status";
+import { minShellVersion } from "@/lib/app-update";
 
 export const dynamic = "force-dynamic";
 
@@ -47,10 +49,31 @@ export async function GET(req: NextRequest) {
     idsByRestaurant.set(row.restaurant_id, set);
   }
 
+  // What each restaurant's tablet last said, and how many browsers can ring
+  // for it. Read whole-roster rather than per row: the console asks for all
+  // of them at once, and a tablet's status is one row per restaurant.
+  const now = Date.now();
+  const [{ data: heartbeatRows }, { data: pushRows }] = await Promise.all([
+    admin
+      .from("dashboard_heartbeats")
+      .select("restaurant_id, last_seen_at, user_agent, push_subscribed, shell_version"),
+    admin.from("push_subscriptions").select("restaurant_id"),
+  ]);
+  const heartbeatByRestaurant = new Map<string, HeartbeatRow>();
+  for (const h of (heartbeatRows ?? []) as any[]) heartbeatByRestaurant.set(h.restaurant_id, h);
+  const pushCount = new Map<string, number>();
+  for (const p of (pushRows ?? []) as any[]) {
+    pushCount.set(p.restaurant_id, (pushCount.get(p.restaurant_id) ?? 0) + 1);
+  }
+
   return NextResponse.json({
     // So the console can show what will actually print, rather than an empty
     // box that silently becomes the PFD line at print time.
     default_footer_text: DEFAULT_FOOTER_TEXT,
+    // The oldest Android shell the office is happy with (MIN_SHELL_VERSION),
+    // so the console can flag a tablet's shell_version without hardcoding
+    // a number. null = no opinion set.
+    latest_shell_version: minShellVersion() || null,
     restaurants: (data ?? []).map((r: any) => {
       // Images are returned as presence + size, never inline. A roster call
       // that shipped every logo would be megabytes for a list view, and the
@@ -79,6 +102,16 @@ export async function GET(req: NextRequest) {
         timezone: r.timezone ?? null,
         // Both mapping tables, primary first. Ingest honours both.
         zuppler_ids: zupplerIdsFor(r.zuppler_restaurant_id, idsByRestaurant.get(r.id)),
+        // Whether the tablet is open, hearing alerts, and on which shell -
+        // from the dashboard's own heartbeat. Every field nullable, and
+        // null means "no data", never a guess. See lib/tablet-status.ts.
+        tablet: tabletStatus({
+          expected: Boolean(r.app_expected),
+          displayMode: r.display_mode,
+          heartbeat: heartbeatByRestaurant.get(r.id),
+          pushSubscriptions: pushCount.get(r.id) ?? 0,
+          now,
+        }),
         destinations: orderDestinations({
           print_method: r.print_method,
           app_expected: r.app_expected,

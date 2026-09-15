@@ -142,7 +142,7 @@ export async function ingestZupplerOrderByUuid(
  * printer. Falls back to the legacy single column so nothing regresses while
  * both are populated.
  */
-async function resolveRestaurantByZupplerId(admin: any, zupplerId: string | null) {
+export async function resolveRestaurantByZupplerId(admin: any, zupplerId: string | null) {
   if (!zupplerId) return null;
   const { data: link } = await admin
     .from("restaurant_zuppler_ids")

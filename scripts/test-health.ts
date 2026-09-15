@@ -455,30 +455,30 @@ test("the feed route maps restaurant to CRM account, reads resolutions from the 
   assert.match(src("docs/crm-bridge-contract.md"), /### The issues feed \(E2\)/);
 });
 
-console.log("\nan order nobody accepted (Nick, 2026-09-15: ten minutes):");
+console.log("\nan order nobody accepted (Nick, 2026-09-15: three minutes):");
 
-test("ten minutes unaccepted is critical, keyed on the order, naming the restaurant", () => {
+test("three minutes unaccepted is critical, keyed on the order, naming the restaurant", () => {
   const s = {
     ...healthy,
     unacceptedOrders: [
-      { id: "o-late", order_number: "1042", restaurant_id: "r1", restaurant_name: "Willie Mae's", received_at: minsAgo(10) },
-      { id: "o-fresh", order_number: "1043", restaurant_id: "r1", restaurant_name: "Willie Mae's", received_at: minsAgo(9) },
+      { id: "o-late", order_number: "1042", restaurant_id: "r1", restaurant_name: "Willie Mae's", received_at: minsAgo(3) },
+      { id: "o-fresh", order_number: "1043", restaurant_id: "r1", restaurant_name: "Willie Mae's", received_at: minsAgo(2) },
     ],
   };
   const issues = evaluateHealth(s, NOW);
   const late = issues.find((i) => i.key === "order_unaccepted:o-late");
-  assert.ok(late, "ten minutes is the line");
+  assert.ok(late, "three minutes is the line");
   assert.equal(late!.severity, "critical");
   assert.equal(late!.restaurant_id, "r1");
   assert.match(late!.title, /Order not accepted: #1042 at Willie Mae's/);
   assert.match(late!.detail, /Call the kitchen/);
-  assert.equal(issues.find((i) => i.key === "order_unaccepted:o-fresh"), undefined, "nine minutes is not");
+  assert.equal(issues.find((i) => i.key === "order_unaccepted:o-fresh"), undefined, "two minutes is not");
 });
 
-test("the threshold is ten minutes and matches the moment the card goes red", async () => {
-  assert.equal(DEFAULT_THRESHOLDS.orderUnacceptedMinutes, 10);
+test("the threshold is three minutes - before the card goes red, so the call is what stops it going red", async () => {
+  assert.equal(DEFAULT_THRESHOLDS.orderUnacceptedMinutes, 3);
   const { AGE_LATE_MS } = await import("@/lib/order-display");
-  assert.equal(AGE_LATE_MS, 10 * 60_000, "office is told when the kitchen screen starts shouting");
+  assert.ok(DEFAULT_THRESHOLDS.orderUnacceptedMinutes * 60_000 < AGE_LATE_MS, "the dispatcher is told before the kitchen screen shouts");
 });
 
 test("the snapshot asks only about customer orders on tablet restaurants, still live, inside the chime window", () => {
@@ -490,5 +490,5 @@ test("the snapshot asks only about customer orders on tablet restaurants, still 
   assert.match(q, /\.neq\("source", "test"\)/, "a test order has no customer waiting");
   assert.match(q, /6 \* 60 \* 60 \* 1000/, "the chime window");
   const vercel = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
-  assert.match(vercel, /"path": "\/api\/monitor\/check",\s*"schedule": "\*\/5 \* \* \* \*"/, "checked every five minutes, so ten means ten to fifteen, not ten to twenty-five");
+  assert.match(vercel, /"path": "\/api\/monitor\/check",\s*"schedule": "\* \* \* \* \*"/, "checked every minute, so three means three to four");
 });

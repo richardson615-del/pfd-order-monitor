@@ -202,10 +202,12 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   // Same: the push goes out during ingest. Nothing about it is queued for
   // later, so an alert with no sent_at after this did not arrive late.
   appUndeliveredMinutes: 5,
-  // Ten minutes, Nick's number. The card on the tablet goes red at the same
-  // ten (AGE_LATE_MS), so the office is told at the moment the screen in the
-  // kitchen starts shouting - not before, and not long after.
-  orderUnacceptedMinutes: 10,
+  // Three minutes (Nick, 2026-09-15, revised from ten the same day): "if
+  // they don't accept an order within 3 minutes an alert needs to be sent to
+  // our dispatchers that are live so they can contact the restaurant
+  // immediately". Earlier than the card going red (ten) on purpose - the
+  // dispatcher's call is what stops it going red.
+  orderUnacceptedMinutes: 3,
   // Seven missed beats. Generous on purpose: a browser throttles timers on a
   // backgrounded tab, and an alert that fires on ordinary throttling is one
   // people stop reading.

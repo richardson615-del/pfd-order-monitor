@@ -20,7 +20,8 @@ import {
   Connection,
   isStale,
   kioskWarning,
-  pollIntervalMs,
+  pollDelayMs,
+  reloadHoldMs,
   realtimeConnection,
   unaccepted,
   liveState,
@@ -204,9 +205,19 @@ export default function OrderDashboard({
   }, [restaurantId, sync]);
 
   // --- Poll, always, faster when the socket is known to be down -------------
+  // A timeout chain rather than an interval, so each wait is jittered on
+  // its own: five hundred tablets on a fixed 60 s interval all poll in the
+  // same second forever (see pollDelayMs).
   useEffect(() => {
-    const id = setInterval(() => void sync(), pollIntervalMs(connection));
-    return () => clearInterval(id);
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      id = setTimeout(() => {
+        void sync();
+        tick();
+      }, pollDelayMs(connection));
+    };
+    tick();
+    return () => clearTimeout(id);
   }, [connection, sync]);
 
   // Drives the staleness check AND the age timers on every card.
@@ -270,12 +281,15 @@ export default function OrderDashboard({
         body: JSON.stringify({ pushSubscribed, shellVersion }),
       })
         .then(async (res) => {
-          if (res.ok) setHeartbeatOkAt(Date.now());
+          // 429 is the server saying "you beat less than a minute ago and I
+          // still have it" - which is exactly a live heartbeat, not a failed one.
+          if (res.ok || res.status === 429) setHeartbeatOkAt(Date.now());
           // The beat answers with what deployment is serving. This is the
           // version check: one request on a cadence that already exists,
           // rather than a second one on the same cadence.
           const data = await res.json().catch(() => null);
           if (updateAvailable(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev", data?.buildId)) {
+            if (reloadNotBeforeRef.current === null) reloadNotBeforeRef.current = Date.now() + reloadHoldMs();
             setNewBuild(true);
           }
           if (typeof data?.minShellVersion === "number") setMinShell(data.minShellVersion);
@@ -320,6 +334,10 @@ export default function OrderDashboard({
   // now. Nothing waiting means nothing to interrupt. The push notification -
   // the real alarm - is an Android notification and survives either way.
   const [newBuild, setNewBuild] = useState(false);
+  // When this tablet is allowed to take the new build, at the earliest:
+  // spread over ten minutes from first hearing of it, so a deploy does not
+  // reload every idle tablet in the same heartbeat window.
+  const reloadNotBeforeRef = useRef<number | null>(null);
 
   // When the glass was last touched. "Nothing waiting" says nobody needs the
   // screen; this says nobody is using it. Starts at mount so a fresh page is
@@ -351,6 +369,9 @@ export default function OrderDashboard({
     ) {
       return;
     }
+    // Quiet, but not yet this tablet's turn: the spread is re-checked on the
+    // next beat like every other gate.
+    if (reloadNotBeforeRef.current !== null && Date.now() < reloadNotBeforeRef.current) return;
     // A short delay so this cannot fire in the same tick as an order being
     // accepted - the list settles first, and a reload that races a write is
     // the one way this could lose something.

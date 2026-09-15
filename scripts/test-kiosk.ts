@@ -20,6 +20,12 @@ import {
   pollIntervalMs,
   realtimeConnection,
   unaccepted,
+  HEARTBEAT_MIN_INTERVAL_MS,
+  RELOAD_SPREAD_MS,
+  pollDelayMs,
+  reconnectDelayMs,
+  reloadHoldMs,
+  withJitter,
 } from "@/lib/kiosk";
 
 let passed = 0;
@@ -213,6 +219,7 @@ const dash = readFileSync(
   new URL("../components/OrderDashboard.tsx", import.meta.url),
   "utf8"
 );
+const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
 test("the realtime subscription observes its own status", () =>
   assert.match(
@@ -222,7 +229,9 @@ test("the realtime subscription observes its own status", () =>
   ));
 
 test("polling does not depend on the socket being down", () =>
-  assert.match(dash, /setInterval\(\(\) => void sync\(\), pollIntervalMs\(connection\)\)/));
+  // A jittered timeout chain since E3, still unconditional on the socket:
+  // the delay is a function of connection state, never gated on it.
+  assert.match(dash, /\}, pollDelayMs\(connection\)\);/));
 
 test("reconnecting resyncs, because the tab missed whatever arrived", () =>
   assert.match(dash, /if \(next === "live"\) void sync\(\)/));
@@ -328,3 +337,69 @@ test("connecting is degraded, never live and never offline", () => {
 });
 
 console.log(`\n${passed} assertions passed.`);
+
+console.log("\nfive hundred tablets do not all move at once (E3):");
+
+const seq = (...vals: number[]) => {
+  let i = 0;
+  return () => vals[Math.min(i++, vals.length - 1)]!;
+};
+
+test("the poll is jittered ±20% around its cadence, never the same second on two tablets", () => {
+  assert.equal(pollDelayMs("live", seq(0)), 48_000);
+  assert.equal(pollDelayMs("live", seq(1)), 72_000);
+  assert.equal(pollDelayMs("live", seq(0.5)), 60_000);
+  assert.equal(pollDelayMs("connecting", seq(0.5)), 15_000);
+  assert.equal(withJitter(1000, seq(-5)), 800, "rand below 0 is clamped");
+  assert.equal(withJitter(1000, seq(7)), 1200, "rand above 1 is clamped");
+});
+
+test("reconnects back off exponentially with full jitter, capped at a minute", () => {
+  assert.equal(reconnectDelayMs(0, seq(1)), 1_000);
+  assert.equal(reconnectDelayMs(3, seq(1)), 8_000);
+  assert.equal(reconnectDelayMs(10, seq(1)), 60_000, "capped");
+  assert.equal(reconnectDelayMs(3, seq(0)), 0, "full jitter reaches zero");
+  assert.equal(reconnectDelayMs(3, seq(0.5)), 4_000);
+  assert.equal(reconnectDelayMs(-2, seq(1)), 1_000, "a negative attempt is the first");
+});
+
+test("a new build is taken somewhere in a ten-minute window, not on the next beat for everyone", () => {
+  assert.equal(reloadHoldMs(seq(0)), 0);
+  assert.equal(reloadHoldMs(seq(1)), 600_000);
+  assert.equal(RELOAD_SPREAD_MS, 10 * 60_000);
+});
+
+test("the client uses the jittered rules, and reconnects through them", () => {
+  assert.match(dash, /setTimeout\(\(\) => \{[\s\S]*?void sync\(\);[\s\S]*?\}, pollDelayMs\(connection\)\)/, "poll is a jittered timeout chain");
+  assert.doesNotMatch(dash, /setInterval\(\(\) => void sync\(\)/, "no fixed-interval poll");
+  assert.match(dash, /reloadNotBeforeRef\.current = Date\.now\(\) \+ reloadHoldMs\(\)/);
+  assert.match(dash, /Date\.now\(\) < reloadNotBeforeRef\.current\) return;/);
+  const client = src("lib/supabase-browser.ts");
+  assert.match(client, /reconnectAfterMs: \(tries: number\) => reconnectDelayMs\(tries\)/);
+});
+
+test("a heartbeat faster than once a minute is refused, and the client reads that as alive", () => {
+  const route = src("app/api/dashboard/heartbeat/route.ts");
+  assert.match(route, /HEARTBEAT_MIN_INTERVAL_MS/);
+  assert.match(route, /status: 429/);
+  assert.equal(HEARTBEAT_MIN_INTERVAL_MS, 60_000);
+  assert.ok(HEARTBEAT_MIN_INTERVAL_MS < HEARTBEAT_EVERY_MS, "the limit must be under the cadence or every beat is refused");
+  assert.match(dash, /res\.ok \|\| res\.status === 429\) setHeartbeatOkAt/);
+});
+
+test("push fan-out is bounded: twenty in flight, fifty per restaurant, newest first, and never in the ingest path", () => {
+  const push = src("lib/push.ts");
+  assert.match(push, /PUSH_CONCURRENCY = 20/);
+  assert.match(push, /MAX_SUBSCRIPTIONS_PER_RESTAURANT = 50/);
+  assert.match(push, /\.order\("created_at", \{ ascending: false \}\)/);
+  assert.match(push, /mapWithConcurrency\(targets, PUSH_CONCURRENCY/);
+  // Ingest wraps each destination in attempt(), which swallows and logs:
+  // the push cannot fail the print, or the insert.
+  const canonical = src("lib/canonical.ts");
+  assert.match(canonical, /await attempt\("app alert", inserted\.id/);
+});
+
+test("the two crons say how long they took", () => {
+  assert.match(src("app/api/gmail/poll/route.ts"), /gmail poll SLOW/);
+  assert.match(src("lib/health.ts"), /health snapshot collected in/);
+});

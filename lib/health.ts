@@ -536,6 +536,18 @@ import { ACCEPTED_STATUSES } from "./webhook-receipts";
 
 /** Reads the current state of the pipeline for evaluateHealth(). */
 export async function collectSnapshot(): Promise<HealthSnapshot> {
+  const startedAt = Date.now();
+  try {
+    return await collectSnapshotInner();
+  } finally {
+    // Whole-roster queries with in-memory joins - no per-restaurant round
+    // trips - so this should stay flat as the fleet grows. Logged so that a
+    // regression to N+1 shows up as a number, not as a cron timing out.
+    console.log(`health snapshot collected in ${Date.now() - startedAt} ms`);
+  }
+}
+
+async function collectSnapshotInner(): Promise<HealthSnapshot> {
   const admin = supabaseAdmin();
 
   const [devicesRes, inboxesRes, restaurantsRes, jobsRes] = await Promise.all([

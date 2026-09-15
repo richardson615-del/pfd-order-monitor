@@ -25,6 +25,9 @@ export type Connection = "live" | "connecting" | "down";
  */
 export const HEARTBEAT_EVERY_MS = 2 * 60_000;
 
+/** The server refuses a beat sooner than this after the last one (429). Half the cadence: one early beat on a visibility change is fine, a loop is not. */
+export const HEARTBEAT_MIN_INTERVAL_MS = 60_000;
+
 /**
  * An order nobody is waiting on any more, so nothing here may sound an alert.
  * A cancelled order in particular must never chime: the whole point of a
@@ -129,6 +132,53 @@ export const POLL_DOWN_MS = 15_000;
 
 export const pollIntervalMs = (c: Connection): number =>
   c === "live" ? POLL_LIVE_MS : POLL_DOWN_MS;
+
+/**
+ * Five hundred tablets that all do the same thing at the same moment are a
+ * stampede, and the moments they would all pick are the same ones: the
+ * second a deploy lands, the second an outage ends. Everything on a timer
+ * below is spread a little, and reconnects back off, so the herd arrives
+ * over a window instead of as a spike. `rand` is injected so the rules are
+ * testable; production passes Math.random.
+ */
+
+/** ms spread by ±spread (default 20%): 60 000 → somewhere in 48 000..72 000. */
+export function withJitter(ms: number, rand: () => number = Math.random, spread = 0.2): number {
+  const r = Math.min(Math.max(rand(), 0), 1);
+  return Math.round(ms * (1 - spread + 2 * spread * r));
+}
+
+/** The poll, jittered. Same cadence on average; never the same second on two tablets. */
+export const pollDelayMs = (c: Connection, rand: () => number = Math.random): number =>
+  withJitter(pollIntervalMs(c), rand);
+
+export const RECONNECT_BASE_MS = 1_000;
+export const RECONNECT_MAX_MS = 60_000;
+
+/**
+ * How long to wait before the Nth reconnect attempt: 1 s, 2 s, 4 s ... capped
+ * at a minute, each with full jitter (0..that). After an outage the fleet
+ * comes back spread across the minute rather than in one wave that knocks
+ * the socket server over again - which is how a five-minute outage becomes
+ * a thirty-minute one.
+ */
+export function reconnectDelayMs(attempt: number, rand: () => number = Math.random): number {
+  const n = Math.max(0, Math.floor(attempt));
+  const ceiling = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** n);
+  const r = Math.min(Math.max(rand(), 0), 1);
+  return Math.round(ceiling * r);
+}
+
+/**
+ * When a tablet is allowed to take a new deployment, beyond "when it is
+ * quiet": spread uniformly over ten minutes from the moment it learns of
+ * the build. A deploy otherwise reloads every idle tablet inside the same
+ * heartbeat window, and five hundred cold page loads at once is a
+ * self-inflicted outage on the thing that was just deployed.
+ */
+export const RELOAD_SPREAD_MS = 10 * 60_000;
+export const reloadHoldMs = (rand: () => number = Math.random): number =>
+  Math.round(RELOAD_SPREAD_MS * Math.min(Math.max(rand(), 0), 1));
 
 /**
  * A screen that has not managed to reach the database for this long is stale,

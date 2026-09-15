@@ -32,7 +32,7 @@ const healthy: HealthSnapshot = {
   unsentEmailJobs: [],
   undeliveredAppAlerts: [],
   restaurantsWithoutAppDevice: [],
-  tabletsNotWatching: [],
+  tabletsNotWatching: [], unacceptedOrders: [],
   webhook: {
     lastReceiptAt: minsAgo(5),
     lastAcceptedAt: minsAgo(5),
@@ -453,4 +453,42 @@ test("the feed route maps restaurant to CRM account, reads resolutions from the 
   assert.match(route, /!i\.first_seen_at \|\| new Date\(i\.first_seen_at\) >= since/, "unstamped issues are always new");
   assert.doesNotMatch(route, /\.update\(|\.insert\(|\.upsert\(/, "the feed reads the record; only the monitor writes it");
   assert.match(src("docs/crm-bridge-contract.md"), /### The issues feed \(E2\)/);
+});
+
+console.log("\nan order nobody accepted (Nick, 2026-09-15: ten minutes):");
+
+test("ten minutes unaccepted is critical, keyed on the order, naming the restaurant", () => {
+  const s = {
+    ...healthy,
+    unacceptedOrders: [
+      { id: "o-late", order_number: "1042", restaurant_id: "r1", restaurant_name: "Willie Mae's", received_at: minsAgo(10) },
+      { id: "o-fresh", order_number: "1043", restaurant_id: "r1", restaurant_name: "Willie Mae's", received_at: minsAgo(9) },
+    ],
+  };
+  const issues = evaluateHealth(s, NOW);
+  const late = issues.find((i) => i.key === "order_unaccepted:o-late");
+  assert.ok(late, "ten minutes is the line");
+  assert.equal(late!.severity, "critical");
+  assert.equal(late!.restaurant_id, "r1");
+  assert.match(late!.title, /Order not accepted: #1042 at Willie Mae's/);
+  assert.match(late!.detail, /Call the kitchen/);
+  assert.equal(issues.find((i) => i.key === "order_unaccepted:o-fresh"), undefined, "nine minutes is not");
+});
+
+test("the threshold is ten minutes and matches the moment the card goes red", async () => {
+  assert.equal(DEFAULT_THRESHOLDS.orderUnacceptedMinutes, 10);
+  const { AGE_LATE_MS } = await import("@/lib/order-display");
+  assert.equal(AGE_LATE_MS, 10 * 60_000, "office is told when the kitchen screen starts shouting");
+});
+
+test("the snapshot asks only about customer orders on tablet restaurants, still live, inside the chime window", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const health = readFileSync(new URL("../lib/health.ts", import.meta.url), "utf8");
+  const q = health.slice(health.indexOf('.select("id, order_number, restaurant_id, received_at")'), health.indexOf(".limit(500)"));
+  assert.match(q, /\.is\("accepted_at", null\)/);
+  assert.match(q, /\.not\("status", "in", "\(cancelled,completed\)"\)/);
+  assert.match(q, /\.neq\("source", "test"\)/, "a test order has no customer waiting");
+  assert.match(q, /6 \* 60 \* 60 \* 1000/, "the chime window");
+  const vercel = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
+  assert.match(vercel, /"path": "\/api\/monitor\/check",\s*"schedule": "\*\/5 \* \* \* \*"/, "checked every five minutes, so ten means ten to fifteen, not ten to twenty-five");
 });

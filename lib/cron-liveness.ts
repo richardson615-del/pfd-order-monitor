@@ -32,7 +32,7 @@ export interface CronJobSpec {
  */
 export const CRON_JOBS: CronJobSpec[] = [
   { job: "gmail_poll", label: "Gmail poll", everyMinutes: 2, path: "/api/gmail/poll" },
-  { job: "monitor_check", label: "Health monitor", everyMinutes: 15, path: "/api/monitor/check" },
+  { job: "monitor_check", label: "Health monitor", everyMinutes: 5, path: "/api/monitor/check" },
 ];
 
 export const MONITOR_JOB = "monitor_check";

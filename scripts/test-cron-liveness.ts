@@ -153,7 +153,7 @@ console.log("through the health engine:");
 const bare: HealthSnapshot = {
   devices: [], inboxes: [], restaurantsWithoutDevice: [], pendingJobs: [], failedJobs: [],
   unreconciledOrders: [], unsentEmailJobs: [], undeliveredAppAlerts: [],
-  restaurantsWithoutAppDevice: [], tabletsNotWatching: [],
+  restaurantsWithoutAppDevice: [], tabletsNotWatching: [], unacceptedOrders: [],
   webhook: { lastReceiptAt: null, lastAcceptedAt: null, recentTotal: 0, recentRejected: 0, recentWindowHours: 6, recentRejectedSources: [] },
   cronRuns: [],
   restaurantVolumes: [],

@@ -349,6 +349,14 @@ export function evaluateHealth(
   // Only meaningful once the webhook has ever worked: before go-live,
   // silence is the expected state, not a fault worth reporting nightly.
   const w = snap.webhook;
+  // The reasons the receipt writer recorded, worst first. Both refusal
+  // findings name them: a finding that says "check webhook_receipts for
+  // the reason" while holding the reason is a finding that sends somebody
+  // to the SQL editor for an answer it already had.
+  const worstSources = w.recentRejectedSources
+    .slice(0, 5)
+    .map((x) => `${x.label} (${x.count})`)
+    .join(", ");
   if (w.lastReceiptAt) {
     if (w.recentTotal > 0 && w.recentRejected === w.recentTotal) {
       // The expensive case. Something IS sending and we are refusing all of
@@ -359,7 +367,9 @@ export function evaluateHealth(
         severity: "critical",
         title: `Order webhook rejecting everything (${w.recentRejected} received, 0 accepted)`,
         detail:
-          "Zuppler is delivering and every receipt is being turned away - most likely a token mismatch or an unmapped restaurant. Each one is a live order that will not print. Check webhook_receipts for the reason.",
+          `Zuppler is delivering and every receipt in the last ${w.recentWindowHours}h was turned away. ` +
+          (worstSources ? `Reason: ${worstSources}. ` : "No reason was recorded. ") +
+          "Each one is a live order that will not print. A token mismatch means every listing; an unmapped id is one Zuppler listing with no restaurant_zuppler_ids row.",
       });
     } else if (w.lastAcceptedAt === null) {
       issues.push({
@@ -394,10 +404,6 @@ export function evaluateHealth(
         w.recentRejected >= thresholds.webhookRejectedMinCount &&
         share >= thresholds.webhookRejectedShare
       ) {
-        const worst = w.recentRejectedSources
-          .slice(0, 5)
-          .map((x) => `${x.label} (${x.count})`)
-          .join(", ");
         issues.push({
           key: "webhook_partial_rejected",
           severity: "critical",
@@ -405,7 +411,7 @@ export function evaluateHealth(
           detail:
             `${w.recentRejected} receipts turned away in the last ${w.recentWindowHours}h while ` +
             `${w.recentTotal - w.recentRejected} were accepted, so from the outside nothing looks wrong. ` +
-            (worst ? `Worst: ${worst}. ` : "") +
+            (worstSources ? `Worst: ${worstSources}. ` : "") +
             `Each refusal is a live order that will not print and will not be paid. ` +
             `An unmapped id is usually a Zuppler listing with no restaurant_zuppler_ids row.`,
         });

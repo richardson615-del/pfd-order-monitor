@@ -186,6 +186,24 @@ console.log("inbound webhook:");
     assert.match(i!.title, /2 received, 0 accepted/);
   });
 
+  test("a total refusal names the reason it already holds", () => {
+    // 2026-09-15: this fired on the CRM's Devices page with "check
+    // webhook_receipts for the reason" - and the dashboard the reader would
+    // need is one nobody in the office has open. The snapshot had the
+    // reasons the whole time.
+    const s = {
+      ...healthy,
+      webhook: {
+        lastReceiptAt: minsAgo(10), lastAcceptedAt: hoursAgo(30), recentTotal: 2, recentRejected: 2, recentWindowHours: 6,
+        recentRejectedSources: [{ label: "zuppler_restaurant_id 32770", count: 2 }],
+      },
+    };
+    const i = evaluateHealth(s, NOW).find((x) => x.key === "webhook_all_rejected");
+    assert.ok(i);
+    assert.match(i!.detail, /Reason: zuppler_restaurant_id 32770 \(2\)/);
+    assert.doesNotMatch(i!.detail, /Check webhook_receipts/);
+  });
+
   test("a partial rejection is not flagged as total failure", () => {
     // One unmapped restaurant among live traffic is a different, quieter
     // problem than the pipe being shut.

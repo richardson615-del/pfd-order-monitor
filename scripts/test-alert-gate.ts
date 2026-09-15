@@ -120,10 +120,39 @@ test("one tap does permission, subscription AND audio", () => {
   assert.match(turnOn, /armAudio\(\)/);
 });
 
-test("a granted-but-unrecordable subscription does NOT fall through to the orders", () => {
-  // The endpoint is what makes a push arrive. Without it this tablet is as
-  // silent as an unsubscribed one, so it must not look different.
-  assert.match(gate, /setState\("ask"\);\s*\n\s*onSubscribedChange\?\.\(false\);/);
+test("a failed re-record does not lock a working tablet out of its orders", () => {
+  // Reported from a live tablet: push_subscriptions has no UPDATE policy, so
+  // re-recording an existing endpoint was refused by RLS on every load, and
+  // this gate put itself up over a screen that was receiving orders fine.
+  //
+  // It blocks only when the BROWSER holds no subscription - which is
+  // genuinely silent. With one in hand, the server almost certainly has it
+  // from a previous run, and today's refresh failing says nothing about
+  // whether a push will actually arrive.
+  assert.match(gate, /if \(hasSubscription\) \{/);
+  const granted = gate.slice(
+    gate.indexOf('if (permission === "granted")'),
+    gate.indexOf("const next = alertGateState")
+  );
+  assert.ok(granted.length > 0, "the granted branch should be findable");
+  assert.match(granted, /setState\("hidden"\)/, "a subscribed browser is let through");
+  assert.match(granted, /setState\("ask"\)/, "an unsubscribed one is still blocked");
+  // Either way the office is told this tablet is not confirmed.
+  assert.match(granted, /onSubscribedChange\?\.\(false\)/);
+});
+
+test("the subscription write is not refused by its own RLS", () => {
+  // push_subscriptions has insert/select/delete policies and NO update
+  // policy, and an upsert onto an existing endpoint IS an update. Authorised
+  // by the session, written with the service role - an update policy alone
+  // would not do, because re-binding a tablet to a different restaurant hits
+  // a row owned by the previous user, which auth_user_id = auth.uid()
+  // refuses by design.
+  const subscribeRoute = src("app/api/push/subscribe/route.ts");
+  assert.match(subscribeRoute, /supabaseAdmin\(\)\.from\("push_subscriptions"\)\.upsert/);
+  // Ownership still comes from the session, never from the body.
+  assert.match(subscribeRoute, /auth_user_id: user\.id/);
+  assert.match(subscribeRoute, /restaurant_id: restaurantIds\[0\]/);
 });
 
 test("the real error is shown, not swallowed into a console", () => {

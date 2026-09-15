@@ -106,10 +106,30 @@ export default function AlertGate({
         onSubscribedChange?.(true);
         return;
       } catch (err) {
-        // Granted but we could not record it. Do NOT fall through to the
-        // order list: the endpoint is what makes a push arrive, and without
-        // it this tablet is as silent as an unsubscribed one.
+        /**
+         * Granted, but recording it failed.
+         *
+         * This used to block, on the reasoning that an unrecorded endpoint is
+         * as silent as no endpoint. That was wrong for the case it actually
+         * hit: when the BROWSER already holds a subscription, the server very
+         * likely holds it too from a previous run, and today's refresh
+         * failing says nothing about whether a push will arrive. Blocking
+         * there locks a kitchen out of its live orders over a write that did
+         * not need to succeed.
+         *
+         * So it blocks only when there is no browser subscription at all -
+         * which is genuinely silent - and otherwise lets them through with
+         * the error showing and the status pill amber. Found the hard way: an
+         * RLS refusal on every re-record put the gate up on a working tablet.
+         */
         setError(err instanceof Error ? err.message : "Could not turn alerts on.");
+        if (hasSubscription) {
+          setState("hidden");
+          // Still false: the office should see this tablet as not confirmed,
+          // and the pill should say so, even though the orders are reachable.
+          onSubscribedChange?.(false);
+          return;
+        }
         setState("ask");
         onSubscribedChange?.(false);
         return;

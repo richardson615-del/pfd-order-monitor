@@ -83,14 +83,52 @@ test("the monitor endpoint fails closed when its secret is unset", () => {
   assert.match(route, /status: 503/);
 });
 
+test("the Gmail poll endpoint fails closed when its secret is unset", () => {
+  // Found 2026-09-15: the identical fail-open the review fixed in the monitor
+  // cron was still sitting in the Gmail poll, which reads restaurant inboxes
+  // through stored OAuth tokens. The review fixed the route it was reading and
+  // never grepped for the pattern, which is what the assertion below now does.
+  const route = code("app/api/gmail/poll/route.ts");
+  assert.doesNotMatch(route, /!==\s*`Bearer \$\{process\.env\.CRON_SECRET\}`/);
+  assert.match(route, /if \(!expected\)/);
+  assert.match(route, /status: 503/);
+});
+
+test("no route anywhere compares against an interpolated env secret", () => {
+  // The per-route assertions above only cover routes someone thought to list.
+  // This one catches the next copy of the pattern wherever it lands, which is
+  // how this bug survived the review that fixed its twin.
+  const walk = (dir: URL): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? walk(new URL(`${e.name}/`, dir))
+        : e.name.endsWith(".ts") || e.name.endsWith(".tsx")
+          ? [new URL(e.name, dir).pathname]
+          : []
+    );
+  const appRoot = new URL("../app/", import.meta.url);
+  const repoRoot = new URL("../", import.meta.url).pathname;
+  for (const abs of walk(appRoot)) {
+    const rel = abs.slice(repoRoot.length);
+    assert.doesNotMatch(
+      code(rel),
+      /`Bearer \$\{process\.env\./,
+      `${rel} compares a secret against an interpolated env var - unset, that is the string "Bearer undefined"`
+    );
+  }
+});
+
 test("every shared secret is compared in constant time", () => {
   // constantTimeEquals already existed here and was used by exactly one of
-  // the three shared-secret checks. One helper with one caller is not a
-  // convention, it is an accident waiting to be repeated.
+  // the shared-secret checks. One helper with one caller is not a convention,
+  // it is an accident waiting to be repeated - and it was repeated: the review
+  // counted three checks and there were four, the Gmail poll being the one
+  // nobody listed.
   for (const f of [
     "lib/crm-auth.ts",
     "app/api/monitor/check/route.ts",
     "app/api/ingest/zuppler/route.ts",
+    "app/api/gmail/poll/route.ts",
   ]) {
     assert.match(code(f), /constantTimeEquals\(/, `${f} must not compare a secret with === or !==`);
   }

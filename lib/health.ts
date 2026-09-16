@@ -348,11 +348,12 @@ export function evaluateHealth(
   // restaurant has its tablet off and that is not a fault - without the gate
   // this would fire at four in the morning, every morning, which is how a
   // channel gets muted before the night it matters.
-  // --- orders sitting unaccepted on a tablet ---
+  // --- orders sitting unopened on a tablet ---
   // One finding per order, keyed on the order, so it clears the moment
-  // somebody taps Accept and never re-fires for the same order. Critical:
-  // this is a customer waiting, and the only fix is a phone call to the
-  // kitchen right now.
+  // somebody opens the ticket (which stamps accepted_at - there is no
+  // Accept step since 2026-09-16, opening is the acknowledgement) and never
+  // re-fires for the same order. Critical: this is a customer waiting, and
+  // the only fix is a phone call to the kitchen right now.
   for (const o of snap.unacceptedOrders) {
     const mins = minutesSince(o.received_at, now);
     if (mins === null || mins < thresholds.orderUnacceptedMinutes) continue;
@@ -360,8 +361,8 @@ export function evaluateHealth(
       key: `order_unaccepted:${o.id}`,
       restaurant_id: o.restaurant_id,
       severity: "critical",
-      title: `Order not accepted: #${o.order_number ?? o.id.slice(0, 8)} at ${o.restaurant_name ?? "unknown restaurant"}`,
-      detail: `Arrived ${ago(mins)} and nobody at ${where(o.restaurant_name)} has pressed Accept on the tablet. Call the kitchen - the customer is waiting.`,
+      title: `Order not opened: #${o.order_number ?? o.id.slice(0, 8)} at ${o.restaurant_name ?? "unknown restaurant"}`,
+      detail: `Arrived ${ago(mins)} and nobody at ${where(o.restaurant_name)} has opened it on the tablet. Call the kitchen - the customer is waiting.`,
     });
   }
 

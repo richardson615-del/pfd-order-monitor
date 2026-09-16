@@ -470,7 +470,7 @@ test("three minutes unaccepted is critical, keyed on the order, naming the resta
   assert.ok(late, "three minutes is the line");
   assert.equal(late!.severity, "critical");
   assert.equal(late!.restaurant_id, "r1");
-  assert.match(late!.title, /Order not accepted: #1042 at Willie Mae's/);
+  assert.match(late!.title, /Order not opened: #1042 at Willie Mae's/);
   assert.match(late!.detail, /Call the kitchen/);
   assert.equal(issues.find((i) => i.key === "order_unaccepted:o-fresh"), undefined, "two minutes is not");
 });

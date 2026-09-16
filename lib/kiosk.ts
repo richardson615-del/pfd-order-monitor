@@ -42,18 +42,18 @@ export const HEARTBEAT_MIN_INTERVAL_MS = 60_000;
 const STILL_WAITING_EXCLUDES = new Set(["completed", "cancelled"]);
 
 /**
- * How long an unaccepted order still warrants a chime.
+ * How long an unopened order still warrants a chime.
  *
- * Six hours - longer than any service, and far longer than any honest accept
- * window. Past that nobody is going to cook it, and the alert is demanding an
- * action that no longer exists.
+ * Six hours - longer than any service, and far longer than any honest
+ * response window. Past that nobody is going to cook it, and the alert is
+ * demanding an action that no longer exists.
  *
  * This exists because of what happens the first time a tablet is signed in at
  * a restaurant that has been taking orders for months. Every order they ever
- * took is unaccepted - until that moment there was no tablet to accept
- * anything on - so the screen comes up chiming about a backlog going back to
- * whenever they joined, and the only way to silence it is to tap Accept on
- * every single one. That is exactly what happened on the first real install.
+ * took is unopened - until that moment there was no tablet to open anything
+ * on - so the screen comes up chiming about a backlog going back to whenever
+ * they joined, and the only way to silence it is to open every single one.
+ * That is exactly what happened on the first real install.
  *
  * A chime nobody can act on is worse than no chime: it is the thing that
  * teaches a kitchen to ignore the noise.
@@ -61,26 +61,27 @@ const STILL_WAITING_EXCLUDES = new Set(["completed", "cancelled"]);
 export const STILL_ACTIONABLE_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Orders still waiting for someone at the restaurant to accept them.
+ * Orders nobody at the restaurant has opened yet.
  *
- * This is what the chime keys off. It used to key off status 'new', which
- * cleared itself the instant anyone tapped the order - so a glance, or a
- * mis-tap, silenced the tablet without a single person having agreed to cook
- * anything.
+ * This is what the chime keys off. Opening the ticket is the
+ * acknowledgement (Nick, 2026-09-16: there is no Accept step; "when the
+ * ticket is opened treat that as accepted"). accepted_at counts too, so an
+ * order accepted under the old button does not start ringing again after
+ * the deploy.
  *
- * It asks only about the tablet: has somebody here accepted this order, is the
- * order still live, and is it recent enough to still be worth acting on. What
- * any other delivery channel did is not an input.
+ * It asks only about the tablet: has somebody here opened this order, is
+ * the order still live, and is it recent enough to still be worth acting
+ * on. What any other delivery channel did is not an input.
  *
- * Note this governs the CHIME, not the list. An old unaccepted order stays on
- * screen where staff can still see and open it - it just stops demanding to be
- * dealt with this second.
+ * Note this governs the CHIME, not the list. An old unopened order stays on
+ * screen until midnight where staff can still see and open it - it just
+ * stops demanding to be dealt with this second.
  */
-export function unaccepted<
-  T extends { status: string; accepted_at: string | null; received_at?: string | null }
+export function unseen<
+  T extends { status: string; opened_at?: string | null; accepted_at: string | null; received_at?: string | null }
 >(orders: T[], now: number = Date.now()): T[] {
   return orders.filter((o) => {
-    if (o.accepted_at || STILL_WAITING_EXCLUDES.has(o.status)) return false;
+    if (o.opened_at || o.accepted_at || STILL_WAITING_EXCLUDES.has(o.status)) return false;
 
     // No timestamp means we cannot tell how old it is, so chime. A missing
     // field must never be the reason a real order goes unannounced - silence

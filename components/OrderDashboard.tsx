@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
-import { ageMs, elapsedLabel, isSettled, isWaiting, type DisplayMode } from "@/lib/order-display";
+import CompletedRow from "./CompletedRow";
+import PastWeek from "./PastWeek";
+import { bucketOf, elapsedLabel, isLate, type DisplayMode } from "@/lib/order-display";
+import { countsForHistory, money } from "@/lib/history";
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
@@ -26,7 +29,7 @@ import {
   pollDelayMs,
   reloadHoldMs,
   realtimeConnection,
-  unaccepted,
+  unseen,
   liveState,
   HEARTBEAT_EVERY_MS,
 } from "@/lib/kiosk";
@@ -34,31 +37,14 @@ import {
 /**
  * What the lists are called.
  *
- * Was New / Opened / Completed / Printed - the database's own words. Two of
- * those are not distinctions a kitchen can act on: 'opened' only means
- * somebody tapped the row, and 'printed' is a fact about the paper channel,
- * which is independent of the tablet. orderFlag() already collapses them, so
- * the tabs now say the same three things the cards do.
- *
- * "Done" deliberately includes cancelled: nothing is owed on it either. The
- * card still shows it as cancelled, struck through, so it cannot be mistaken
- * for something that was cooked.
+ * Two lists and a history (Nick, 2026-09-16). "Orders" is everything in
+ * the kitchen today; "Completed" is what was finished today; "Past week"
+ * is read-only. Was Waiting / Accepted / Done - three states of a step
+ * that no longer exists. There is no Accept: opening a ticket is the
+ * acknowledgement, Done is the one action, and an order nobody marked done
+ * ages off the list six hours after it arrived.
  */
-type TabKey = "waiting" | "accepted" | "done" | "all";
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "waiting", label: "Waiting" },
-  { key: "accepted", label: "Accepted" },
-  { key: "done", label: "Done" },
-  { key: "all", label: "Show all" },
-];
-
-function inTab(order: Order, key: TabKey): boolean {
-  if (key === "all") return true;
-  if (!isSettled(order)) return key === "waiting";
-  if (order.accepted_at) return key === "accepted";
-  return key === "done";
-}
+type TabKey = "orders" | "completed" | "past";
 
 export default function OrderDashboard({
   initialOrders,
@@ -82,7 +68,7 @@ export default function OrderDashboard({
   timezone: string | null;
 }) {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
-  const [tab, setTab] = useState<TabKey>("waiting");
+  const [tab, setTab] = useState<TabKey>("orders");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [soundArmed, setSoundArmed] = useState(true); // assume ok until checked
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
@@ -139,27 +125,13 @@ export default function OrderDashboard({
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /**
-   * What the chime is sounding for.
-   *
-   * Keyed on acceptance, not on status 'new'. 'new' cleared itself the moment
-   * anyone tapped the order, so a glance or a mis-tap silenced the tablet
-   * without a single person having agreed to cook anything.
+   * What the chime is sounding for: orders nobody here has opened. Keyed
+   * on opening, not on acceptance - there is no Accept step any more - and
+   * still bounded to the six-hour window so a tablet does not ring all day
+   * about a backlog nobody is going to cook.
    */
-  const waiting = useMemo(() => unaccepted(orders), [orders]);
+  const waiting = useMemo(() => unseen(orders), [orders]);
   const hasNewOrders = waiting.length > 0;
-
-  /**
-   * What the Waiting tab holds - and therefore what the headline says.
-   *
-   * Not the same set as `waiting` above, on purpose. That one is the chime's,
-   * and it drops anything past six hours so a tablet does not ring all day
-   * about orders nobody is going to cook. This one has no cutoff: an order
-   * nobody accepted is still owed a decision, and the tab shows it. The
-   * headline used to count the chime's set, so a screen with ten stale
-   * orders in Waiting announced "All clear" above them.
-   */
-  const waitingRows = useMemo(() => orders.filter(isWaiting), [orders]);
-  const anyWaiting = waitingRows.length > 0;
 
   /**
    * Reconcile against the database directly.
@@ -448,7 +420,6 @@ export default function OrderDashboard({
     };
   }, [hasNewOrders, soundArmed]);
 
-  const filtered = orders.filter((o) => inTab(o, tab));
   const stale = isStale(lastSyncAt, now);
   const warning = kioskWarning({ connection, soundArmed, stale });
   const live = liveState({
@@ -461,6 +432,45 @@ export default function OrderDashboard({
   });
 
   /**
+   * The two lists, from one rule (bucketOf) so the tab counts, the hero
+   * line and the rows cannot disagree. Orders oldest first - the top of the
+   * list is the ticket that has waited longest, which is the one the
+   * kitchen picks up next. Completed newest first - the last thing you did
+   * is the one you want to check.
+   *
+   * `now` moves every second and the six-hour window is read from it,
+   * which is how an order ages off the list without a reload.
+   */
+  const kitchen = useMemo(
+    () =>
+      orders
+        .filter((o) => bucketOf(o, now, timezone) === "orders")
+        .sort((a, b) => (a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0)),
+    [orders, now, timezone]
+  );
+  const completed = useMemo(
+    () =>
+      orders
+        .filter((o) => bucketOf(o, now, timezone) === "completed")
+        .sort((a, b) => {
+          const ta = a.completed_at ?? a.cancelled_at ?? a.received_at;
+          const tb = b.completed_at ?? b.cancelled_at ?? b.received_at;
+          return ta < tb ? 1 : ta > tb ? -1 : 0;
+        }),
+    [orders, now, timezone]
+  );
+  const completedCounted = completed.filter(countsForHistory);
+  const completedTotal = completedCounted.reduce((sum, o) => sum + (o.customer_total ?? 0), 0);
+
+  /**
+   * The oldest thing in the kitchen. "3 orders" says how much; this says
+   * how bad, which is the number somebody in a kitchen acts on. Red the
+   * moment any of them is late.
+   */
+  const oldest = kitchen[0] ?? null;
+  const anyLate = kitchen.some((o) => isLate(o, now));
+
+  /**
    * When this stretch of being offline began, for the strip's "reconnecting
    * since 6:39 PM". Set on the way into offline, cleared on the way out; a
    * clock that restarted on every render would say "since just now" forever.
@@ -471,15 +481,6 @@ export default function OrderDashboard({
     else setOfflineSince(null);
   }, [live.level]);
   const offline = live.level === "offline";
-
-  /**
-   * The oldest thing nobody has accepted. "3 waiting" says how much; this
-   * says how bad, which is the number somebody in a kitchen acts on.
-   */
-  const oldest = waitingRows.reduce<Order | null>((worst, o) => {
-    if (!worst) return o;
-    return (ageMs(o, now) ?? 0) > (ageMs(worst, now) ?? 0) ? o : worst;
-  }, null);
 
   // The tab a restaurant sees on the wall all day. Naming the restaurant
   // means a tablet showing the wrong one is obvious at a glance rather than
@@ -526,21 +527,11 @@ export default function OrderDashboard({
       <div className="app-head">
         <div className="app-head-id">
           <Brand size="sm" />
-          {/* The restaurant's own name, which this screen never showed. A
-              tablet signed into the wrong restaurant used to look exactly
-              like one signed into the right one. */}
+          {/* The restaurant's own name, large. A tablet signed into the
+              wrong restaurant is obvious at a glance rather than after
+              somebody wonders why the orders look unfamiliar. */}
           <span className="app-head-restaurant">{restaurantName}</span>
         </div>
-
-        {/* The count IS the headline. Everything else on this screen is
-            detail about it, and on a kitchen tablet the only question being
-            asked from across the room is "is anything waiting". */}
-        <span className={`app-head-count num ${anyWaiting ? "busy" : "idle"}`}>
-          {anyWaiting ? `${waitingRows.length} WAITING` : "All clear"}
-          {anyWaiting && oldest && (
-            <span className="app-head-oldest num">oldest {elapsedLabel(oldest, now)}</span>
-          )}
-        </span>
 
         <div className="app-head-right">
           {/* Says the worst true thing, not the one that happens to be
@@ -569,45 +560,71 @@ export default function OrderDashboard({
         </p>
       )}
 
-      {/* Why the room is beeping, in one line, and what stops it. When
-          nothing is beeping but the list is not empty - everything in it is
-          past the chime window - say that instead, because "press Accept"
-          is still the only thing that clears them. */}
-      {anyWaiting && (
-        <div className="waiting-bar" role="status">
-          {waitingRows.length === 1
-            ? `1 order ${hasNewOrders ? "waiting" : "from earlier still waiting"} — open it and press Accept`
-            : `${waitingRows.length} orders ${hasNewOrders ? "waiting" : "from earlier still waiting"} — open each one and press Accept`}
-        </div>
+      <div className="app-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "orders"} className={`app-tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>
+          Orders <span className="app-tab-n num">{kitchen.length}</span>
+        </button>
+        <button role="tab" aria-selected={tab === "completed"} className={`app-tab ${tab === "completed" ? "active" : ""}`} onClick={() => setTab("completed")}>
+          Completed <span className="app-tab-n num">{completedCounted.length}</span>
+        </button>
+        <button role="tab" aria-selected={tab === "past"} className={`app-tab ${tab === "past" ? "active" : ""}`} onClick={() => setTab("past")}>
+          Past week
+        </button>
+      </div>
+
+      {tab === "orders" && (
+        <>
+          {/* The hero. The count IS the headline; the age beside it is how
+              bad. Red the moment anything is late, so a glance from across
+              the room is enough. */}
+          <div className={`app-hero ${anyLate ? "late" : kitchen.length ? "busy" : "idle"}`} role="status">
+            {kitchen.length ? (
+              <>
+                <b className="num">{kitchen.length}</b> {kitchen.length === 1 ? "order" : "orders"} in the kitchen
+                {oldest && (
+                  <>
+                    {" "}· oldest <span className="num">{elapsedLabel(oldest, now)}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="app-hero-check" aria-hidden="true">✓</span> All clear
+              </>
+            )}
+          </div>
+
+          <div className={`app-list${offline ? " offline" : ""}`}>
+            {kitchen.length === 0 && (
+              <div className="app-empty">Nothing in the kitchen. New orders show here and ring until they&apos;re opened.</div>
+            )}
+            {kitchen.map((order) => (
+              <OrderCard key={order.id} order={order} now={now} />
+            ))}
+          </div>
+        </>
       )}
 
-      <div className="app-tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className={`app-tab ${tab === t.key ? "active" : ""}`}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-            {t.key !== "all" && ` (${orders.filter((o) => inTab(o, t.key)).length})`}
-          </button>
-        ))}
-      </div>
-
-      <div className={`app-list${offline ? " offline" : ""}`}>
-        {filtered.length === 0 && (
-          <div className="app-empty">
-            {tab === "waiting"
-              ? "Nothing waiting. All caught up."
-              : tab === "all"
-                ? `No orders for ${restaurantName} yet today.`
-                : "Nothing in this list."}
+      {tab === "completed" && (
+        <>
+          <div className="app-hero done" role="status">
+            <b className="num">{completedCounted.length}</b> completed today
+            {completedCounted.length > 0 && (
+              <>
+                {" "}· <span className="num">{money(completedTotal)}</span>
+              </>
+            )}
           </div>
-        )}
-        {filtered.map((order) => (
-          <OrderCard key={order.id} order={order} now={now} />
-        ))}
-      </div>
+          <div className={`app-list completed${offline ? " offline" : ""}`}>
+            {completed.length === 0 && <div className="app-empty">Nothing completed yet today.</div>}
+            {completed.map((order) => (
+              <CompletedRow key={order.id} order={order} timezone={timezone} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === "past" && <PastWeek timezone={timezone} />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

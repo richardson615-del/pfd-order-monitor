@@ -65,7 +65,8 @@
 /* The brand face, applied only where somebody reads across a room. */
 .brand,
 h1, h2,
-.app-head-count,
+.app-hero,
+.ticket-no,
 .app .num {
   font-family: var(--font-brand), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
@@ -260,41 +261,6 @@ button {
 }
 .kiosk-critical { background: var(--new); color: #fff; }
 .kiosk-warning { background: var(--opened); color: #1a1200; }
-
-/* Why the room is beeping. A fault banner and a work banner are different
-   things and must not look alike - this one is not a problem, it is the
-   tablet doing its job. */
-.waiting-bar {
-  padding: 14px 16px;
-  text-align: center;
-  font-size: 19px;
-  font-weight: 800;
-  background: var(--accent);
-  color: #fff;
-}
-
-/* Accept is what stops the chime, so it is the largest thing on the bar. On a
-   screen read from across a kitchen, the control that silences the room
-   should not be the same size as "Print". */
-.btn.accept {
-  background: var(--new);
-  border-color: var(--new);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 800;
-  padding: 14px 26px;
-  flex: 1;
-  justify-content: center;
-}
-
-.accepted-mark {
-  flex: 1;
-  text-align: center;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--completed);
-  align-self: center;
-}
 
 .badge.status-cancelled { background: rgba(255,90,95,0.18); color: var(--new); }
 .order-card.status-cancelled::before { background: var(--new); }
@@ -558,15 +524,6 @@ table.admin-table th, table.admin-table td {
   border-bottom: 1px solid var(--border);
 }
 
-.app-head-count {
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-
-.app-head-count.idle { color: var(--text-dim); }
-.app-head-count.busy { color: var(--st-waiting); }
-
 .app-head-right {
   margin-left: auto;
   display: flex;
@@ -824,16 +781,6 @@ table.admin-table th, table.admin-table td {
   text-overflow: ellipsis;
 }
 
-/* The oldest unaccepted order, beside the count. "3 waiting" is how much;
-   this is how bad. */
-.app-head-oldest {
-  display: block;
-  font-size: 0.42em;
-  font-weight: 700;
-  letter-spacing: 0;
-  color: var(--age-warn);
-}
-
 /* The sentence under the pill: what is wrong and what to do. The pill is one
    word and cannot carry an instruction. */
 .app-head-detail {
@@ -951,7 +898,6 @@ table.admin-table th, table.admin-table td {
 
 .card-name { font-weight: 700; }
 .card-total { margin-left: auto; font-weight: 800; }
-.card-sub { color: var(--text-dim); }
 
 /* The one thing besides the flag allowed on that line: a test order says so,
    quietly, so nobody cooks it. Muted on purpose - it is not a status. */
@@ -969,18 +915,231 @@ table.admin-table th, table.admin-table td {
   border-radius: 999px;
 }
 
-.card-flag.waiting { background: var(--st-waiting); color: #fff; }
 .card-flag.done { background: var(--st-done); color: #06251a; }
-.card-flag.printed {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-}
 .card-flag.cancelled {
   background: transparent;
   color: var(--age-late);
   border: 1px solid var(--age-late);
 }
+
+/* --- the hero line -------------------------------------------------------- */
+/* "3 orders in the kitchen · oldest 11:32". The count is the headline; the
+   age is how bad. Red the moment anything is late, so a glance from across
+   the room is enough. On Completed it is the day's count and money. */
+
+.app-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--text-dim);
+}
+.app-hero b { font-weight: 900; color: var(--text); }
+.app-hero.late,
+.app-hero.late b { color: var(--age-late); }
+.app-hero.busy b { color: var(--text); }
+.app-hero.idle { color: var(--st-done); }
+.app-hero.done b { color: var(--st-done); }
+.app-hero-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  border-radius: 50%;
+  background: var(--st-done);
+  color: #06251a;
+  font-size: 0.8em;
+  margin-right: 0.2em;
+}
+
+/* NEW until somebody opens it. The one pill on a kitchen card. */
+.card-flag.new { background: var(--st-waiting); color: #fff; }
+
+/* One line of what they ordered. The ticket has the rest. */
+.card-items {
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- completed rows -------------------------------------------------------- */
+/* Quieter than a kitchen card: nothing here is owed. */
+
+.done-row {
+  display: grid;
+  grid-template-columns: 14px auto 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+}
+.done-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--st-done); }
+.done-row.cancelled .done-dot { background: var(--age-late); }
+.done-row.open .done-dot { background: var(--age-calm); }
+.done-no { font-weight: 800; letter-spacing: -0.02em; }
+.done-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.done-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.done-kind { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+.done-total { font-weight: 800; }
+.done-when { color: var(--text-dim); font-weight: 700; white-space: nowrap; }
+.done-row.cancelled .done-name,
+.done-row.cancelled .done-no { text-decoration: line-through; opacity: 0.75; }
+.done-row.open .done-when { color: var(--age-warn); }
+
+/* --- past week ------------------------------------------------------------- */
+
+.week-tiles {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+.week-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-dim);
+  min-height: 84px;
+  padding: 10px 4px;
+}
+.week-tile.active { border-color: var(--text); background: var(--panel-2); color: var(--text); }
+.week-day { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--text-xs); }
+.week-count { font-weight: 900; font-size: 24px; color: var(--text); line-height: 1; }
+.week-total { font-weight: 700; font-size: var(--text-xs); }
+.week-foot { text-align: center; color: var(--text-dim); font-size: var(--text-sm); padding: 20px; margin: 0; }
+
+/* --- the ticket page ------------------------------------------------------- */
+/* One order, one action. The header carries the rail colour the card had. */
+
+.ticket-page { padding-bottom: 140px; }
+
+.ticket-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.ticket-back { min-height: 56px; padding: 0 20px; font-size: var(--text-md); }
+.ticket-kind {
+  color: var(--text-dim);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--text-sm);
+  flex: 1 1 auto;
+}
+.ticket-top .card-flag { font-size: 14px; padding: 6px 14px; }
+
+.ticket-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 20px 0;
+}
+.ticket-no { font-size: 48px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.ticket-timer { font-size: 44px; font-weight: 900; line-height: 1; color: var(--age-calm); }
+.ticket-timer.age-warn { color: var(--age-warn); }
+.ticket-timer.age-late { color: var(--age-late); }
+.ticket-timer.settled { color: var(--st-done); }
+
+.ticket-who {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.ticket-name { font-size: 26px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
+.ticket-due { color: var(--text-dim); font-weight: 700; font-size: var(--text-md); }
+
+.ticket-test {
+  margin: 14px 20px 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--age-warn) 18%, transparent);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.tk { padding: 8px 20px 0; }
+.tk-items { list-style: none; margin: 0; padding: 0; }
+.tk-item { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.tk-line { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
+.tk-name { font-size: 24px; font-weight: 800; line-height: 1.2; }
+.tk-price { color: var(--text-dim); font-weight: 700; font-size: var(--text-md); white-space: nowrap; }
+.tk-mods { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 4px; }
+.tk-mods li { color: var(--age-warn); font-weight: 700; font-size: 19px; }
+.tk-mods li::before { content: "– "; }
+.tk-empty { color: var(--text-dim); font-weight: 700; }
+
+.tk-money { padding: 14px 0 6px; border-bottom: 1px solid var(--border); }
+.tk-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; color: var(--text-dim); font-weight: 700; font-size: var(--text-md); }
+.tk-row.tk-total { color: var(--text); font-size: 26px; font-weight: 900; padding-top: 10px; }
+.tk-pay { color: var(--text-dim); font-size: var(--text-sm); padding-top: 6px; }
+
+.tk-note { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.tk-label { display: block; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--text-xs); margin-bottom: 6px; }
+.tk-note p { margin: 0; font-size: 21px; font-weight: 700; line-height: 1.35; }
+
+.tk-contact { display: flex; flex-direction: column; gap: 6px; padding: 16px 0; }
+.tk-phone { color: var(--brand); font-weight: 800; font-size: 22px; text-decoration: none; }
+.tk-address { color: var(--text-dim); font-size: var(--text-md); font-weight: 600; }
+
+.ticket-original { padding: 12px 20px 0; }
+.ticket-original .viewer-frame { margin-top: 12px; }
+.ticket-page .print-note { margin: 12px 20px 0; }
+
+/* Print again at a fixed width; Done fills the rest, taller than
+   anything else on the screen. Fixed to the bottom so it is under the
+   thumb whatever the ticket's length. */
+.ticket-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 12px;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.ticket-print { flex: 0 0 200px; min-height: 96px; font-size: 20px; }
+.ticket-done {
+  flex: 1 1 auto;
+  min-height: 96px;
+  font-size: 30px;
+  font-weight: 900;
+  background: var(--st-done);
+  color: #06251a;
+  border-color: var(--st-done);
+}
+.ticket-settled {
+  flex: 1 1 auto;
+  min-height: 96px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--st-done);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.ticket-settled.cancelled { color: var(--age-late); }
 
 /* --- filters ------------------------------------------------------------ */
 
@@ -1023,7 +1182,18 @@ table.admin-table th, table.admin-table td {
 [data-display="kitchen"] { padding-bottom: 24px; }
 
 [data-display="kitchen"] .app-head { padding: 18px 20px; }
-[data-display="kitchen"] .app-head-count { font-size: 40px; }
+[data-display="kitchen"] .app-hero { font-size: 30px; padding: 6px 20px 2px; }
+[data-display="kitchen"] .app-hero b { font-size: 44px; }
+[data-display="kitchen"] .app-tab-n { margin-left: 8px; opacity: 0.8; }
+[data-display="kitchen"] .card-items { font-size: 18px; margin-top: 8px; }
+[data-display="kitchen"] .done-row { padding: 18px 22px; border-radius: 12px; font-size: 18px; }
+[data-display="kitchen"] .done-no { font-size: 26px; }
+[data-display="kitchen"] .done-name { font-size: 20px; }
+[data-display="kitchen"] .done-kind { font-size: 13px; }
+[data-display="kitchen"] .done-total { font-size: 22px; }
+[data-display="kitchen"] .week { padding: 0 20px; }
+[data-display="kitchen"] .week .app-list { padding: 0; }
+[data-display="kitchen"] .week .app-hero { padding-left: 0; padding-right: 0; }
 [data-display="kitchen"] .app-live { font-size: 14px; }
 [data-display="kitchen"] .app-clock { font-size: 22px; }
 
@@ -1053,7 +1223,6 @@ table.admin-table th, table.admin-table td {
   letter-spacing: 0.01em;
 }
 [data-display="kitchen"] .card-total { font-size: 26px; }
-[data-display="kitchen"] .card-sub { font-size: 17px; margin-top: 8px; }
 [data-display="kitchen"] .card-flag { font-size: 14px; padding: 6px 14px; }
 [data-display="kitchen"] .app-empty { padding: 70px 20px; font-size: 20px; }
 
@@ -1084,8 +1253,18 @@ table.admin-table th, table.admin-table td {
 [data-display="standard"] { padding-bottom: 40px; }
 
 [data-display="standard"] .app-head { padding: 20px 24px; }
-[data-display="standard"] .app-head-count { font-size: 22px; font-weight: 700; }
-[data-display="standard"] .app-head-count.busy { color: var(--text); }
+[data-display="standard"] .app-hero { font-size: 18px; padding: 4px 24px 0; }
+[data-display="standard"] .app-hero b { font-size: 26px; }
+[data-display="standard"] .app-tab-n { margin-left: 6px; opacity: 0.8; }
+[data-display="standard"] .card-items { font-size: 14px; margin-top: 6px; }
+[data-display="standard"] .done-row { padding: 14px 18px; border-radius: 14px; font-size: 14px; }
+[data-display="standard"] .done-no { font-size: 18px; }
+[data-display="standard"] .done-name { font-size: 16px; }
+[data-display="standard"] .done-kind { font-size: 11px; }
+[data-display="standard"] .done-total { font-size: 16px; }
+[data-display="standard"] .week { padding: 0 24px; }
+[data-display="standard"] .week .app-list { padding: 0; }
+[data-display="standard"] .week .app-hero { padding-left: 0; padding-right: 0; }
 [data-display="standard"] .app-live { font-size: 12px; }
 [data-display="standard"] .app-clock { font-size: 15px; }
 
@@ -1110,7 +1289,6 @@ table.admin-table th, table.admin-table td {
 [data-display="standard"] .card-who { margin-top: 8px; }
 [data-display="standard"] .card-name { font-size: 16px; }
 [data-display="standard"] .card-total { font-size: 17px; }
-[data-display="standard"] .card-sub { font-size: 14px; margin-top: 6px; }
 [data-display="standard"] .card-flag { font-size: 11px; padding: 4px 10px; }
 [data-display="standard"] .app-empty { padding: 60px 24px; font-size: 16px; }
 
@@ -1119,7 +1297,9 @@ table.admin-table th, table.admin-table td {
    would overflow horizontally, so it steps down - still the larger of the two
    looks, just not sized for a room. */
 @media (max-width: 560px) {
-  [data-display="kitchen"] .app-head-count { font-size: 28px; }
+  [data-display="kitchen"] .app-hero { font-size: 22px; }
+  [data-display="kitchen"] .app-hero b { font-size: 30px; }
+  .ticket-print { flex-basis: 140px; }
   [data-display="kitchen"] .card-no { font-size: 27px; }
   [data-display="kitchen"] .card-age { font-size: 23px; }
   [data-display="kitchen"] .card-name { font-size: 18px; }

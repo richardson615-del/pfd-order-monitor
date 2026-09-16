@@ -592,7 +592,21 @@ staff only. With no network at all the service worker serves an Offline
 page. All of it, including the Supabase session settings that must stay
 off: [`docs/kiosk.md`](docs/kiosk.md).
 
-### Running the tablet as a kiosk
+### Two lists, one action
+
+Since 2026-09-16 (Workstream I2) the tablet shows **Orders** — everything
+in the kitchen today — and **Completed** — what was finished today — plus a
+read-only **Past week** of counts and totals. There is no Accept step:
+opening a ticket is the acknowledgement (it stops the chime and stamps
+`opened_at` and `accepted_at`), and **Done** is the one action, which marks
+the order completed. An order nobody marked Done leaves the Orders list
+**six hours** after it arrived — the chime's own window — and is not
+marked completed when it ages out; Past week shows it as "not marked
+done". Completed and Past week are cut by the restaurant's own day
+(`restaurants.timezone`). `orders.status` semantics are untouched: the
+rules for what to SHOW are in `lib/order-display.ts`, the chime's in
+`lib/kiosk.ts` (`unseen()`), the day's in `lib/local-day.ts`.
+
 
 The tablet runs in **kiosk mode with autostart** — it boots into the dashboard
 after a power cut and stays there. That is a different machine from a phone
@@ -642,7 +656,7 @@ ticket physically exists, and an alert on a screen is not that.
 ## 12. The public demo page
 
 `/demo.html` is a working, no-login demo of the order tablet — send an order,
-hear it chime, open the ticket, press Accept. Safe to send to anyone: invented
+hear it chime, open the ticket, press Done. Safe to send to anyone: invented
 orders, no server behind it, nothing that touches a restaurant.
 
 ```

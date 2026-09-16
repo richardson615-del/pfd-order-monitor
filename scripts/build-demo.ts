@@ -7,35 +7,34 @@
  * changed, and nothing would say so - it would just quietly start showing
  * customers something the kitchen never sees.
  *
- * So the ticket comes from buildTicket(), the same function the Epson
- * receives, styled with ticketLineClass(), the same rules the in-app screen
- * uses; and the CSS is app/globals.css inlined verbatim. Re-run after
- * changing either:
+ * So the ticket body is rendered by components/TicketBody - the same React
+ * component the tablet's ticket page uses - and the CSS is app/globals.css
+ * inlined verbatim. Re-run after changing either:
  *
  *     npm run build:demo
  *
  * The orders below are invented. Nothing here reaches a database, and the
  * page is a single self-contained file - no server, no login, no network.
+ *
+ * Two lists and one action, since 2026-09-16 (I2): Orders and Completed,
+ * a NEW pill until the ticket is opened, and Done.
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { buildTicket, ticketLineClass, type TicketOrder } from "@/lib/ticket";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+// tsconfig says jsx: "preserve" (Next compiles JSX itself), so under tsx the
+// component compiles to React.createElement and needs React in scope.
+(globalThis as any).React = React;
+// eslint-disable-next-line import/first
+import TicketBody from "@/components/TicketBody";
+import { itemsLine } from "@/lib/order-display";
+import type { TicketOrder } from "@/lib/ticket";
 
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-
-/** Renders one order's ticket exactly as the in-app screen does. */
-function ticketHtml(order: TicketOrder): string {
-  const lines = buildTicket(order, 48, {}, { omitFooter: true });
-  const body = lines
-    .map((l) =>
-      l.qr
-        ? '<div class="tl tl-c tl-note">[QR code prints here]</div>'
-        : `<div class="${ticketLineClass(l)}">${esc(l.text === "" ? " " : l.text)}</div>`
-    )
-    .join("");
-  return `<div class="receipt"><div class="receipt-paper">${body}</div></div>`;
+/** Renders one order's ticket body exactly as the in-app screen does. */
+function ticketHtml(order: TicketOrder & { customer_total: number }): string {
+  return renderToStaticMarkup(React.createElement(TicketBody, { order: order as any }));
 }
 
 const at = (m: number) => new Date(Date.now() + m * 60000).toISOString();
@@ -87,6 +86,7 @@ const demoOrders = ORDERS.map((o, i) => ({
   who: o.customer_name,
   type: o.order_type === "delivery" ? "Delivery" : "Pickup",
   total: `$${o.customer_total.toFixed(2)}`,
+  items: itemsLine(o.items as any),
   ticket: ticketHtml(o),
 }));
 
@@ -95,8 +95,8 @@ const page = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PFD Order Tablet - Demo</title>
-<meta name="description" content="A working demo of the PFD kitchen order tablet. Invented orders, no login.">
+<title>Premium Orders - Demo</title>
+<meta name="description" content="A working demo of the Premium kitchen order tablet. Invented orders, no login.">
 <meta name="robots" content="noindex">
 <style>
 ${css}
@@ -119,12 +119,10 @@ ${css}
   @media (max-width: 860px) { .dx-stage { grid-template-columns: 1fr; } }
   .dx-device { border: 11px solid #222839; border-radius: 24px; background: var(--bg); overflow: hidden; box-shadow: 0 22px 60px rgba(0,0,0,0.6); }
   .dx-screen { height: 640px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .dx-screen .action-bar { position: sticky; bottom: 0; }
-  /* The app sizes the ticket in vw, which is correct on a real tablet where
-     the viewport IS the device. Here the device is a small frame inside a
-     larger page, so vw over-sizes the 48-column ticket. Harness-only; the
-     app's own stylesheet is untouched and fills a real screen as designed. */
-  .dx-screen .receipt-paper { font-size: 11px; }
+  /* The app fixes the Done bar to the viewport; in this frame the screen is
+     the scrolling element, so it sticks to the frame instead. Harness-only. */
+  .dx-screen .ticket-actions { position: sticky; }
+  .dx-screen .ticket-page { min-height: 0; padding-bottom: 0; }
   .dx-panel { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 16px; }
   .dx-panel + .dx-panel { margin-top: 14px; }
   .dx-panel h2 { font-size: 14px; margin: 0 0 4px; color: var(--text); }
@@ -149,11 +147,11 @@ ${css}
 <body>
 <div class="dx-wrap">
   <header class="dx-head">
-    <h1>PFD Order Tablet</h1>
+    <h1>Premium Orders</h1>
     <p>
-      The kitchen tablet, running. The ticket is produced by the same renderer that drives the
-      receipt printer, and the styling is the app's own &mdash; but the orders are invented and there
-      is no server behind this page, so nothing here touches a real restaurant.
+      The kitchen tablet, running. The ticket is the app's own component and the styling is the
+      app's own stylesheet &mdash; but the orders are invented and there is no server behind this
+      page, so nothing here touches a real restaurant.
     </p>
     <p class="dx-note">
       <b>Turn your sound on.</b> The alert is the point. The red bar you see first is real behaviour
@@ -170,8 +168,8 @@ ${css}
         <ol class="dx-steps">
           <li><b>Touch the screen</b> &mdash; the sound warning clears.</li>
           <li><b>Send an order</b> &mdash; it arrives and starts chiming.</li>
-          <li><b>Tap the order</b> &mdash; it opens as the ticket. The chime keeps going.</li>
-          <li><b>Press Accept</b> &mdash; only this stops it.</li>
+          <li><b>Tap the order</b> &mdash; it opens as the ticket, and the chime stops. Opening it is the acknowledgement.</li>
+          <li><b>Press Done</b> when it's cooked &mdash; it moves to Completed.</li>
         </ol>
       </div>
       <div class="dx-panel">
@@ -182,7 +180,7 @@ ${css}
       </div>
       <div class="dx-panel">
         <h2>What is real here</h2>
-        <p>The ticket layout, the styling, the sound rule, the chime, the wording of every banner, and the fact that only Accept silences it.</p>
+        <p>The ticket layout, the styling, the sound rule, the chime, the wording of every banner, and the fact that opening a ticket is what silences it.</p>
         <p>Not real: the orders, and the server. In the live app orders arrive the moment they are placed, and the screen re-checks every minute as a backstop.</p>
       </div>
     </div>
@@ -232,12 +230,14 @@ function beep() {
   });
 }
 
-const state = { orders: [], view: "list", openId: null, armed: false, offline: false, next: 0 };
+const state = { orders: [], view: "list", tab: "orders", openId: null, armed: false, offline: false, next: 0 };
 let chime = null;
-const waiting = () => state.orders.filter((o) => !o.accepted && o.status !== "completed");
+const unseen = () => state.orders.filter((o) => !o.opened && o.status !== "completed");
+const kitchen = () => state.orders.filter((o) => o.status !== "completed").slice().reverse();
+const completed = () => state.orders.filter((o) => o.status === "completed");
 
 function syncChime() {
-  if (waiting().length && state.armed) {
+  if (unseen().length && state.armed) {
     if (!chime) { beep(); chime = setInterval(beep, 8000); }
   } else if (chime) { clearInterval(chime); chime = null; }
 }
@@ -246,43 +246,63 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 function banner() {
   if (!state.armed) return '<div class="kiosk-banner kiosk-critical">Sound is off &mdash; touch the screen to turn on order alerts</div>';
-  if (state.offline) return '<div class="kiosk-banner kiosk-critical">Not receiving orders &mdash; reconnecting. Check this tablet\\'s wifi.</div>';
+  if (state.offline) return '<div class="offline-strip"><span class="offline-text">Not receiving orders &mdash; Wi-Fi is down &middot; reconnecting</span></div>';
   return "";
 }
 
+function head() {
+  return '<div class="app-head"><div class="app-head-id"><span class="brand" style="color:var(--brand);font-weight:800">Premium</span>' +
+    '<span class="app-head-restaurant">Swezey\'s Pub</span></div>' +
+    '<div class="app-head-right"><span class="app-live ' + (state.offline ? "offline" : "live") + '">' + (state.offline ? "Offline" : "Live") + "</span>" +
+    '<span class="app-clock num">' + esc(now()) + "</span></div></div>";
+}
+
+function tabs() {
+  return '<div class="app-tabs">' +
+    '<button class="app-tab ' + (state.tab === "orders" ? "active" : "") + '" data-tab="orders">Orders <span class="app-tab-n num">' + kitchen().length + "</span></button>" +
+    '<button class="app-tab ' + (state.tab === "completed" ? "active" : "") + '" data-tab="completed">Completed <span class="app-tab-n num">' + completed().length + "</span></button>" +
+    '<button class="app-tab" disabled>Past week</button></div>';
+}
+
 function listView() {
-  const w = waiting().length;
-  const bar = w ? '<div class="waiting-bar">' + (w === 1 ? "1 order waiting &mdash; open it and press Accept" : w + " orders waiting &mdash; open each one and press Accept") + "</div>" : "";
-  const cards = state.orders.length
-    ? state.orders.map(function (o) {
-        const st = o.accepted ? (o.status === "completed" ? "completed" : "opened") : "new";
-        const label = o.accepted ? (o.status === "completed" ? "completed" : "accepted") : "new";
-        return '<a class="order-card status-' + st + '" data-open="' + o.id + '">' +
-          '<div class="order-card-top"><span class="order-number">Order #' + esc(o.number) +
-          '<span class="badge status-' + st + '">' + label + '</span></span>' +
-          '<span class="order-total">' + esc(o.total) + "</span></div>" +
-          '<div class="order-meta">' + esc(o.who) + " &middot; " + esc(o.type) + " &middot; just now</div>" +
-          '<span class="order-source">Zuppler</span></a>';
-      }).join("")
-    : '<div class="empty-state">No orders here yet.</div>';
-  return banner() + bar +
-    '<div class="topbar"><h1>PFD Orders</h1><span class="success-text">Notifications on</span></div>' +
-    '<div class="tabs"><button class="tab active">All</button><button class="tab">New (' + w + ')</button><button class="tab">Completed</button></div>' +
-    '<div class="order-list">' + cards + "</div>";
+  if (state.tab === "completed") {
+    const rows = completed().map(function (o) {
+      return '<a class="done-row done" data-open="' + o.id + '"><span class="done-dot"></span><span class="done-no num">#' + esc(o.number) + "</span>" +
+        '<span class="done-who"><span class="done-name">' + esc(o.who) + '</span><span class="done-kind">' + esc(o.type) + "</span></span>" +
+        '<span class="done-total num">' + esc(o.total) + '</span><span class="done-when num">Done ' + esc(o.doneAt) + "</span></a>";
+    }).join("");
+    const total = completed().reduce((n, o) => n + Number(o.total.slice(1)), 0);
+    return banner() + head() + tabs() +
+      '<div class="app-hero done"><b class="num">' + completed().length + '</b> completed today' + (completed().length ? ' &middot; <span class="num">$' + total.toFixed(2) + "</span>" : "") + "</div>" +
+      '<div class="app-list completed">' + (rows || '<div class="app-empty">Nothing completed yet today.</div>') + "</div>";
+  }
+  const k = kitchen();
+  const cards = k.map(function (o) {
+    return '<a class="card age-calm' + (o.opened ? "" : " unopened") + '" data-open="' + o.id + '">' +
+      '<div class="card-top"><span class="card-no num">#' + esc(o.number) + '</span><span class="card-type">' + esc(o.type) + "</span>" +
+      (o.opened ? "" : '<span class="card-flag new">New</span>') + '<span class="card-age num">' + esc(o.age) + "</span></div>" +
+      '<div class="card-who"><span class="card-name">' + esc(o.who) + '</span><span class="card-total num">' + esc(o.total) + "</span></div>" +
+      '<div class="card-items">' + esc(o.items) + "</div></a>";
+  }).join("");
+  return banner() + head() + tabs() +
+    '<div class="app-hero ' + (k.length ? "busy" : "idle") + '">' + (k.length ? '<b class="num">' + k.length + "</b> " + (k.length === 1 ? "order" : "orders") + " in the kitchen" : '<span class="app-hero-check">&#10003;</span> All clear') + "</div>" +
+    '<div class="app-list' + (state.offline ? " offline" : "") + '">' + (cards || '<div class="app-empty">Nothing in the kitchen. New orders show here and ring until they\'re opened.</div>') + "</div>";
 }
 
 function ticketView() {
   const o = state.orders.find((x) => x.id === state.openId);
   if (!o) return listView();
+  const done = o.status === "completed";
   return banner() +
-    '<div class="topbar"><span class="btn small" data-back="1">&larr; Back</span><h1>Order #' + esc(o.number) + "</h1>" +
-    '<span class="badge status-' + (o.accepted ? "opened" : "new") + '">' + (o.accepted ? "accepted" : "new") + "</span></div>" +
+    '<div class="app ticket-page" data-display="kitchen">' +
+    '<div class="ticket-top"><span class="btn ticket-back" data-back="1">&larr; Orders</span><span class="ticket-kind">' + esc(o.type) + " &middot; ordered " + esc(o.at) + "</span>" +
+    (done ? '<span class="card-flag done">Completed</span>' : "") + "</div>" +
+    '<div class="ticket-head"><span class="ticket-no num">#' + esc(o.number) + '</span><span class="ticket-timer num ' + (done ? "settled" : "age-calm") + '">' + esc(o.age) + "</span></div>" +
+    '<div class="ticket-who"><span class="ticket-name">' + esc(o.who) + "</span></div>" +
     o.ticket +
-    '<div class="action-bar"><span class="btn">Call customer</span><span class="btn">Print</span>' +
-    (o.accepted
-      ? '<span class="accepted-mark">Accepted ' + esc(o.acceptedAt) + "</span>"
-      : '<button class="btn accept" data-accept="' + o.id + '">Accept order</button>') +
-    '<button class="btn primary" data-complete="' + o.id + '">Mark complete</button></div>';
+    '<div class="ticket-actions"><span class="btn ticket-print">Print again</span>' +
+    (done ? '<span class="ticket-settled completed">Done ' + esc(o.doneAt) + "</span>" : '<button class="btn ticket-done" data-done="' + o.id + '">Done</button>') +
+    "</div></div>";
 }
 
 function render() {
@@ -305,32 +325,45 @@ const now = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "
 document.getElementById("screen").addEventListener("click", function (e) {
   const open = e.target.closest("[data-open]");
   const back = e.target.closest("[data-back]");
-  const accept = e.target.closest("[data-accept]");
-  const complete = e.target.closest("[data-complete]");
-  if (open) { state.openId = open.dataset.open; state.view = "ticket"; render(); }
+  const tab = e.target.closest("[data-tab]");
+  const done = e.target.closest("[data-done]");
+  if (open) {
+    // Opening is the acknowledgement: the chime stops here, not on a button.
+    const o = state.orders.find((x) => x.id === open.dataset.open);
+    if (o && !o.opened) o.opened = true;
+    state.openId = open.dataset.open; state.view = "ticket"; render();
+  }
   else if (back) { state.view = "list"; render(); }
-  else if (accept) {
-    const o = state.orders.find((x) => x.id === accept.dataset.accept);
-    if (o) { o.accepted = true; o.acceptedAt = now(); }
-    render();
-  } else if (complete) {
-    const o = state.orders.find((x) => x.id === complete.dataset.complete);
-    if (o) { o.status = "completed"; o.accepted = true; o.acceptedAt = o.acceptedAt || now(); }
-    state.view = "list"; render();
+  else if (tab) { state.tab = tab.dataset.tab; render(); }
+  else if (done) {
+    const o = state.orders.find((x) => x.id === done.dataset.done);
+    if (o) { o.status = "completed"; o.doneAt = now(); }
+    state.view = "list"; state.tab = "orders"; render();
   }
 });
 
 document.getElementById("send").addEventListener("click", function () {
   const t = DEMO_ORDERS[state.next % DEMO_ORDERS.length];
   state.next += 1;
-  state.orders.unshift(Object.assign({}, t, { id: t.id + "-" + state.next, accepted: false, status: "new" }));
-  state.view = "list";
+  state.orders.unshift(Object.assign({}, t, { id: t.id + "-" + state.next, opened: false, status: "new", at: now(), age: "0:00" }));
+  state.view = "list"; state.tab = "orders";
   render();
 });
 document.getElementById("wifi").addEventListener("click", function () { state.offline = !state.offline; render(); });
 document.getElementById("reset").addEventListener("click", function () {
-  state.orders = []; state.view = "list"; state.openId = null; state.offline = false; state.next = 0; render();
+  state.orders = []; state.view = "list"; state.tab = "orders"; state.openId = null; state.offline = false; state.next = 0; render();
 });
+
+// The timers count up, as they do on the wall.
+setInterval(function () {
+  const t = Date.now();
+  state.orders.forEach(function (o) {
+    if (!o.receivedMs) o.receivedMs = t;
+    const secs = Math.floor((t - o.receivedMs) / 1000);
+    o.age = Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0");
+  });
+  if (state.orders.length) render();
+}, 1000);
 
 render();
 </script>

@@ -80,6 +80,10 @@ export async function GET(req: NextRequest) {
       // restaurant one - the object itself says what is not known.
       timezone: r?.timezone ?? null,
       tablet: r && ctx ? tabletFor(r, ctx) : null,
+      // For a ticket that did not print: order age, customer, total, and
+      // who queued it - so the CRM ticket tells a live dinner order from
+      // an eleven-day-old one. null on every other kind of issue.
+      order: i.order ?? null,
     };
   });
   const current = since

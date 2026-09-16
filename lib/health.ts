@@ -18,6 +18,18 @@ import { collectRestaurantVolumes, volumeIssues, type RestaurantVolume } from "@
 
 export type IssueSeverity = "critical" | "warning";
 
+export interface IssueOrder {
+  order_number: string | null;
+  received_at: string | null;
+  /** Whole minutes since received_at at evaluation time; null when received_at is unknown. */
+  age_minutes: number | null;
+  customer_name: string | null;
+  /** customer_total as stored, in dollars. */
+  total: number | null;
+  /** print_jobs.queued_by: ingest | test | login_print | reprint:<actor> | null (before migration 038). */
+  queued_by: string | null;
+}
+
 export interface HealthIssue {
   /** Stable identity for this problem, so repeats are not re-alerted. */
   key: string;
@@ -31,6 +43,12 @@ export interface HealthIssue {
    */
   restaurant_id?: string | null;
   device_id?: string | null;
+  /**
+   * For a ticket that did not print (E2): enough for a tech to tell a
+   * live dinner order from a dead one at a glance, without opening the
+   * bridge. null fields are "not known", never invented.
+   */
+  order?: IssueOrder | null;
 }
 
 export interface HealthSnapshot {
@@ -53,7 +71,7 @@ export interface HealthSnapshot {
   }[];
   /** Restaurants that can receive orders but have no active printer. */
   restaurantsWithoutDevice: { id: string; name: string }[];
-  /** Print jobs queued or claimed but not finished. */
+  /** Print jobs queued, claimed or held (waiting for a person) but not finished. */
   pendingJobs: {
     id: string;
     order_number: string | null;
@@ -62,14 +80,19 @@ export interface HealthSnapshot {
     queued_at: string;
     status: string;
     attempts: number;
+    /** The printer's last word on it, in plain English (lib/print-policy.ts); null when it has said nothing. */
+    error?: string | null;
+    order?: Omit<IssueOrder, "age_minutes"> | null;
   }[];
-  /** Jobs parked as failed after exhausting retries. */
+  /** Jobs parked as failed after exhausting retries, or held past the hour. */
   failedJobs: {
     id: string;
     order_number: string | null;
     restaurant_id?: string | null;
     restaurant_name: string | null;
     error: string | null;
+    attempts?: number;
+    order?: Omit<IssueOrder, "age_minutes"> | null;
   }[];
   /**
    * The inbound order webhook. Nothing watched this until 2026-08-27, when
@@ -535,28 +558,47 @@ export function evaluateHealth(
   for (const j of snap.pendingJobs) {
     const mins = minutesSince(j.queued_at, now);
     if (mins !== null && mins >= thresholds.jobPendingMinutes) {
+      // A held job names what the printer is waiting for ("Printer is out
+      // of paper") - that is the whole ticket, and the title says so
+      // rather than "not printed" with the reason buried.
+      const held = j.status === "held" && j.error;
       issues.push({
         key: `job_stuck:${j.id}`,
         restaurant_id: j.restaurant_id ?? null,
         severity: "critical",
-        title: `Ticket not printed: order ${j.order_number ?? "?"}`,
-        detail: `${where(j.restaurant_name)} - queued ${ago(mins)} and still ${j.status} after ${j.attempts} attempt(s).`,
+        title: held ? `${j.error}: order ${j.order_number ?? "?"}` : `Ticket not printed: order ${j.order_number ?? "?"}`,
+        detail: held
+          ? `${where(j.restaurant_name)} - queued ${ago(mins)}; the printer has been holding it since it reported "${j.error}". It prints by itself once that is fixed.`
+          : `${where(j.restaurant_name)} - queued ${ago(mins)} and still ${j.status} after ${j.attempts} attempt(s)${j.error ? ` (last result: ${j.error})` : ""}.`,
+        order: issueOrder(j.order, now),
       });
     }
   }
 
   // --- tickets that gave up ---
   for (const j of snap.failedJobs) {
+    // The stored error is already plain English (lib/print-policy.ts), so
+    // it leads the title: "Printer is out of paper: order 1196" is a
+    // ticket a tech can act on; 'ePOS code="EPTR_REC_EMPTY"' was not.
+    const reason = (j.error ?? "").replace(/\s*\([A-Za-z_]+\)\s*$/, "").trim();
+    const attempts = j.attempts ?? 3;
     issues.push({
       key: `job_failed:${j.id}`,
       restaurant_id: j.restaurant_id ?? null,
       severity: "critical",
-      title: `Ticket failed to print: order ${j.order_number ?? "?"}`,
-      detail: `${where(j.restaurant_name)} - gave up after 3 attempts${j.error ? `: ${j.error}` : ""}.`,
+      title: reason ? `${reason}: order ${j.order_number ?? "?"}` : `Ticket failed to print: order ${j.order_number ?? "?"}`,
+      detail: `${where(j.restaurant_name)} - gave up${attempts ? ` after ${attempts} attempt(s)` : ""}${j.error ? `: ${j.error}` : ""}.`,
+      order: issueOrder(j.order, now),
     });
   }
 
   return issues;
+}
+
+/** The order behind a ticket issue, with its age worked out now rather than left to the reader. */
+function issueOrder(o: Omit<IssueOrder, "age_minutes"> | null | undefined, now: Date): IssueOrder | null {
+  if (!o) return null;
+  return { ...o, age_minutes: minutesSince(o.received_at, now) };
 }
 
 /** Critical first, then warnings - both already in a stable per-check order. */
@@ -596,8 +638,12 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected, print_method, app_expected"),
     admin
       .from("print_jobs")
-      .select("id, status, attempts, queued_at, error, delivery, orders(order_number, restaurant_id)")
-      .in("status", ["queued", "claimed", "failed"]),
+      // held (out of paper, cover open) is pending too: the printer is
+      // waiting for a person, and after jobPendingMinutes that person is
+      // the office. expired is deliberately NOT here - an order too old to
+      // print is not a fault and never becomes a ticket.
+      .select("id, status, attempts, queued_at, error, delivery, queued_by, orders(order_number, restaurant_id, received_at, customer_name, customer_total)")
+      .in("status", ["queued", "claimed", "held", "failed"]),
   ]);
 
   // Which restaurants actually have a printer, resolved once and used twice:
@@ -857,6 +903,15 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     order_number: j.orders?.order_number ?? null,
     restaurant_id: j.orders?.restaurant_id ?? null,
     restaurant_name: nameOf(j.orders?.restaurant_id ?? null),
+    order: j.orders
+      ? {
+          order_number: j.orders.order_number ?? null,
+          received_at: j.orders.received_at ?? null,
+          customer_name: j.orders.customer_name ?? null,
+          total: typeof j.orders.customer_total === "number" ? j.orders.customer_total : j.orders.customer_total != null ? Number(j.orders.customer_total) : null,
+          queued_by: j.queued_by ?? null,
+        }
+      : null,
   });
   // Paper only. These two checks say "ticket not printed" and "ticket failed
   // to print", which is not what an app row means - and an app alert nobody
@@ -879,10 +934,10 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     tabletsNotWatching,
     unacceptedOrders,
     pendingJobs: paperJobs
-      .filter((j: any) => j.status === "queued" || j.status === "claimed")
-      .map((j: any) => ({ ...jobShape(j), queued_at: j.queued_at, status: j.status, attempts: j.attempts ?? 0 })),
+      .filter((j: any) => j.status === "queued" || j.status === "claimed" || j.status === "held")
+      .map((j: any) => ({ ...jobShape(j), queued_at: j.queued_at, status: j.status, attempts: j.attempts ?? 0, error: j.error ?? null })),
     failedJobs: paperJobs
       .filter((j: any) => j.status === "failed")
-      .map((j: any) => ({ ...jobShape(j), error: j.error ?? null })),
+      .map((j: any) => ({ ...jobShape(j), error: j.error ?? null, attempts: j.attempts ?? 0 })),
   };
 }

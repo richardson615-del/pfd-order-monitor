@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authenticateDevice } from "@/lib/device-auth";
+import { claimDecision, expiredReason, failureTransition, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -33,10 +34,19 @@ export async function GET(req: NextRequest) {
     .eq("status", "claimed")
     .lt("claimed_at", staleCutoff);
 
+  // Held jobs (out of paper, cover open) come back after a couple of
+  // minutes - same rule as the Epson transport, lib/print-policy.ts.
+  await admin
+    .from("print_jobs")
+    .update({ status: "queued", claimed_at: null })
+    .eq("device_id", device.id)
+    .eq("status", "held")
+    .lt("held_at", new Date(Date.now() - HOLD_RETRY_MS).toISOString());
+
   const { data: jobs, error } = await admin
     .from("print_jobs")
     .select(
-      `id, order_id, attempts,
+      `id, order_id, attempts, manual_reprint_at,
        orders (
          id, order_number, source, ticket_restaurant_name, order_type,
          due_time, customer_name, customer_phone, customer_address,
@@ -62,15 +72,34 @@ export async function GET(req: NextRequest) {
   }
   if (!jobs?.length) return NextResponse.json({ jobs: [] });
 
+  // Too old to print (PRINT_MAX_AGE_HOURS) is expired here, at claim time,
+  // unless Print was pressed for it in the last ten minutes - the same rule
+  // as the Epson transport. Never handed to the agent, never a ticket.
+  const nowMs = Date.now();
+  const maxAgeMs = printMaxAgeMs();
+  const fresh: typeof jobs = [];
+  for (const j of jobs as any[]) {
+    if (claimDecision({ receivedAt: j.orders?.received_at, manualReprintAt: j.manual_reprint_at, now: nowMs, maxAgeMs }) === "expire") {
+      await admin
+        .from("print_jobs")
+        .update({ status: "expired", error: expiredReason(j.orders.received_at, nowMs), finished_at: new Date(nowMs).toISOString(), claimed_at: null })
+        .eq("id", j.id)
+        .eq("status", "queued");
+      continue;
+    }
+    fresh.push(j);
+  }
+  if (!fresh.length) return NextResponse.json({ jobs: [] });
+
   // Claim what we're returning
-  const ids = jobs.map((j) => j.id);
+  const ids = fresh.map((j) => j.id);
   await admin
     .from("print_jobs")
     .update({ status: "claimed", claimed_at: new Date().toISOString() })
     .in("id", ids)
     .eq("status", "queued");
 
-  return NextResponse.json({ jobs });
+  return NextResponse.json({ jobs: fresh });
 }
 
 /**
@@ -102,7 +131,7 @@ export async function POST(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data: job } = await admin
     .from("print_jobs")
-    .select("id, order_id, attempts, device_id")
+    .select("id, order_id, attempts, device_id, held_since")
     .eq("id", jobId)
     .eq("device_id", device.id)
     .maybeSingle();
@@ -128,19 +157,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // failed
-  const attempts = (job.attempts ?? 0) + 1;
-  const willRetry = attempts < 3;
+  // failed. The agent's error text is kept when it sent one; an ePOS code
+  // in it is said in plain English and, for out-of-paper / cover-open,
+  // holds the job for a person instead of spending an attempt.
+  const agentError = typeof body?.error === "string" ? body.error.trim() : "";
+  const codeInText = agentError.match(/\b(EPTR_[A-Z_]+|SchemaError|DeviceNotFound|PrintSystemError|E[XR]R?_TIMEOUT)\b/i)?.[1] ?? null;
+  const nowIso = new Date().toISOString();
+  const next = failureTransition({ code: codeInText ?? agentError, attempts: job.attempts ?? 0, heldSince: job.held_since, now: Date.now() });
+  const willRetry = next.status !== "failed";
   await admin
     .from("print_jobs")
     .update({
-      status: willRetry ? "queued" : "failed",
-      attempts,
-      error: typeof body?.error === "string" ? body.error.slice(0, 500) : null,
+      status: next.status,
+      attempts: next.attempts,
+      error: (codeInText ? next.error : agentError || next.error).slice(0, 500),
       claimed_at: null,
-      finished_at: willRetry ? null : new Date().toISOString(),
+      finished_at: next.status === "failed" ? nowIso : null,
+      ...(next.status === "held" ? { held_at: nowIso, held_since: job.held_since ?? nowIso } : {}),
     })
     .eq("id", job.id);
 
-  return NextResponse.json({ ok: true, will_retry: willRetry, attempts });
+  return NextResponse.json({ ok: true, will_retry: willRetry, attempts: next.attempts, status: next.status });
 }

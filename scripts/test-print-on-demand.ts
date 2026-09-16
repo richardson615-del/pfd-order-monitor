@@ -72,16 +72,18 @@ test("an existing job for this order and device is re-queued", () => {
   assert.match(queue, /requeued: true/);
 });
 
-test("the retry budget resets, so a failed job is repaired by the same button", () => {
+test("the retry budget resets for a recent order, so a failed job is repaired by the same button", () => {
   // Otherwise a job that had already failed three times comes straight back
   // as failed - and a printer that has just been fixed is the most likely
-  // reason somebody is pressing this.
-  assert.match(queue, /attempts: 0/);
+  // reason somebody is pressing this. Since 2026-09-16 that is true only
+  // for an order inside PRINT_MAX_AGE_HOURS: an old one gets one shot and
+  // no loop (scripts/test-print-policy.ts has the rule).
+  assert.match(queue, /\.\.\.\(resetAttempts \? \{ attempts: 0 \} : \{\}\)/);
   assert.match(queue, /error: null/);
 });
 
-test("a device with no prior job is inserted normally", () => {
-  assert.match(queue, /\.insert\(\{ order_id: orderId, device_id: device\.id \}\)/);
+test("a device with no prior job is inserted normally, saying who asked", () => {
+  assert.match(queue, /\.insert\(\{ order_id: orderId, device_id: device\.id, queued_by: opts\.queuedBy, manual_reprint_at: manualReprintAt \}\)/);
   assert.match(queue, /requeued: false/);
 });
 

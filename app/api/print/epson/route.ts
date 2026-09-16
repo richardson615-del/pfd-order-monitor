@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { buildTicket, toEposPrintXml } from "@/lib/ticket";
 import { renderHeader, renderFooter, toEposImageXml, DEFAULT_FOOTER_TEXT_MARK } from "@/lib/ticket-raster";
+import { claimDecision, expiredReason, failureTransition, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -82,7 +83,8 @@ async function handleGetRequest(deviceKey: string) {
   if (!device) return empty();
 
   const admin = supabaseAdmin();
-  const staleCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const nowMs = Date.now();
+  const staleCutoff = new Date(nowMs - 2 * 60 * 1000).toISOString();
 
   // Re-offer anything claimed but never reported (printer lost power mid-job).
   await admin
@@ -92,10 +94,22 @@ async function handleGetRequest(deviceKey: string) {
     .eq("status", "claimed")
     .lt("claimed_at", staleCutoff);
 
-  const { data: jobs } = await admin
+  // Release what the printer parked (out of paper, cover open) once it has
+  // had a couple of minutes: this poll is the device saying it is alive, and
+  // a roll that was changed in the meantime prints now. A hold that keeps
+  // coming back is re-held by the result, not retried - see the SetResponse
+  // half - and fails with the reason after an hour (lib/print-policy.ts).
+  await admin
+    .from("print_jobs")
+    .update({ status: "queued", claimed_at: null })
+    .eq("device_id", device.id)
+    .eq("status", "held")
+    .lt("held_at", new Date(nowMs - HOLD_RETRY_MS).toISOString());
+
+  const { data: queued } = await admin
     .from("print_jobs")
     .select(
-      `id, order_id, kind, document,
+      `id, order_id, kind, document, manual_reprint_at,
        orders ( order_number, source, ticket_restaurant_name, order_type, due_time,
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
@@ -107,19 +121,39 @@ async function handleGetRequest(deviceKey: string) {
     .eq("device_id", device.id)
     .eq("status", "queued")
     .order("queued_at", { ascending: true })
-    // One job per response. PrintRequestInfo 1.00 carries no printjobid, so
-    // results are matched back by oldest-outstanding-claim - which is only
-    // unambiguous with a single job in flight. The printer polls every few
-    // seconds, so a queue drains almost as fast either way.
-    .limit(1);
+    // A handful, not one: the oldest may be expired below, and the printer
+    // should still get a ticket on this poll rather than the next.
+    .limit(10);
 
-  if (!jobs?.length) return empty();
+  if (!queued?.length) return empty();
+
+  // How old is too old. An order past PRINT_MAX_AGE_HOURS is expired here,
+  // at the moment it would have gone to paper - never printed, never a
+  // ticket for the tech team - unless somebody pressed Print for it in the
+  // last ten minutes. This is the rule the eleven-day-old ticket lacked.
+  const maxAgeMs = printMaxAgeMs();
+  const expired = queued.filter(
+    (j: any) => claimDecision({ receivedAt: j.orders?.received_at, manualReprintAt: j.manual_reprint_at, now: nowMs, maxAgeMs }) === "expire"
+  );
+  for (const j of expired as any[]) {
+    await admin
+      .from("print_jobs")
+      .update({ status: "expired", error: expiredReason(j.orders.received_at, nowMs), finished_at: new Date(nowMs).toISOString(), claimed_at: null })
+      .eq("id", j.id)
+      .eq("status", "queued");
+  }
+  const expiredIds = new Set(expired.map((j: any) => j.id));
 
   // A job is printable if it has something to print: an order to render, or a
   // document already composed for it (migration 029 - the tablet-login
   // ticket). A job with neither is a bug upstream, and skipping it is what
   // keeps the printer polling rather than being handed an empty ticket.
-  const printable = jobs.filter((j: any) => j.orders || Array.isArray(j.document));
+  //
+  // One job per response. PrintRequestInfo 1.00 carries no printjobid, so
+  // results are matched back by oldest-outstanding-claim - which is only
+  // unambiguous with a single job in flight. The printer polls every few
+  // seconds, so a queue drains almost as fast either way.
+  const printable = queued.filter((j: any) => !expiredIds.has(j.id) && (j.orders || Array.isArray(j.document))).slice(0, 1);
   if (!printable.length) return empty();
 
   // Claim before handing them over, so a second poll cannot print them twice.
@@ -237,7 +271,7 @@ async function handleSetResponse(deviceKey: string, responseFile: string) {
   // outstanding claim for this device rather than dropping the result.
   const { data: claimed } = await admin
     .from("print_jobs")
-    .select("id, attempts")
+    .select("id, attempts, held_since")
     .eq("device_id", device.id)
     .eq("status", "claimed")
     .order("claimed_at", { ascending: true });
@@ -264,17 +298,21 @@ async function handleSetResponse(deviceKey: string, responseFile: string) {
     return empty();
   }
 
-  const attempts = (job.attempts ?? 0) + 1;
-  const willRetry = attempts < 3;
-  console.error("Server Direct Print failed", { jobId: job.id, code, attempts });
+  // The printer's code, in plain English, and what it does to the job:
+  // out of paper / cover open HOLDS it for a person rather than burning
+  // three attempts in fifteen seconds; anything else is a real attempt.
+  const nowIso = new Date().toISOString();
+  const next = failureTransition({ code, attempts: job.attempts ?? 0, heldSince: job.held_since, now: Date.now() });
+  console.error("Server Direct Print failed", { jobId: job.id, code, status: next.status, attempts: next.attempts });
   await admin
     .from("print_jobs")
     .update({
-      status: willRetry ? "queued" : "failed",
-      attempts,
-      error: `ePOS code="${code}"`.slice(0, 500),
+      status: next.status,
+      attempts: next.attempts,
+      error: next.error.slice(0, 500),
       claimed_at: null,
-      finished_at: willRetry ? null : new Date().toISOString(),
+      finished_at: next.status === "failed" ? nowIso : null,
+      ...(next.status === "held" ? { held_at: nowIso, held_since: job.held_since ?? nowIso } : {}),
     })
     .eq("id", job.id);
 

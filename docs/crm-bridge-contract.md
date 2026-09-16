@@ -257,6 +257,25 @@ to the roster's — so the ticket can show last heartbeat, shell version,
 `alert_state` and which unit (`device_ref`) without a second call. Both
 are `null` on a fleet-wide issue (webhook, cron), never on a restaurant
 one.
+Ticket issues — `job_stuck:<job id>` (queued, claimed **or held** past ten
+minutes) and `job_failed:<job id>` — carry an **`order`** object since
+2026-09-16: `{ order_number, received_at, age_minutes, customer_name,
+total, queued_by }` (`queued_by` = `ingest | test | login_print |
+reprint:<actor>`, null for rows older than bridge migration 038). Every
+other issue carries `order: null`. Their titles lead with the printer's
+reason in plain English — **"Printer is out of paper: order 1196"**,
+"Printer cover is open", "Printer offline" — never an ePOS code; the code
+stays in parentheses at the end of `detail` for whoever reads the log.
+
+What the bridge no longer does, so the CRM never sees it: an order older
+than **`PRINT_MAX_AGE_HOURS`** (default 4) is *expired* at the moment it
+would have gone to paper — never printed, never `job_stuck`, never
+`job_failed` — unless Print was pressed for it in the last ten minutes,
+and then it prints once with no retry loop. Out of paper / cover open
+*holds* the job for the printer's next polls (up to an hour) instead of
+burning three attempts in fifteen seconds; a held job surfaces as
+`job_stuck` with the reason after ten minutes and as `job_failed` ("…for
+over an hour") after sixty.
 
 `order_unaccepted:<order id>` is **critical** and per order (2026-09-15): a
 customer order on a tablet restaurant that nobody has **opened** three

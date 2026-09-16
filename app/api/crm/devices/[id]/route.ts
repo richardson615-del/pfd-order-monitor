@@ -244,7 +244,7 @@ export async function POST(
 
   const { data: job, error: jobError } = await admin
     .from("print_jobs")
-    .insert({ order_id: order.id, device_id: device.id })
+    .insert({ order_id: order.id, device_id: device.id, queued_by: "test" })
     .select("id")
     .single();
   if (jobError) {

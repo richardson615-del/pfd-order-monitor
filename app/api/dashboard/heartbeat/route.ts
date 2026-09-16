@@ -6,6 +6,9 @@ import { HEARTBEAT_MIN_INTERVAL_MS } from "@/lib/kiosk";
 
 export const dynamic = "force-dynamic";
 
+/** The gate states the dashboard can report (lib/alert-gate.ts AlertGateState); the column's CHECK matches. */
+const ALERT_STATES: ReadonlySet<unknown> = new Set(["hidden", "ask", "blocked", "unsupported"]);
+
 /**
  * POST /api/dashboard/heartbeat
  *
@@ -64,6 +67,12 @@ export async function POST(req: NextRequest) {
       ? (body.shellVersion as number)
       : null;
 
+  // Why the screen cannot ring, when it cannot (migration 037). Only one of
+  // the gate's own four words is recorded; anything else is null, "has not
+  // said". "blocked" on a kiosk is the office's problem - the Hexnode
+  // notification policy is missing - and this is how the office finds out.
+  const alertState = ALERT_STATES.has(body?.alertState) ? (body.alertState as string) : null;
+
   // Once a minute per restaurant is plenty (the client beats every two).
   // Anything faster is a bug or abuse, and at five hundred tablets a
   // runaway beat loop is the difference between a quiet database and a
@@ -88,6 +97,7 @@ export async function POST(req: NextRequest) {
         user_agent: userAgent,
         push_subscribed: pushSubscribed,
         shell_version: shellVersion,
+        alert_state: alertState,
       })),
       { onConflict: "restaurant_id" }
     );

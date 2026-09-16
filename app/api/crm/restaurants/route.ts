@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   const [{ data: heartbeatRows }, { data: pushRows }] = await Promise.all([
     admin
       .from("dashboard_heartbeats")
-      .select("restaurant_id, last_seen_at, user_agent, push_subscribed, shell_version"),
+      .select("restaurant_id, last_seen_at, user_agent, push_subscribed, shell_version, alert_state"),
     admin.from("push_subscriptions").select("restaurant_id"),
   ]);
   const heartbeatByRestaurant = new Map<string, HeartbeatRow>();

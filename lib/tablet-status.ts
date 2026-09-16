@@ -25,11 +25,16 @@ export function tabletOnline(lastSeenAt: string | null | undefined, now: number)
   return now - t <= TABLET_ONLINE_WITHIN_MS;
 }
 
+/** The alert gate's own states, as the dashboard reports them (lib/alert-gate.ts). */
+export type TabletAlertState = "hidden" | "ask" | "blocked" | "unsupported";
+const ALERT_STATES: ReadonlySet<unknown> = new Set<TabletAlertState>(["hidden", "ask", "blocked", "unsupported"]);
+
 export interface HeartbeatRow {
   last_seen_at: string | null;
   user_agent?: string | null;
   push_subscribed?: boolean | null;
   shell_version?: number | null;
+  alert_state?: string | null;
 }
 
 export interface TabletStatus {
@@ -41,6 +46,13 @@ export interface TabletStatus {
   online: boolean;
   /** Latest heartbeat's own report; null when it has not said (older client, no row). */
   push_subscribed: boolean | null;
+  /**
+   * WHY the screen cannot ring, from the same heartbeat (migration 037):
+   * "blocked" = the notification permission is denied, which on a Hexnode
+   * kiosk means the notification policy is missing - the office fixes that
+   * in the console, nobody at the store can. null = it has not said.
+   */
+  alert_state: TabletAlertState | null;
   /** Live rows in push_subscriptions for this restaurant. */
   push_subscriptions: number;
   /** appVersionCode of the Android shell the last beat came from; null when it has not said. */
@@ -67,6 +79,7 @@ export function tabletStatus(args: {
     last_seen_at: hb?.last_seen_at ?? null,
     online: tabletOnline(hb?.last_seen_at, args.now),
     push_subscribed: typeof hb?.push_subscribed === "boolean" ? hb.push_subscribed : null,
+    alert_state: ALERT_STATES.has(hb?.alert_state) ? (hb!.alert_state as TabletAlertState) : null,
     push_subscriptions: Number.isInteger(args.pushSubscriptions) && args.pushSubscriptions > 0 ? args.pushSubscriptions : 0,
     shell_version: typeof hb?.shell_version === "number" && Number.isInteger(hb.shell_version) ? hb.shell_version : null,
     display_mode: args.displayMode === "standard" ? "standard" : "kitchen",

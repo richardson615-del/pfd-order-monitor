@@ -45,10 +45,26 @@ export interface ReadyCheck {
 /** The one place the kiosk's own control is named. Hexnode draws it; we point at it. */
 export const KIOSK_WIFI_HINT = "To change networks, use the Wi-Fi button at the bottom of the screen.";
 
+/** The number on the printed login ticket, so a restaurant reads the same one everywhere. */
+export const SUPPORT_PHONE = "(615) 619-5081";
+
+/**
+ * The alerts row when they are off, by why. Only "ask" has a tap to offer;
+ * "blocked" on a kiosk is the Hexnode notification policy missing, which
+ * the office fixes from the console (a kiosk has no Settings app), and
+ * "unsupported" is a plain browser. Both say to call, not what to press.
+ */
+export function alertsAction(reason: "ask" | "blocked" | "unsupported" | null): string {
+  if (reason === "ask" || reason === null) return "Tap Turn on alerts — it only has to be done once.";
+  return `Call Premium on ${SUPPORT_PHONE} — nothing needs doing on this screen.`;
+}
+
 export function readyChecks(args: {
   online: boolean;
   /** AlertGate's answer: subscribed and permitted. null = still reading. */
   alertsOn: boolean | null;
+  /** Why not, when alertsOn is false (the gate's state). Omitted = the one tap. */
+  alertsWhy?: "ask" | "blocked" | "unsupported" | null;
   /**
    * From the bridge's own view of the restaurant's printers. null when the
    * restaurant has no printer at all - the row is omitted, not ticked.
@@ -66,7 +82,7 @@ export function readyChecks(args: {
       key: "alerts",
       label: "Order alerts on",
       ok: args.alertsOn,
-      action: args.alertsOn === false ? "Tap Turn on alerts — it only has to be done once." : null,
+      action: args.alertsOn === false ? alertsAction(args.alertsWhy ?? null) : null,
     },
   ];
   if (args.printer) {

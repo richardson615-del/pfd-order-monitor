@@ -75,7 +75,19 @@ export interface AlertGateController {
   turnOn: () => Promise<void>;
 }
 
-export function useAlertGate(onSubscribedChange?: (subscribed: boolean) => void): AlertGateController {
+/**
+ * What the hook tells its owner after every read: whether this screen will
+ * ring, and which gate state it landed on. The dashboard puts both on the
+ * heartbeat - `blocked` on a managed kiosk means the Hexnode notification
+ * policy is missing, and that is the office's to fix, so the office has to
+ * be able to see it (migration 037).
+ */
+export type OnAlertStateChange = (subscribed: boolean, state: AlertGateState) => void;
+
+/** How often a blocked screen re-reads the permission with nobody tapping. A kiosk never fires visibilitychange. */
+export const BLOCKED_RECHECK_MS = 60_000;
+
+export function useAlertGate(onSubscribedChange?: OnAlertStateChange): AlertGateController {
   const [state, setState] = useState<AlertGateState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +103,7 @@ export function useAlertGate(onSubscribedChange?: (subscribed: boolean) => void)
   const check = useCallback(async () => {
     if (!pushSupported()) {
       setState("unsupported");
-      onSubscribedChange?.(false);
+      onSubscribedChange?.(false, "unsupported");
       return;
     }
 
@@ -109,7 +121,7 @@ export function useAlertGate(onSubscribedChange?: (subscribed: boolean) => void)
         await subscribeAndRecord();
         setState("hidden");
         setError(null);
-        onSubscribedChange?.(true);
+        onSubscribedChange?.(true, "hidden");
         return;
       } catch (err) {
         /**
@@ -133,18 +145,18 @@ export function useAlertGate(onSubscribedChange?: (subscribed: boolean) => void)
           setState("hidden");
           // Still false: the office should see this tablet as not confirmed,
           // and the pill should say so, even though the orders are reachable.
-          onSubscribedChange?.(false);
+          onSubscribedChange?.(false, "hidden");
           return;
         }
         setState("ask");
-        onSubscribedChange?.(false);
+        onSubscribedChange?.(false, "ask");
         return;
       }
     }
 
     const next = alertGateState({ permission, hasSubscription, supported: true });
     setState(next);
-    onSubscribedChange?.(next === "hidden");
+    onSubscribedChange?.(next === "hidden", next);
   }, [onSubscribedChange]);
 
   useEffect(() => {
@@ -155,6 +167,19 @@ export function useAlertGate(onSubscribedChange?: (subscribed: boolean) => void)
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [check]);
+
+  /**
+   * Blocked on a kiosk is fixed at the office, not at the tablet: Hexnode
+   * re-applies the notification policy and the permission flips to granted
+   * with nobody touching the screen. A kiosk is always visible, so the
+   * visibilitychange re-read above never fires - this one does, once a
+   * minute, so the gate comes down on its own when the fix lands.
+   */
+  useEffect(() => {
+    if (state !== "blocked") return;
+    const id = setInterval(() => void check(), BLOCKED_RECHECK_MS);
+    return () => clearInterval(id);
+  }, [state, check]);
 
   /**
    * The one tap.
@@ -169,19 +194,20 @@ export function useAlertGate(onSubscribedChange?: (subscribed: boolean) => void)
     try {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        setState(permission === "denied" ? "blocked" : "ask");
-        onSubscribedChange?.(false);
+        const next = permission === "denied" ? "blocked" : "ask";
+        setState(next);
+        onSubscribedChange?.(false, next);
         return;
       }
       await subscribeAndRecord();
       armAudio();
       setState("hidden");
-      onSubscribedChange?.(true);
+      onSubscribedChange?.(true, "hidden");
     } catch (err) {
       // The real message, not a shrug. The old button swallowed this into a
       // console nobody on a tablet can open.
       setError(err instanceof Error ? err.message : "Could not turn alerts on.");
-      onSubscribedChange?.(false);
+      onSubscribedChange?.(false, "ask");
     } finally {
       setBusy(false);
     }

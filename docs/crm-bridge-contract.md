@@ -160,6 +160,7 @@ itself.
   "last_seen_at": "…|null",     // dashboard_heartbeats.last_seen_at; null = no screen has ever checked in
   "online": true,               // server-computed: last_seen_at within 5 min (TABLET_ONLINE_WITHIN_MS)
   "push_subscribed": true|null, // the last heartbeat's own report; null = it did not say (older client, no row)
+  "alert_state": "hidden|ask|blocked|unsupported|null", // WHY it cannot ring, from the same heartbeat (037); null = it did not say
   "push_subscriptions": 2,      // live push_subscriptions rows for this restaurant
   "shell_version": 4|null,      // Android shell appVersionCode from the last heartbeat; null = it did not say
   "display_mode": "kitchen",    // as above
@@ -172,6 +173,16 @@ oldest shell the office is happy with (`MIN_SHELL_VERSION` on the bridge), or
 `null` when none is set. A `tablet.shell_version` below it is a tablet the
 MDM still needs to update; the tablet itself shows an amber line and asks the
 restaurant for nothing.
+
+`alert_state` is the tablet's own alert gate: `hidden` = alerts on; `ask` =
+waiting for the one first-run tap; `unsupported` = no Push API (a plain
+browser, not the shell); **`blocked`** = the notification permission is
+denied. On a Hexnode kiosk that permission is granted by policy (App
+Permissions → Premium → Send push notifications: Allow), so `blocked` means
+the policy is missing or was changed — the tablet shows "Alerts are off on
+this tablet — call Premium", and the fix is in the Hexnode console, never at
+the store. The CRM should label it **Alerts blocked (MDM policy)**, distinct
+from "Alerts off" (`push_subscribed=false` with any other state).
 
 Two liveness signals exist and mean different things: this heartbeat is
 "the app is open and talking to us" (2-minute cadence, primary); an MDM's

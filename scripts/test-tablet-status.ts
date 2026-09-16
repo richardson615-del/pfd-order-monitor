@@ -59,6 +59,7 @@ test("no heartbeat row: every derived field is null or false, the counts are rea
     last_seen_at: null,
     online: false,
     push_subscribed: null,
+    alert_state: null,
     push_subscriptions: 2,
     shell_version: null,
     display_mode: "kitchen",
@@ -70,12 +71,13 @@ test("a full heartbeat comes through as-is", () => {
   const t = tabletStatus({
     expected: true,
     displayMode: "standard",
-    heartbeat: { last_seen_at: ago(60_000), user_agent: "Mozilla/5.0 (Linux; Android 14)", push_subscribed: true, shell_version: 4 },
+    heartbeat: { last_seen_at: ago(60_000), user_agent: "Mozilla/5.0 (Linux; Android 14)", push_subscribed: true, shell_version: 4, alert_state: "hidden" },
     pushSubscriptions: 1,
     now: NOW,
   });
   assert.equal(t.online, true);
   assert.equal(t.push_subscribed, true);
+  assert.equal(t.alert_state, "hidden");
   assert.equal(t.shell_version, 4);
   assert.equal(t.display_mode, "standard");
   assert.match(t.user_agent!, /Android/);
@@ -87,7 +89,20 @@ test("a heartbeat that never said is null, never false and never zero", () => {
   const t = tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: { last_seen_at: ago(0) }, pushSubscriptions: 0, now: NOW });
   assert.equal(t.push_subscribed, null);
   assert.equal(t.shell_version, null);
+  assert.equal(t.alert_state, null);
   assert.equal(t.push_subscriptions, 0);
+});
+
+test("blocked comes through as the word, and anything else the column could not hold is null", () => {
+  // "blocked" on a Hexnode kiosk is the notification policy missing - the
+  // one alert state the office acts on from its own desk (migration 037).
+  // The column's CHECK is the same four words; a value outside them never
+  // reaches the CRM as a fifth state.
+  const blocked = tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: { last_seen_at: ago(0), push_subscribed: false, alert_state: "blocked" }, pushSubscriptions: 0, now: NOW });
+  assert.equal(blocked.alert_state, "blocked");
+  assert.equal(blocked.push_subscribed, false);
+  const odd = tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: { last_seen_at: ago(0), alert_state: "Blocked" }, pushSubscriptions: 0, now: NOW });
+  assert.equal(odd.alert_state, null);
 });
 
 test("not expected is still reported truthfully, not blanked", () => {
@@ -110,7 +125,7 @@ test("the roster carries tablet and latest_shell_version, computed here, never i
   const doc = src("docs/crm-bridge-contract.md");
   const section = doc.slice(doc.indexOf("### The tablet object"));
   assert.ok(section.length > 0, "the contract must have a tablet section");
-  for (const field of ["expected", "last_seen_at", "online", "push_subscribed", "push_subscriptions", "shell_version", "display_mode", "user_agent", "latest_shell_version"]) {
+  for (const field of ["expected", "last_seen_at", "online", "push_subscribed", "alert_state", "push_subscriptions", "shell_version", "display_mode", "user_agent", "latest_shell_version"]) {
     assert.match(section, new RegExp(`"?${field}"?`), `contract must document ${field}`);
   }
   assert.match(section, /never a guess/);

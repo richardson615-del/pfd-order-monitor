@@ -11,6 +11,7 @@ import { countsForHistory, money } from "@/lib/history";
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
+import type { AlertGateState } from "@/lib/alert-gate";
 import ReadyScreen from "./ReadyScreen";
 import { KIOSK_WIFI_HINT, OFFLINE_FOOTER, offlineNotice } from "@/lib/first-run";
 import { isSetupDone, markSetupDone, rememberDeviceRef, writeRestaurantCache } from "@/lib/kiosk-cache";
@@ -79,6 +80,17 @@ export default function OrderDashboard({
    */
   const [heartbeatOkAt, setHeartbeatOkAt] = useState<number | null>(null);
   const [pushSubscribed, setPushSubscribed] = useState<boolean | null>(null);
+  /**
+   * Which gate state the alert hook landed on, for the heartbeat. "blocked"
+   * on a managed kiosk means the Hexnode notification policy is missing or
+   * changed - nothing at the store can fix that, so the office has to see
+   * it (migration 037). null until the hook has read anything.
+   */
+  const [alertState, setAlertState] = useState<AlertGateState | null>(null);
+  const onAlertStateChange = useCallback((subscribed: boolean, state: AlertGateState) => {
+    setPushSubscribed(subscribed);
+    setAlertState(state);
+  }, []);
 
   /**
    * First run on this device (Workstream I). null until read - localStorage
@@ -271,9 +283,10 @@ export default function OrderDashboard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // So the office can tell an open screen that will ring from an open
-        // screen that will not. null until AlertGate has answered. And which
-        // shell this is, so the office can see who needs one pushed.
-        body: JSON.stringify({ pushSubscribed, shellVersion }),
+        // screen that will not, and WHY not (alertState) - null until
+        // AlertGate has answered. And which shell this is, so the office
+        // can see who needs one pushed.
+        body: JSON.stringify({ pushSubscribed, shellVersion, alertState }),
       })
         .then(async (res) => {
           // 429 is the server saying "you beat less than a minute ago and I
@@ -310,7 +323,7 @@ export default function OrderDashboard({
     // Re-run when the subscription answer changes: with [] this closure would
     // capture the first value (null, before AlertGate has looked) and report
     // it for the life of the tab.
-  }, [pushSubscribed, shellVersion]);
+  }, [pushSubscribed, shellVersion, alertState]);
 
   // The push subscription is read and repaired by AlertGate, which owns that
   // question - it reports the answer here through onSubscribedChange so the
@@ -500,11 +513,11 @@ export default function OrderDashboard({
         <ReadyScreen
           restaurantName={restaurantName}
           online={connection !== "down" && !stale}
-          onSubscribedChange={setPushSubscribed}
+          onSubscribedChange={onAlertStateChange}
           onDone={finishSetup}
         />
       ) : firstRun === false ? (
-        <AlertGate restaurantName={restaurantName} onSubscribedChange={setPushSubscribed} />
+        <AlertGate restaurantName={restaurantName} onSubscribedChange={onAlertStateChange} />
       ) : null}
 
       {/* Offline has its own strip below, with the button that fixes it; the

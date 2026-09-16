@@ -106,6 +106,20 @@ test("a red row says what to do, in the restaurant's words - and points at the k
   assert.match(rows[1].action!, /Turn on alerts/);
 });
 
+test("a BLOCKED alerts row says to call, never what to press - there is nothing to press", () => {
+  // Nick, 2026-09-16: on a Hexnode kiosk the notification permission comes
+  // from policy, and blocked means the policy is missing. The row used to
+  // say "Tap Turn on alerts" over a Check-again button; the office is the
+  // fix, and a kiosk has no Settings app for the alternative.
+  for (const why of ["blocked", "unsupported"] as const) {
+    const rows = readyChecks({ online: true, alertsOn: false, alertsWhy: why, printer: null });
+    assert.match(rows[1].action!, /Call Premium on \(615\) 619-5081/, why);
+    assert.doesNotMatch(rows[1].action!, /Turn on alerts|Settings/, why);
+  }
+  assert.match(readyChecks({ online: true, alertsOn: false, alertsWhy: "ask", printer: null })[1].action!, /Turn on alerts/);
+  assert.match(src("components/ReadyScreen.tsx"), /alertsWhy: gate\.state === "blocked"/);
+});
+
 test("it moves on by itself, after long enough to read it", () => {
   assert.equal(READY_AUTO_ADVANCE_MS, 20_000);
   const ready = src("components/ReadyScreen.tsx");

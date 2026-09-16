@@ -280,7 +280,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // standing at the printer about to plug it in.
   const { data: job, error: jobError } = await admin
     .from("print_jobs")
-    .insert({ device_id: device.id, kind: "document", document: lines })
+    .insert({ device_id: device.id, kind: "document", document: lines, queued_by: "login_print" })
     .select("id")
     .single();
   if (jobError) return NextResponse.json({ error: jobError.message }, { status: 500 });

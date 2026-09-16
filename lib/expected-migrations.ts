@@ -38,4 +38,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "035_kiosk_link_codes.sql",
   "036_kiosk_devices.sql",
   "037_heartbeat_alert_state.sql",
+  "038_print_job_age_and_provenance.sql",
 ];

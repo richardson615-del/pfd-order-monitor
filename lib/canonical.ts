@@ -366,7 +366,7 @@ export async function ingestOrder(
 
     if (devices?.length) {
       await admin.from("print_jobs").insert(
-        devices.map((d) => ({ order_id: inserted.id, device_id: d.id }))
+        devices.map((d) => ({ order_id: inserted.id, device_id: d.id, queued_by: "ingest" }))
       );
     }
   });

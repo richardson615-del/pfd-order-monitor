@@ -105,7 +105,7 @@ export async function sendTestOrder(restaurantId: string): Promise<TestOrderOutc
   // tells us how many devices it reached; a queued job only tells us it was
   // queued, so the sooner it is in front of the printer the sooner somebody
   // standing there sees it.
-  const paper = await queueOrderToPrinters(order.id, restaurant.id);
+  const paper = await queueOrderToPrinters(order.id, restaurant.id, { queuedBy: "test" });
 
   const push = await deliverToApp({
     orderId: order.id,

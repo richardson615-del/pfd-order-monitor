@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { queueOrderToPrinters } from "@/lib/print-queue";
+import { reprintBy } from "@/lib/print-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   // cross-restaurant reprint gets shipped by accident.
   const { data: order } = await supabase
     .from("orders")
-    .select("id, restaurant_id, order_number")
+    .select("id, restaurant_id, order_number, received_at")
     .eq("id", params.id)
     .maybeSingle();
 
@@ -50,7 +51,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "order not found" }, { status: 404 });
   }
 
-  const result = await queueOrderToPrinters(order.id, order.restaurant_id);
+  // Pressed on the tablet by the restaurant: named as such, and dated, so an
+  // order older than PRINT_MAX_AGE_HOURS prints this once because they
+  // asked - and never again on its own (lib/print-policy.ts).
+  const result = await queueOrderToPrinters(order.id, order.restaurant_id, {
+    queuedBy: reprintBy("tablet"),
+    receivedAt: order.received_at ?? null,
+  });
 
   if (result.refusal) {
     return NextResponse.json(

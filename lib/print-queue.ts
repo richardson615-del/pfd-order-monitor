@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase-server";
+import { printMaxAgeMs, reprintResetsAttempts, type QueuedBy } from "./print-policy";
 
 /**
  * Putting an order on paper, on demand.
@@ -54,9 +55,23 @@ export interface PrintQueueResult {
  */
 export async function queueOrderToPrinters(
   orderId: string,
-  restaurantId: string
+  restaurantId: string,
+  opts: {
+    /** Who asked (print_jobs.queued_by, migration 038). A reprint names its actor. */
+    queuedBy: QueuedBy;
+    /** orders.received_at, when the caller has it - decides whether an old order gets its retries back. */
+    receivedAt?: string | null;
+  } = { queuedBy: "reprint:unknown" }
 ): Promise<PrintQueueResult> {
   const admin = supabaseAdmin();
+  const now = Date.now();
+  const isReprint = opts.queuedBy.startsWith("reprint:");
+  // Asked for by hand: this is what lets an order older than
+  // PRINT_MAX_AGE_HOURS print - inside ten minutes of the press, once.
+  const manualReprintAt = isReprint ? new Date(now).toISOString() : null;
+  // A fresh order's reprint is a new attempt to print and gets the budget
+  // back. An old one does not: it prints once if it can and never loops.
+  const resetAttempts = reprintResetsAttempts({ receivedAt: opts.receivedAt, now, maxAgeMs: printMaxAgeMs() });
 
   const { data: restaurant, error: restaurantError } = await admin
     .from("restaurants")
@@ -127,11 +142,18 @@ export async function queueOrderToPrinters(
           status: "queued",
           claimed_at: null,
           finished_at: null,
-          // Reset, because the retry budget is per ATTEMPT TO PRINT and this
-          // is a new one. A job that had already failed three times would
-          // otherwise be handed straight back as failed.
-          attempts: 0,
+          held_since: null,
+          held_at: null,
+          // Reset for a recent order, because the retry budget is per
+          // ATTEMPT TO PRINT and this is a new one. NOT reset for an order
+          // older than PRINT_MAX_AGE_HOURS: it gets one shot, and a job
+          // that already failed three times is handed back as failed on
+          // its first result rather than looping for a ticket nobody is
+          // waiting on (lib/print-policy.ts).
+          ...(resetAttempts ? { attempts: 0 } : {}),
           error: null,
+          queued_by: opts.queuedBy,
+          manual_reprint_at: manualReprintAt,
         })
         .eq("id", priorJobId);
       if (error) {
@@ -144,7 +166,7 @@ export async function queueOrderToPrinters(
 
     const { data: job, error } = await admin
       .from("print_jobs")
-      .insert({ order_id: orderId, device_id: device.id })
+      .insert({ order_id: orderId, device_id: device.id, queued_by: opts.queuedBy, manual_reprint_at: manualReprintAt })
       .select("id")
       .single();
     if (error) {

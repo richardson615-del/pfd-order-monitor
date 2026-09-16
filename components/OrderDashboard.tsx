@@ -41,8 +41,8 @@ import {
  * the kitchen today; "Completed" is what was finished today; "Past week"
  * is read-only. Was Waiting / Accepted / Done - three states of a step
  * that no longer exists. There is no Accept: opening a ticket is the
- * acknowledgement, Done is the one action, and the list empties itself at
- * midnight.
+ * acknowledgement, Done is the one action, and an order nobody marked done
+ * ages off the list six hours after it arrived.
  */
 type TabKey = "orders" | "completed" | "past";
 
@@ -438,8 +438,8 @@ export default function OrderDashboard({
    * kitchen picks up next. Completed newest first - the last thing you did
    * is the one you want to check.
    *
-   * `now` moves every second and the day boundary is read from it, which
-   * is how the list empties itself at midnight without a reload.
+   * `now` moves every second and the six-hour window is read from it,
+   * which is how an order ages off the list without a reload.
    */
   const kitchen = useMemo(
     () =>

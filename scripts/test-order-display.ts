@@ -110,23 +110,24 @@ test("an order in the kitchen is one received today and not settled", () => {
   assert.equal(inKitchen(order(), NOW, TZ), true);
 });
 
-test("it leaves the kitchen at midnight, restaurant time - not after six hours", () => {
-  // Nick, 2026-09-16: "lets do every night at midnight".
-  const sevenHoursAgo = order({ received_at: agoMs(7 * 3600_000) }); // 7 am Central, still today
-  assert.equal(bucketOf(sevenHoursAgo, NOW, TZ), "orders", "seven hours old but still today's");
-  const lastNight = order({ received_at: "2026-09-16T04:30:00Z" }); // 11:30 pm Central yesterday
-  assert.equal(bucketOf(lastNight, NOW, TZ), "past");
-  // The same instant read in UTC would still be "today". The zone is the
-  // whole point.
-  assert.equal(bucketOf(lastNight, NOW, "UTC"), "orders");
+test("it leaves the kitchen six hours after it arrived - the chime's window", () => {
+  // The brief's bold default. Past six hours the tablet has stopped
+  // ringing for it and nobody is going to cook it.
+  assert.equal(bucketOf(order({ received_at: agoMs(STILL_ACTIONABLE_MS - 1000) }), NOW, TZ), "orders");
+  assert.equal(bucketOf(order({ received_at: agoMs(STILL_ACTIONABLE_MS) }), NOW, TZ), "past");
+  assert.equal(bucketOf(order({ received_at: agoMs(7 * 3600_000) }), NOW, TZ), "past", "seven hours old: gone, whatever the day");
+  // Independent of the zone - it is an age, not a date.
+  assert.equal(bucketOf(order({ received_at: agoMs(5 * 3600_000) }), NOW, "UTC"), "orders");
+  assert.equal(bucketOf(order({ received_at: agoMs(5 * 3600_000) }), NOW, TZ), "orders");
 });
 
 test("ageing out does not fabricate a completion", () => {
-  // It simply stops being today's; its status is whatever it was.
-  const old = order({ received_at: "2026-09-15T20:00:00Z" });
+  // It simply stops being in the kitchen; its status is whatever it was.
+  const old = order({ received_at: agoMs(7 * 3600_000) });
   assert.equal(bucketOf(old, NOW, TZ), "past");
   assert.equal(old.status, "new");
   assert.equal(completedToday(old, NOW, TZ), false);
+  assert.equal(countsForHistory(old), true, "and Past week still counts it as business done");
 });
 
 test("completed today is by when it was completed, not received", () => {
@@ -141,7 +142,7 @@ test("completed today is by when it was completed, not received", () => {
 test("a cancellation today is shown under Completed, struck - it does not vanish", () => {
   assert.equal(bucketOf(order({ status: "cancelled", cancelled_at: agoMs(1000) }), NOW, TZ), "completed");
   assert.equal(orderFlag(order({ status: "cancelled" }))?.label, "Cancelled");
-  assert.match(src("app/globals.css"), /\.done-row\.cancelled \.done-name,\n\.done-row\.cancelled \.done-no \{ text-decoration: line-through/);
+  assert.match(src("app/globals.css"), /\.done-row\.cancelled \.done-name,\r?\n\.done-row\.cancelled \.done-no \{ text-decoration: line-through/);
 });
 
 test("the dashboard's lists and counts all come from bucketOf", () => {
@@ -223,23 +224,23 @@ test("a settled order is never late, however old", () => {
   assert.equal(isLate(order({ ...old, status: "completed" }), NOW), false);
 });
 
-test("past the chime window an order goes muted, not redder", () => {
-  // Red and breathing for something from breakfast teaches the room that red
-  // is background. It is still today's and still listed - it just stops
-  // shouting, and it stops counting as late.
+test("the chime, the list and the late flag all let go at the same six hours", () => {
+  // One window, three readers. If they drifted, a ticket could ring for
+  // an order that is not on screen, or sit red on a list the chime had
+  // given up on.
   const stale = order({ received_at: agoMs(STILL_ACTIONABLE_MS) });
-  assert.equal(ageClass(stale, NOW), "age-stale");
-  assert.equal(ageClass(order({ received_at: agoMs(STILL_ACTIONABLE_MS - 1) }), NOW), "age-late");
-  assert.equal(isLate(stale, NOW), false);
-  assert.equal(bucketOf(stale, NOW, TZ), "orders", "still in the kitchen until midnight");
   assert.equal(unseen([stale], NOW).length, 0, "the chime lets it go");
+  assert.equal(bucketOf(stale, NOW, TZ), "past", "and so does the list");
+  assert.equal(isLate(stale, NOW), false, "and so does the hero's red");
+  assert.equal(ageClass(stale, NOW), "age-stale", "if it were ever painted, muted, not red");
+  assert.equal(ageClass(order({ received_at: agoMs(STILL_ACTIONABLE_MS - 1) }), NOW), "age-late");
 });
 
 test("a missing or unreadable timestamp does not crash or colour", () => {
   assert.equal(ageClass(order({ received_at: null }), NOW), "age-calm");
   assert.equal(ageClass(order({ received_at: "not a date" }), NOW), "age-calm");
   assert.equal(elapsedLabel(order({ received_at: null }), NOW), "");
-  assert.equal(bucketOf(order({ received_at: null }), NOW, TZ), "past", "no date: not today's");
+  assert.equal(bucketOf(order({ received_at: null }), NOW, TZ), "past", "no date: not in the kitchen");
 });
 
 console.log("\nthe timer:");

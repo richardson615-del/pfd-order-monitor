@@ -16,11 +16,11 @@
  *   too, so the office's "nobody has looked at this order" alarm keeps its
  *   meaning ("When the ticket is opened treat that as accepted" - Nick).
  *
- *   An order leaves the Orders list at MIDNIGHT, restaurant time, not after
- *   six hours ("lets do every night at midnight" - Nick). It is not marked
- *   completed when it ages out: it simply stops being today's, and Past
- *   week shows it with whatever status it has. Nothing here fabricates a
- *   completion.
+ *   An order leaves the Orders list six hours after it was received - the
+ *   same window the chime stops at (STILL_ACTIONABLE_MS); past it nobody is
+ *   going to cook it. It is not marked completed when it ages out: it
+ *   simply stops being in the kitchen, and Past week shows it with whatever
+ *   status it has, "not marked done". Nothing here fabricates a completion.
  *
  * The database statuses are untouched. Printing and accounting read them,
  * and the README's rule stands: orders.status semantics are not this
@@ -72,13 +72,17 @@ export function isUnopened(order: Pick<Order, "status" | "opened_at" | "accepted
 export type Bucket = "orders" | "completed" | "past";
 
 /**
- * Orders = in the kitchen: not settled, and received today (restaurant
- * time). Completed = finished today, or cancelled today - a cancellation
- * is shown, struck through, rather than vanishing, so nobody wonders where
- * the ticket went. Everything else is history, and Past week's.
+ * Orders = in the kitchen: not settled, and received within the last six
+ * hours. Completed = finished today, or cancelled today (restaurant time)
+ * - a cancellation is shown, struck through, rather than vanishing, so
+ * nobody wonders where the ticket went. Everything else is history, and
+ * Past week's.
  *
- * "Today" is the restaurant's day: an order from 11:50 last night is not
- * in the kitchen at 8 this morning, and one from 11:50 tonight is.
+ * Six hours for the kitchen because that is the chime's window: an order
+ * the tablet has stopped ringing for is an order nobody is going to cook,
+ * and a list that keeps it is a list that teaches the room to ignore the
+ * top of it. "Today" for Completed is the restaurant's day: 11:50 last
+ * night is yesterday's business at 8 this morning.
  */
 export function bucketOf(
   order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
@@ -86,7 +90,8 @@ export function bucketOf(
   timezone: string | null | undefined
 ): Bucket {
   if (!isSettled(order)) {
-    return isSameLocalDay(order.received_at, now, timezone) ? "orders" : "past";
+    const age = ageMs(order, now);
+    return age !== null && age < STILL_ACTIONABLE_MS ? "orders" : "past";
   }
   const settledAt =
     (order.status === "completed" ? order.completed_at : order.cancelled_at) ?? order.received_at;

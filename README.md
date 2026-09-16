@@ -599,12 +599,13 @@ in the kitchen today — and **Completed** — what was finished today — plus 
 read-only **Past week** of counts and totals. There is no Accept step:
 opening a ticket is the acknowledgement (it stops the chime and stamps
 `opened_at` and `accepted_at`), and **Done** is the one action, which marks
-the order completed. The Orders list empties itself at **midnight,
-restaurant time** (`restaurants.timezone`); an order nobody marked Done is
-not marked completed when it ages out — it simply stops being today's and
-Past week shows it as "not marked done". `orders.status` semantics are
-untouched: the rules for what to SHOW are in `lib/order-display.ts`, the
-chime's in `lib/kiosk.ts` (`unseen()`), the day's in `lib/local-day.ts`.
+the order completed. An order nobody marked Done leaves the Orders list
+**six hours** after it arrived — the chime's own window — and is not
+marked completed when it ages out; Past week shows it as "not marked
+done". Completed and Past week are cut by the restaurant's own day
+(`restaurants.timezone`). `orders.status` semantics are untouched: the
+rules for what to SHOW are in `lib/order-display.ts`, the chime's in
+`lib/kiosk.ts` (`unseen()`), the day's in `lib/local-day.ts`.
 
 
 The tablet runs in **kiosk mode with autostart** — it boots into the dashboard

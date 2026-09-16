@@ -57,10 +57,22 @@ test("an explicit quantity of zero does not silently become one", () => {
 console.log("\nthe screen renders the order, not the email:");
 
 const viewer = src("components/OrderViewer.tsx");
-const ticket = src("components/OrderTicket.tsx");
+// The screen's ticket body since I2 (2026-09-16). The 48-column paper
+// renderer (buildTicket) is still what the printer and the email leg get;
+// the screen lays the same row out for a screen.
+const ticket = src("components/TicketBody.tsx");
 
-test("the order screen renders the normalised row", () =>
-  assert.match(viewer, /<OrderTicket order=\{order\}/));
+test("the order screen renders the normalised row", () => {
+  // Since I2 the ticket is laid out for the screen (components/TicketBody)
+  // rather than as the 48-column paper ticket: big item lines, modifiers in
+  // amber, the note where it cannot be skimmed past. Same row, same facts.
+  assert.match(viewer, /<TicketBody order=\{order\}/);
+  const body = src("components/TicketBody.tsx");
+  for (const f of ["items", "items_total", "tax", "tip", "customer_total", "notes", "customer_phone", "customer_address"]) {
+    assert.match(body, new RegExp(`order\\.${f}`), `the screen must show ${f}`);
+  }
+  assert.match(body, /it\.modifiers/, "the modifier is the thing that gets missed");
+});
 
 test("raw_html is never the primary view", () => {
   // It may still appear behind an explicit toggle - it is evidence of what
@@ -71,9 +83,9 @@ test("raw_html is never the primary view", () => {
     /order\.raw_html &&/,
     "raw_html must be rendered only when there is one, and only as an extra"
   );
-  // Property access, not the bare word: OrderTicket's own header comment
-  // explains why it does not read the email, and a test that trips over the
-  // explanation would be pushing back on documentation rather than behaviour.
+  // Property access, not the bare word: the component's own header comment
+  // may mention the email, and a test that trips over the explanation would
+  // be pushing back on documentation rather than behaviour.
   assert.doesNotMatch(
     ticket,
     /order\.raw_html/,
@@ -89,35 +101,24 @@ test("printing no longer claims a ticket exists", () => {
   assert.match(viewer, /window\.print\(\)/);
 });
 
-test("the screen uses the printer's own renderer, not a second one", () => {
-  // The point of this is that the two cannot drift. A lookalike layout would
-  // make staff learn a second arrangement of the same facts, and would go
-  // stale the first time the ticket changed.
-  assert.match(ticket, /buildTicket\(/);
-  assert.match(ticket, /omitFooter: true/, "the footer is the customer's, not the kitchen's");
+test("the screen lays the row out for a screen; the printer keeps its own renderer", () => {
+  // Until I2 the screen rendered buildTicket()'s 48-column paper layout, so
+  // the two could not drift. Nick's OrderDetail design (2026-09-16) is a
+  // screen layout - big item lines, modifiers in amber, Done - and a
+  // thermal head's column count is the printer's constraint, not the
+  // screen's. The facts are the same row; what may not happen is a second
+  // copy of the PAPER rules. The printer's renderer is untouched.
+  assert.doesNotMatch(ticket, /buildTicket\(|ticketLineClass/);
+  assert.match(src("lib/ticket.ts"), /export function buildTicket/);
+  assert.match(src("lib/ticket.ts"), /export function ticketLineClass/, "the paper emphasis rules stay where the printer reads them");
 });
 
-test("the printer's emphasis survives onto the screen", () => {
-  // Bold, double height, double width and reverse video are how a thermal
-  // printer says "this matters". Dropping them would render a wall of
-  // monospace that happens to contain the right words.
-  //
-  // The mapping lives in lib/ticket.ts rather than in the component, so the
-  // public demo page can render a byte-identical ticket without a second copy
-  // of these rules - two renderers drifting apart is how a demo starts showing
-  // something the kitchen never sees.
-  const lib = src("lib/ticket.ts");
-  for (const attr of ["bold", "reverse", "double", "double-h"]) {
-    assert.match(lib, new RegExp(attr), `${attr} is not carried onto the screen`);
-  }
-  assert.match(lib, /export function ticketLineClass/);
-});
-
-test("the screen and the demo page share one line-class rule", () => {
+test("the screen and the demo page share one ticket component", () => {
   // If either grows its own copy, they can disagree, and the demo is only
   // worth anything while it shows what the app actually does.
-  assert.match(ticket, /ticketLineClass\(l\)/);
-  assert.match(src("scripts/build-demo.ts"), /ticketLineClass\(l\)/);
+  assert.match(src("components/OrderViewer.tsx"), /<TicketBody order=\{order\}/);
+  assert.match(src("scripts/build-demo.ts"), /React\.createElement\(TicketBody/);
+  assert.doesNotMatch(src("scripts/build-demo.ts"), /tk-items|tk-mods/, "the demo does not hand-write the ticket");
 });
 
 console.log("\nan order with no email still renders fully:");

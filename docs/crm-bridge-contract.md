@@ -230,11 +230,12 @@ narrows both lists to what changed after it; unstamped issues are always
 included.
 
 `order_unaccepted:<order id>` is **critical** and per order (2026-09-15): a
-customer order on a tablet restaurant that nobody has accepted ten minutes
-after it arrived — the same ten at which the card on the tablet goes red.
-Never for a test order (no customer is waiting), never past the six-hour
-chime window. It clears the moment Accept is pressed. The monitor runs
-every five minutes, so the office hears within 10–15 minutes.
+customer order on a tablet restaurant that nobody has **opened** three
+minutes after it arrived. Never for a test order (no customer is waiting),
+never past the six-hour chime window. The key keeps its name; since
+2026-09-16 there is no Accept button on the tablet — opening the ticket is
+the acknowledgement and stamps `accepted_at`, which is what clears this.
+The monitor runs every minute.
 
 ### Restaurant logins
 
@@ -343,7 +344,7 @@ POST /api/crm/restaurants/:id/test-order
 ```
 
 Sends a test order to the restaurant's TABLET: the screen lights up, chimes,
-and the order can be opened and accepted like any other. The only way to know
+and the order can be opened and marked Done like any other. The only way to know
 a newly installed tablet works before a customer finds out it does not.
 
 **Sends to BOTH destinations** since 2026-09-14 (Nick): the tablet chimes and

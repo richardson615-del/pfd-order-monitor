@@ -2,42 +2,72 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
-import { Order, OrderStatus } from "@/lib/types";
-import OrderTicket from "./OrderTicket";
-import { orderFlag } from "@/lib/order-display";
+import { Order } from "@/lib/types";
+import TicketBody from "./TicketBody";
+import { ageClass, elapsedLabel, isSettled, orderFlag } from "@/lib/order-display";
+import { timeLabel } from "@/lib/local-day";
 import { useFreshBuildOnReturn } from "@/lib/use-fresh-build";
+import { useTicking } from "@/lib/use-ticking";
 
-export default function OrderViewer({ order: initialOrder }: { order: Order }) {
+/**
+ * The ticket, on the tablet.
+ *
+ * One action: Done. There is no Accept - opening this page was the
+ * acknowledgement (the server stamped opened_at and accepted_at on the way
+ * in, and the chime stopped). What is left is to cook it and press the big
+ * green button, which marks it completed and goes back to the kitchen list.
+ *
+ * Print again sends it to the restaurant's own printer, and only there.
+ * A completed or cancelled ticket is read-only: Print again still works,
+ * Done is gone, and the footer says when it was done instead.
+ */
+export default function OrderViewer({
+  order: initialOrder,
+  timezone,
+}: {
+  order: Order;
+  timezone: string | null;
+}) {
   const [order, setOrder] = useState(initialOrder);
   const [busy, setBusy] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   /** What the last Print press did. */
   const [printNote, setPrintNote] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
+  const now = useTicking();
 
   // A new deployment is taken only when the tablet comes back to the
-  // foreground on this ticket, and never mid-Accept or mid-Print. Not on a
+  // foreground on this ticket, and never mid-Done or mid-Print. Not on a
   // timer: a ticket somebody is reading is not reloaded to get new code.
   const idle = useCallback(() => !busy && !printing, [busy, printing]);
   useFreshBuildOnReturn(idle);
 
-  async function patch(body: Record<string, unknown>) {
+  /**
+   * Done. Marks it completed, then goes back to the list - a full
+   * navigation, so the list is re-read from the server rather than trusting
+   * that the realtime event beat us there.
+   */
+  async function markDone() {
     setBusy(true);
     try {
       const res = await fetch(`/api/orders/${order.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ status: "completed" }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPrintNote(data.error ?? "Could not mark that done. Try again.");
+        return;
+      }
       if (data.order) setOrder(data.order);
+      window.location.assign("/dashboard");
+    } catch {
+      setPrintNote("Could not reach the server. The order is still in the kitchen.");
     } finally {
       setBusy(false);
     }
   }
-
-  const setStatus = (status: OrderStatus) => patch({ status });
-  const accept = () => patch({ accepted: true });
 
   /**
    * Send this ticket to the restaurant's own printer. Only there.
@@ -84,36 +114,55 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
   }
 
   const flag = orderFlag(order);
-
-  const acceptedAt = order.accepted_at
-    ? new Date(order.accepted_at).toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : null;
+  const settled = isSettled(order);
+  const age = ageClass(order, now);
+  const kind = order.order_type === "delivery" ? "Delivery" : "Pickup";
 
   return (
-    <div className="page" style={{ paddingBottom: 90 }}>
-      <div className="topbar no-print">
-        <Link href="/dashboard" className="btn small">
-          &larr; Back
+    <div className={`app ticket-page ${age}`} data-display="kitchen">
+      <div className="ticket-top no-print">
+        <Link href="/dashboard" className="btn ticket-back">
+          &larr; Orders
         </Link>
-        <h1>Order #{order.order_number}</h1>
+        <span className="ticket-kind">
+          {kind} · ordered <span className="num">{timeLabel(order.received_at, timezone)}</span>
+        </span>
         {/* The word a person can act on, not the database's own. This used
             to render order.status raw, so a ticket said "printed" - a fact
-            about the paper channel, which is independent of this screen and
-            says nothing about whether anybody has agreed to cook it. */}
-        <span className={`badge status-${flag.tone}`}>{flag.label}</span>
+            about the paper channel, which is independent of this screen. */}
+        {flag && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>}
       </div>
 
-      <OrderTicket order={order} />
+      <div className="ticket-head">
+        <span className="ticket-no num">#{order.order_number}</span>
+        {/* The big timer: how long the customer has been waiting, counting
+            up, in the colour the card had. Green and still once settled. */}
+        <span className={`ticket-timer num ${age}`}>{elapsedLabel(order, now)}</span>
+      </div>
+
+      <div className="ticket-who">
+        <span className="ticket-name">{order.customer_name || "Customer"}</span>
+        {order.due_time && (
+          <span className="ticket-due">
+            {kind} at <span className="num">{timeLabel(order.due_time, timezone)}</span>
+          </span>
+        )}
+      </div>
+
+      {order.source === "test" && (
+        <p className="ticket-test" role="status">
+          Test order — do not make. Sent to check this tablet.
+        </p>
+      )}
+
+      <TicketBody order={order} />
 
       {/* The original email, where one exists at all. Kept because it is
           evidence of what was actually sent, and useful when a parsed field
           looks wrong - but it is no longer the view, and there is none for
           any webhook order. */}
       {order.raw_html && (
-        <div className="no-print" style={{ marginTop: 16 }}>
+        <div className="no-print ticket-original">
           <button className="btn small" onClick={() => setShowOriginal((v) => !v)}>
             {showOriginal ? "Hide original email" : "View original email"}
           </button>
@@ -123,7 +172,6 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
               title={`Original email for order ${order.order_number}`}
               srcDoc={order.raw_html}
               sandbox=""
-              style={{ marginTop: 12 }}
             />
           )}
         </div>
@@ -135,56 +183,27 @@ export default function OrderViewer({ order: initialOrder }: { order: Order }) {
         </p>
       )}
 
-      <div className="action-bar no-print">
-        {/*
-          Prints the ticket above, not the original email - which a webhook
-          order does not have, so this used to open a blank window and then
-          mark the order printed anyway.
-
-          It no longer sets status. A browser gives no signal that anything
-          reached paper - window.print() returns the same whether it printed
-          or the dialog was cancelled - and 'printed' is written by the print
-          pipeline to mean a real ticket exists. Guessing it from a button
-          press made the Printed tab describe intentions rather than tickets.
-        */}
-        {/* The ticket prints the number as plain text, the way paper does.
-            The tablet is the thing in someone's hand when an order is wrong,
-            so the action lives beside the ticket rather than inside it. */}
-        {order.customer_phone && (
-          <a
-            className="btn"
-            href={`tel:${order.customer_phone.replace(/[^\d+]/g, "")}`}
-          >
-            Call customer
-          </a>
-        )}
-        <button className="btn" disabled={busy || printing} onClick={sendToPrinter}>
-          {printing ? "Sending…" : "Print"}
+      <div className="ticket-actions no-print">
+        {/* Prints the ticket, on the restaurant's printer. It does not set
+            status: 'printed' is written by the print pipeline to mean a real
+            ticket exists, and a button press is not that. */}
+        <button className="btn ticket-print" disabled={busy || printing} onClick={sendToPrinter}>
+          {printing ? "Sending…" : "Print again"}
         </button>
-        {/*
-          Accept is the loud one, and it is what stops the chime. Deliberately
-          bigger than everything beside it: it is the action the tablet is
-          sounding for, and on a screen read from across a kitchen the thing
-          that silences the room should not be the same size as "Print".
-
-          It stays visible once accepted, showing when - so the next person to
-          walk past can see the order was picked up rather than wondering
-          whether the tablet had simply been ignored.
-        */}
-        {order.accepted_at ? (
-          <span className="accepted-mark">Accepted {acceptedAt}</span>
+        {/* Done is the loud one: green, tall, and it fills the rest of the
+            row, because on a screen read from across a kitchen the one
+            action there is should not be the same size as "Print again". */}
+        {settled ? (
+          <span className={`ticket-settled ${order.status}`}>
+            {order.status === "cancelled"
+              ? `Cancelled ${timeLabel(order.cancelled_at ?? order.received_at, timezone)}`
+              : `Done ${timeLabel(order.completed_at ?? order.received_at, timezone)}`}
+          </span>
         ) : (
-          <button className="btn accept" disabled={busy} onClick={accept}>
-            Accept order
+          <button className="btn ticket-done" disabled={busy} onClick={markDone}>
+            {busy ? "Marking done…" : "Done"}
           </button>
         )}
-        <button
-          className="btn primary"
-          disabled={busy || order.status === "completed"}
-          onClick={() => setStatus("completed")}
-        >
-          {order.status === "completed" ? "Completed" : "Mark complete"}
-        </button>
       </div>
     </div>
   );

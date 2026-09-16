@@ -2,15 +2,36 @@
  * What an order looks like on the tablet.
  *
  * Pure functions, separate from the card that renders them, because these are
- * the decisions worth testing: when an order starts reading as late, and what
- * a row says about itself. Both display modes call the same ones - kitchen and
- * standard differ in size and loudness, never in what they claim.
+ * the decisions worth testing: which list an order is in, when it starts
+ * reading as late, and what a row says about itself. Both display modes call
+ * the same ones - kitchen and standard differ in size and loudness, never in
+ * what they claim.
+ *
+ * THE MODEL, since 2026-09-16 (Workstream I2, Nick's decisions):
+ *
+ *   Two lists and one action. "Orders" is everything in the kitchen today;
+ *   "Completed" is what was finished today; the one thing anybody does to a
+ *   ticket is press Done. There is no Accept step. Opening a ticket is the
+ *   acknowledgement - it stops the chime, and it is recorded as accepted_at
+ *   too, so the office's "nobody has looked at this order" alarm keeps its
+ *   meaning ("When the ticket is opened treat that as accepted" - Nick).
+ *
+ *   An order leaves the Orders list at MIDNIGHT, restaurant time, not after
+ *   six hours ("lets do every night at midnight" - Nick). It is not marked
+ *   completed when it ages out: it simply stops being today's, and Past
+ *   week shows it with whatever status it has. Nothing here fabricates a
+ *   completion.
+ *
+ * The database statuses are untouched. Printing and accounting read them,
+ * and the README's rule stands: orders.status semantics are not this
+ * screen's to change. This file only decides how to SHOW them.
  */
 import { Order } from "./types";
 import { STILL_ACTIONABLE_MS } from "./kiosk";
+import { isSameLocalDay } from "./local-day";
 
 /**
- * When an unaccepted order starts reading as late.
+ * When an order in the kitchen starts reading as late.
  *
  * Five minutes amber, ten minutes red. Not arbitrary: the order-undelivered
  * alert in lib/health.ts fires at five minutes, so amber appears on the screen
@@ -25,48 +46,64 @@ export const AGE_LATE_MS = 10 * 60_000;
 const SETTLED = new Set(["completed", "cancelled"]);
 
 /**
- * True once nobody needs to act on this order.
+ * True once nobody in the kitchen needs to act on this order.
  *
- * Acceptance, not status 'opened'. Tapping an order to read it is not the same
- * as agreeing to cook it, which is the distinction the chime is built on -
- * this keeps the colour on the card telling the same story as the noise in
- * the room.
+ * Completed or cancelled - and nothing else. It used to include "accepted",
+ * back when Accept was a step: agreeing to cook silenced the chime and
+ * turned the rail green. Now opening is the acknowledgement and the order
+ * stays in the kitchen, still ageing, until Done. A ticket somebody opened
+ * eleven minutes ago and has not finished is still eleven minutes old.
  */
-export function isSettled(order: Pick<Order, "status" | "accepted_at">): boolean {
-  return Boolean(order.accepted_at) || SETTLED.has(order.status);
+export function isSettled(order: Pick<Order, "status">): boolean {
+  return SETTLED.has(order.status);
 }
 
 /**
- * Still waiting for somebody here to accept it - the Waiting tab's rows.
- *
- * This is the SAME question isSettled asks, negated, and it is the one the
- * headline, the tab count and the list must all answer alike. On 2026-09-15
- * they did not: the headline counted unaccepted() from lib/kiosk.ts, which
- * drops anything past the chime window, while the tab had no cutoff. A
- * tablet with ten day-old orders in Waiting read "All clear" in the header
- * and "Waiting (10)" an inch below it, and each was true about a different
- * thing. The chime keeps its window - see unaccepted(). The list does not.
+ * Nobody here has looked at it yet. This is the NEW pill, and it is what
+ * the chime sounds for (see unseen() in lib/kiosk.ts). accepted_at counts
+ * as well as opened_at so that an order accepted under the old button does
+ * not come back as NEW after the deploy.
  */
-export function isWaiting(order: Pick<Order, "status" | "accepted_at">): boolean {
-  return !isSettled(order);
+export function isUnopened(order: Pick<Order, "status" | "opened_at" | "accepted_at">): boolean {
+  return !isSettled(order) && !order.opened_at && !order.accepted_at;
 }
 
+/** Which of the tablet's lists an order belongs to, today. */
+export type Bucket = "orders" | "completed" | "past";
+
 /**
- * Unaccepted for longer than anyone is going to cook it.
+ * Orders = in the kitchen: not settled, and received today (restaurant
+ * time). Completed = finished today, or cancelled today - a cancellation
+ * is shown, struck through, rather than vanishing, so nobody wonders where
+ * the ticket went. Everything else is history, and Past week's.
  *
- * The same window the chime stops at, because past it the tablet has already
- * stopped asking for this order. It stays in Waiting - a real order nobody
- * took all day is still owed a decision - but it stops being painted as an
- * emergency, so that red on this screen goes on meaning "act on this now".
+ * "Today" is the restaurant's day: an order from 11:50 last night is not
+ * in the kitchen at 8 this morning, and one from 11:50 tonight is.
  */
-export function isStaleWaiting(
-  order: Pick<Order, "status" | "accepted_at" | "received_at">,
-  now: number
-): boolean {
-  if (isSettled(order)) return false;
-  const age = ageMs(order, now);
-  return age !== null && age >= STILL_ACTIONABLE_MS;
+export function bucketOf(
+  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
+  now: number,
+  timezone: string | null | undefined
+): Bucket {
+  if (!isSettled(order)) {
+    return isSameLocalDay(order.received_at, now, timezone) ? "orders" : "past";
+  }
+  const settledAt =
+    (order.status === "completed" ? order.completed_at : order.cancelled_at) ?? order.received_at;
+  return isSameLocalDay(settledAt, now, timezone) ? "completed" : "past";
 }
+
+export const inKitchen = (
+  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
+  now: number,
+  timezone: string | null | undefined
+): boolean => bucketOf(order, now, timezone) === "orders";
+
+export const completedToday = (
+  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
+  now: number,
+  timezone: string | null | undefined
+): boolean => bucketOf(order, now, timezone) === "completed";
 
 /**
  * How old the order is, in ms, or null if we cannot tell.
@@ -82,6 +119,13 @@ export function ageMs(order: Pick<Order, "received_at">, now: number): number | 
   return Math.max(0, now - t);
 }
 
+/** Whether an order in the kitchen has crossed the late line. */
+export function isLate(order: Pick<Order, "status" | "received_at">, now: number): boolean {
+  if (isSettled(order)) return false;
+  const age = ageMs(order, now);
+  return age !== null && age >= AGE_LATE_MS && age < STILL_ACTIONABLE_MS;
+}
+
 /**
  * The class that drives the urgency rail and the timer colour.
  *
@@ -89,13 +133,13 @@ export function ageMs(order: Pick<Order, "received_at">, now: number): number | 
  * that was cooked and completed is history, not a problem, and colouring it
  * red would teach the kitchen that red means nothing.
  *
- * Nor is an order that has sat unaccepted past the chime window. It is not
- * settled - it still needs a decision - but red and breathing for something
- * that arrived yesterday is the same lesson: it teaches the room that red is
+ * Nor is an order that has sat in the kitchen past the chime window. It is
+ * still today's and still on the list - but red and breathing for something
+ * from breakfast is the same lesson: it teaches the room that red is
  * background. Those go muted, with the age still on them.
  */
 export function ageClass(
-  order: Pick<Order, "status" | "accepted_at" | "received_at">,
+  order: Pick<Order, "status" | "received_at">,
   now: number
 ): "settled" | "age-calm" | "age-warn" | "age-late" | "age-stale" {
   if (isSettled(order)) return "settled";
@@ -133,23 +177,34 @@ export function elapsedLabel(order: Pick<Order, "received_at">, now: number): st
 
 export interface OrderFlag {
   label: string;
-  tone: "waiting" | "done" | "printed" | "cancelled";
+  tone: "new" | "done" | "cancelled";
 }
 
 /**
- * What the badge on a row says.
+ * What the pill on a row says - or null when there is nothing to say.
  *
- * Said in terms of what somebody has to do, not the database's own word for
- * the row. 'new' and 'opened' both mean nobody has agreed to cook it, so both
- * read WAITING - a kitchen acting on the difference between those two would be
- * acting on whether someone glanced at the screen.
+ * NEW until somebody opens the ticket; nothing at all while it is being
+ * cooked (the timer says everything); Completed or Cancelled once settled.
+ * There is no "Accepted" any more, and no "Printed": paper is a fact about
+ * the paper channel, which the tablet does not report on.
  */
-export function orderFlag(order: Pick<Order, "status" | "accepted_at">): OrderFlag {
+export function orderFlag(order: Pick<Order, "status" | "opened_at" | "accepted_at">): OrderFlag | null {
   if (order.status === "cancelled") return { label: "Cancelled", tone: "cancelled" };
-  if (order.accepted_at) return { label: "Accepted", tone: "done" };
   if (order.status === "completed") return { label: "Completed", tone: "done" };
-  if (order.status === "printed") return { label: "Waiting", tone: "waiting" };
-  return { label: "Waiting", tone: "waiting" };
+  if (isUnopened(order)) return { label: "New", tone: "new" };
+  return null;
+}
+
+/**
+ * The one line of items under the customer's name: the first three, and an
+ * ellipsis if there are more. Enough to tell the fish from the chicken
+ * across the pass; the ticket has the rest.
+ */
+export function itemsLine(items: Order["items"] | null | undefined, max = 3): string {
+  const names = (items ?? []).map((i) => (i?.name ?? "").trim()).filter(Boolean);
+  if (!names.length) return "";
+  const shown = names.slice(0, max).join(" · ");
+  return names.length > max ? `${shown} …` : shown;
 }
 
 /** The two looks a restaurant's tablet can have. */

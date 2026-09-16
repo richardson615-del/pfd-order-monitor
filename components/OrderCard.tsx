@@ -1,21 +1,21 @@
 import Link from "next/link";
 import { Order } from "@/lib/types";
-import { ageClass, elapsedLabel, orderFlag } from "@/lib/order-display";
+import { ageClass, elapsedLabel, itemsLine, orderFlag } from "@/lib/order-display";
 
 /**
- * One order in the list.
+ * One order in the kitchen list.
  *
  * Reads the same in both display modes - what changes between kitchen and
  * standard is size and how loudly age is signalled, never which facts are on
  * screen. The CSS does that; this decides what is true.
  *
- * Five things and the flag: number, pickup/delivery, timer, customer, total.
- * Nothing else - if it does not change what the kitchen does next it goes on
- * the ticket or in the CRM, not here. Where the order came from used to be
- * printed after the flag (the platform name), and it is exactly that kind of thing:
- * the restaurant does not care, and cannot act on it. orders.source stays in
- * the data and the admin views; it just never renders on the tablet. The one
- * exception is a TEST order, which gets a muted chip so nobody cooks it.
+ * Number, pickup/delivery, the NEW pill until somebody opens it, the timer,
+ * the customer, the total, and one line of what they ordered - the first
+ * three items, so the fish can be told from the chicken across the pass.
+ * Nothing else. Where the order came from is exactly the kind of thing
+ * that does not go here: the restaurant does not care and cannot act on
+ * it. orders.source stays in the data and the admin views. The one
+ * exception is a TEST order, which says so quietly so nobody cooks it.
  *
  * `now` is passed in rather than read here so every card on the screen agrees
  * about the time, and so the timers move when the dashboard ticks instead of
@@ -24,17 +24,19 @@ import { ageClass, elapsedLabel, orderFlag } from "@/lib/order-display";
 export default function OrderCard({ order, now }: { order: Order; now: number }) {
   const flag = orderFlag(order);
   const age = ageClass(order, now);
+  const items = itemsLine(order.items);
 
   return (
     <Link
       href={`/order/${order.id}`}
-      className={`card ${age}${order.status === "cancelled" ? " cancelled" : ""}`}
+      className={`card ${age}${order.status === "cancelled" ? " cancelled" : ""}${flag?.tone === "new" ? " unopened" : ""}`}
     >
       <div className="card-top">
         <span className="card-no num">#{order.order_number}</span>
         <span className="card-type">
           {order.order_type === "delivery" ? "Delivery" : "Pickup"}
         </span>
+        {flag && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>}
         <span className="card-age num">{elapsedLabel(order, now)}</span>
       </div>
 
@@ -45,10 +47,12 @@ export default function OrderCard({ order, now }: { order: Order; now: number })
         )}
       </div>
 
-      <div className="card-sub">
-        <span className={`card-flag ${flag.tone}`}>{flag.label}</span>
-        {order.source === "test" && <span className="card-test">Test — do not make</span>}
-      </div>
+      {(items || order.source === "test") && (
+        <div className="card-items">
+          {items}
+          {order.source === "test" && <span className="card-test">Test — do not make</span>}
+        </div>
+      )}
     </Link>
   );
 }

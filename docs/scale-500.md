@@ -5,6 +5,54 @@ query or the page it came from) or **derived** from a measured one and
 labelled so. Nothing here is a guess from memory; when a limit was not
 visible on a dashboard it says so and where to look.
 
+> **Revised 2026-09-16 (Nick's decisions on §6, PR `feat/poll-first`):**
+> **Realtime is opt-in and off by default** (`NEXT_PUBLIC_REALTIME_ORDERS`);
+> **the poll carries the orders, incrementally**; the load test is deferred
+> to pre-launch. §0 below is the tradeoff; §1/§2 keep the original numbers
+> with the poll-first numbers beside them.
+
+## 0. Poll-first: the tradeoff (2026-09-16)
+
+**Why.** Supabase Pro allows **500 concurrent Realtime connections**
+(§4). One websocket per tablet meant the 500th tablet was the last one
+that could connect, and the 501st would have failed silently — the exact
+"quiet screen that looks fine" failure this whole system is built to
+avoid. The alternatives were the Team plan (10,000 connections, at a
+price not recorded here) or not holding a socket per tablet. Nick chose
+the second.
+
+**What a tablet does now** (`lib/order-sync.ts`, `components/OrderDashboard.tsx`):
+
+| feed | before | now (Realtime off) |
+|---|---|---|
+| new order reaches the screen | Realtime INSERT (sub-second) | **Web Push → service worker → `postMessage` to the open page → sync** (seconds; the push was already the alarm) |
+| backstop | poll every 60 s, **full** 200-row pull | poll every **30 s ±20 %**, **incremental**: `updated_at > <newest seen>` (migration 039) — usually **0 rows** |
+| full pull | every poll | on load, on return to the foreground, after a poll failure, and **once an hour** regardless |
+| "is this screen receiving orders?" | Realtime channel status | **the poll's own result**: live after a success, down after two failures in a row (`pollConnection`) |
+| Realtime | always | `NEXT_PUBLIC_REALTIME_ORDERS=1` at build time turns it back on; the poll then drops to its old 60 s backstop and the socket's status drives the pill again |
+
+**What it costs and saves at 500 tablets** (derived from §1/§2):
+
+| resource | Realtime-always (before) | poll-first (now) |
+|---|---|---|
+| Realtime connections | 500 of 500 — **0 % headroom** | **0** |
+| PostgREST reads | 8.3 req/s × ~20 KB | **16.7 req/s × ~0.3 KB** (an empty incremental answer) — twice the requests, ~1/70th the bytes |
+| egress | ≈ 70 GB/month (§4) | **≈ 1 GB/month** from the poll; the hourly full pull adds 500 × 24 × 20 KB ≈ 0.25 GB |
+| Vercel invocations | 12.5 req/s | **unchanged** — the poll goes to Supabase directly, not through a function |
+| new-order latency | sub-second (socket) | push latency (typically 1–3 s); worst case one poll (≤ 36 s) if the push is lost |
+| status change made elsewhere (opened on the other tablet, printed, cancelled) | sub-second | ≤ 36 s (next incremental poll) — acceptable; nothing chimes on those |
+
+**What was given up.** Sub-second propagation of *changes* between two
+screens at the same restaurant, and of a cancellation. The chime and
+the notification never depended on the socket, so the alarm path is
+unchanged. A tablet whose push subscription is broken now sees a new
+order at the next poll (≤ 36 s) instead of at once — and that tablet is
+already flagged "Alerts off" to the office by `push_subscribed`.
+
+**What did not change.** Jitter on every timer (§5), the heartbeat
+limiter, RLS on `orders` (the poll runs as the tablet's own user), the
+push fan-out cap.
+
 ## 1. What a tablet does, per hour
 
 From the client code (`lib/kiosk.ts`, `components/OrderDashboard.tsx`,
@@ -12,8 +60,8 @@ From the client code (`lib/kiosk.ts`, `components/OrderDashboard.tsx`,
 
 | what | cadence | per tablet per hour |
 |---|---|---|
-| Supabase Realtime channel `orders-<restaurant>` | 1 persistent websocket | 1 connection |
-| orders poll (PostgREST `select * from orders … limit 200`) | every 60 s ±20 % (jittered) | 60 requests |
+| Supabase Realtime channel `orders-<restaurant>` | 1 persistent websocket — **only with `NEXT_PUBLIC_REALTIME_ORDERS` (2026-09-16)** | 1 connection, or **0** |
+| orders poll (PostgREST) | every 60 s ±20 % with Realtime; **every 30 s ±20 %, incremental (`updated_at > cursor`), without (2026-09-16)** | 60 requests, or **120 tiny ones + 1 full pull** |
 | heartbeat `POST /api/dashboard/heartbeat` (carries the version check) | every 120 s ±20 % | 30 requests |
 | push re-record `POST /api/push/subscribe` | on visibility change only | ~0 |
 | realtime messages received | one per order change at that restaurant | = that restaurant's order events |
@@ -25,9 +73,9 @@ cadence; C4 folded it into the heartbeat's response, so it is not a row here.
 
 | resource | 500 tablets |
 |---|---|
-| Realtime concurrent connections | **500** (one each) |
+| Realtime concurrent connections | **500** (one each) with the flag on; **0** by default since 2026-09-16 |
 | Vercel function requests, steady | 500 × (60 + 30) / 3600 = **12.5 req/s**, ~1.08 M/day |
-| PostgREST reads (the poll) | 500 × 60 / 3600 = **8.3 req/s** — this is the Supabase API + pooler, not a Vercel function |
+| PostgREST reads (the poll) | 500 × 60 / 3600 = **8.3 req/s** with Realtime; **16.7 req/s** poll-first, almost all empty — this is the Supabase API + pooler, not a Vercel function |
 | heartbeat upserts | 500 × 30 / 3600 = **4.2 writes/s** to `dashboard_heartbeats` |
 | Realtime messages | orders-driven, see §3 — negligible against the 500/s limit |
 
@@ -132,23 +180,18 @@ connections and timers are.
 
 ## 6. What to do before tablet #300
 
-1. **Realtime connections: Pro's 500 is the hard ceiling and we plan to
-   use all of it.** Either move the org to Team (10,000 — price on the
-   Supabase pricing page, not recorded here) before ~450 tablets, or stop
-   holding a websocket per tablet: the poll already guarantees delivery
-   within 60 s and the push notification is the alarm, so Realtime is an
-   optimisation. The cheaper path is to make Realtime opt-in per restaurant
-   (`display_mode`-style flag) and let the poll carry the rest. Decide by
-   ~250 tablets.
-2. **Egress:** the poll pulls up to 200 orders per tablet per minute. Cut it
-   to "orders changed since last sync" (`received_at`/`updated_at >
-   lastSyncAt`, with a full pull hourly) and the number falls by ~50×.
-   Worth doing regardless of plan.
-3. **Function invocations:** ~32 M/month from tablets alone at 500. Check
+1. ~~Realtime connections~~ **Decided 2026-09-16: Realtime is opt-in, off
+   by default; the poll carries the orders.** See §0. Turning it back on
+   for the whole fleet is `NEXT_PUBLIC_REALTIME_ORDERS=1` on the
+   deployment — and would need the Team plan past ~450 tablets.
+2. ~~Egress~~ **Done 2026-09-16:** the poll is incremental
+   (`orders.updated_at`, migration 039) with an hourly full pull.
+3. **Function invocations:** ~32 M/month from tablets alone at 500
+   (unchanged by poll-first — the poll goes to Supabase directly). Check
    the Pro plan's included invocations and per-million overage on the
-   Vercel pricing page and put the number here. Halving the poll cadence
-   when Realtime is live (it already re-syncs on reconnect) halves it.
-4. Re-run `scripts/load-500.ts` against a dev deployment and replace the
+   Vercel pricing page and put the number here.
+4. **Load test — deferred to pre-launch (Nick, 2026-09-16).** Re-run
+   `scripts/load-500.ts` against a dev deployment and replace the
    placeholder below with the numbers.
 
 ## 7. Load test

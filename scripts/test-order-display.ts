@@ -430,7 +430,7 @@ test("it refuses a mode the stylesheet does not know", () => {
 });
 
 test("the restaurant list reports the current mode", () =>
-  assert.match(src("app/api/crm/restaurants/route.ts"), /display_mode: r\.display_mode \?\? "kitchen"/));
+  assert.match(src("lib/crm-roster.ts"), /display_mode: r\.display_mode \?\? "kitchen"/));
 
 test("the setting cannot affect delivery, chiming or alerting", () => {
   // A display preference that could stop a restaurant getting its orders

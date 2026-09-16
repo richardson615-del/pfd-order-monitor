@@ -447,7 +447,15 @@ test("the feed route maps restaurant to CRM account, reads resolutions from the 
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
   const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
   const route = src("app/api/crm/issues/route.ts");
-  assert.match(route, /crm_restaurant_id: i\.restaurant_id \? \(crmIdOf\.get\(i\.restaurant_id\) \?\? null\) : null/);
+  assert.match(route, /crm_restaurant_id: r\?\.crm_restaurant_id \?\? null/);
+  // D1: an issue about a restaurant carries that restaurant's tablet object
+  // and timezone - the roster's own object, built by the same code - so a
+  // ticket shows last heartbeat, shell, alert state and unit without a
+  // second call. Fleet-wide issues carry null for both.
+  assert.match(route, /tablet: r && ctx \? tabletFor\(r, ctx\) : null/);
+  assert.match(route, /timezone: r\?\.timezone \?\? null/);
+  assert.match(route, /import \{ loadRosterContext, tabletFor \} from "@\/lib\/crm-roster"/);
+  assert.match(src("docs/crm-bridge-contract.md"), /every issue that names a restaurant also carries[\s\S]*`timezone`[\s\S]*`tablet`/);
   assert.match(route, /\.not\("resolved_at", "is", null\)/);
   assert.match(route, /searchParams\.get\("since"\)/);
   assert.match(route, /!i\.first_seen_at \|\| new Date\(i\.first_seen_at\) >= since/, "unstamped issues are always new");

@@ -38,7 +38,8 @@ hardware fault.
 
 | method | path | body | returns |
 |---|---|---|---|
-| GET | `/api/crm/restaurants` | — | `{ default_footer_text, restaurants: [...] }` |
+| GET | `/api/crm/restaurants` | — | `{ default_footer_text, latest_shell_version, restaurants: [...] }` |
+| GET | `/api/crm/restaurants/:id` | — | `{ latest_shell_version, restaurant }` — one row in exactly the roster's shape; 404 if unknown |
 | POST | `/api/crm/restaurants` | `{ crm_restaurant_id, name, zuppler_restaurant_id?, zuppler_ids?, timezone?, app_expected?, display_mode? }` | `{ ok, restaurant_created, warning?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/provision` | `{ actor? }` | `{ ok, restaurant, login, printers, destinations, changed }` |
 | POST | `/api/crm/restaurants/:id` | any subset below | `{ ok, conversions?, restaurant }` |
@@ -164,9 +165,18 @@ itself.
   "push_subscriptions": 2,      // live push_subscriptions rows for this restaurant
   "shell_version": 4|null,      // Android shell appVersionCode from the last heartbeat; null = it did not say
   "display_mode": "kitchen",    // as above
-  "user_agent": "…|null"        // roughly which device; not identity
+  "user_agent": "…|null",       // roughly which device; not identity
+  "device_ref": "R8YL42BJPSB|aid:…|null", // the kiosk unit bound to this restaurant (kiosk_devices, I1): Hexnode serial or aid:<ANDROID_ID>; null = no binding pushed
+  "device_seen_at": "…|null",   // when that unit last bootstrapped; null = never / no binding
+  "device_model": "…|null",     // what it said it was on bootstrap; not identity
+  "device_count": 1             // units bound here; 2 = a store that runs two (device_ref is the most recently seen)
 }
 ```
+
+The same object, built by the same code (`lib/crm-roster.ts`), is on the
+roster, on `GET /api/crm/restaurants/:id`, and on every issue in the
+issues feed that names a restaurant — so a ticket, a partner page and the
+Devices console cannot disagree about one tablet.
 
 The list response also carries a top-level **`latest_shell_version`**: the
 oldest shell the office is happy with (`MIN_SHELL_VERSION` on the bridge), or
@@ -239,6 +249,14 @@ and `notified_at` (from the five-minute monitor's `monitor_alerts` record —
 monitor run, never by this call, so two polls cannot disagree. `since`
 narrows both lists to what changed after it; unstamped issues are always
 included.
+
+Since 2026-09-16 every issue that names a restaurant also carries that
+restaurant's **`timezone`** (so a ticket can say "arrived 6:12 PM their
+time") and its **`tablet`** object — the one documented above, identical
+to the roster's — so the ticket can show last heartbeat, shell version,
+`alert_state` and which unit (`device_ref`) without a second call. Both
+are `null` on a fleet-wide issue (webhook, cron), never on a restaurant
+one.
 
 `order_unaccepted:<order id>` is **critical** and per order (2026-09-15): a
 customer order on a tablet restaurant that nobody has **opened** three

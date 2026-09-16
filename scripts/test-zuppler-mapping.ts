@@ -133,7 +133,8 @@ test("POST /api/crm/restaurants is bearer-gated, additive, and consults both tab
 });
 
 test("the roster reports every listing a restaurant owns", () => {
-  const route = src("app/api/crm/restaurants/route.ts");
+  // The row is shaped in lib/crm-roster.ts since D1 gave GET /:id the same shape.
+  const route = src("lib/crm-roster.ts");
   assert.match(route, /zuppler_ids: zupplerIdsFor\(r\.zuppler_restaurant_id/);
   assert.match(src("docs/crm-bridge-contract.md"), /POST \| `\/api\/crm\/restaurants` \|/);
 });

@@ -37,6 +37,14 @@ export interface HeartbeatRow {
   alert_state?: string | null;
 }
 
+/** A kiosk_devices row (migration 036) bound to the restaurant. */
+export interface KioskDeviceRow {
+  device_ref: string;
+  model?: string | null;
+  last_seen_at?: string | null;
+  bound_at?: string | null;
+}
+
 export interface TabletStatus {
   /** = restaurants.app_expected: is this site MEANT to be watching the tablet? */
   expected: boolean;
@@ -59,6 +67,19 @@ export interface TabletStatus {
   shell_version: number | null;
   display_mode: "kitchen" | "standard";
   user_agent: string | null;
+  /**
+   * Which physical unit is bound to this restaurant (kiosk_devices, I1):
+   * the serial Hexnode put on the shell, or aid:<ANDROID_ID> when it
+   * self-registered. When more than one is bound, the one that
+   * bootstrapped most recently. null = no binding pushed yet.
+   */
+  device_ref: string | null;
+  /** When that unit last bootstrapped against the bridge; null = never, or no binding. */
+  device_seen_at: string | null;
+  /** What the unit said it was on bootstrap; null when it did not say. Never identity. */
+  device_model: string | null;
+  /** How many units are bound to this restaurant. Two is a store that runs two. */
+  device_count: number;
 }
 
 /**
@@ -71,9 +92,12 @@ export function tabletStatus(args: {
   displayMode: unknown;
   heartbeat: HeartbeatRow | null | undefined;
   pushSubscriptions: number;
+  /** kiosk_devices rows bound to this restaurant; omitted = none known. */
+  kioskDevices?: KioskDeviceRow[] | null;
   now: number;
 }): TabletStatus {
   const hb = args.heartbeat ?? null;
+  const unit = latestKiosk(args.kioskDevices ?? []);
   return {
     expected: Boolean(args.expected),
     last_seen_at: hb?.last_seen_at ?? null,
@@ -84,5 +108,25 @@ export function tabletStatus(args: {
     shell_version: typeof hb?.shell_version === "number" && Number.isInteger(hb.shell_version) ? hb.shell_version : null,
     display_mode: args.displayMode === "standard" ? "standard" : "kitchen",
     user_agent: hb?.user_agent ?? null,
+    device_ref: unit?.device_ref ?? null,
+    device_seen_at: unit?.last_seen_at ?? null,
+    device_model: unit?.model ?? null,
+    device_count: (args.kioskDevices ?? []).filter((k) => k?.device_ref).length,
   };
+}
+
+/** The bound unit that bootstrapped most recently; one that never has sorts last. */
+function latestKiosk(rows: KioskDeviceRow[]): KioskDeviceRow | null {
+  let best: KioskDeviceRow | null = null;
+  for (const k of rows) {
+    if (!k?.device_ref) continue;
+    if (!best) {
+      best = k;
+      continue;
+    }
+    const a = k.last_seen_at ? Date.parse(k.last_seen_at) : -1;
+    const b = best.last_seen_at ? Date.parse(best.last_seen_at) : -1;
+    if (a > b) best = k;
+  }
+  return best;
 }

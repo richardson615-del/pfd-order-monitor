@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
-import { orderDestinations } from "@/lib/canonical";
 import { resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 import { planZupplerMapping, type ExistingMapping, type RequestedListing } from "@/lib/zuppler-mapping";
-import { tabletStatus, type HeartbeatRow } from "@/lib/tablet-status";
+import { RESTAURANT_SELECT, loadRosterContext, shapeRestaurantRow, zupplerIdsFor } from "@/lib/crm-roster";
 import { minShellVersion } from "@/lib/app-update";
 import { isValidTimeZone } from "@/lib/clock";
 
@@ -22,50 +21,12 @@ export async function GET(req: NextRequest) {
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 
   const admin = supabaseAdmin();
-  const { data, error } = await admin
-    .from("restaurants")
-    .select("id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected, display_mode, timezone")
-    .order("name");
+  const { data, error } = await admin.from("restaurants").select(RESTAURANT_SELECT).order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Who actually has a working printer. Asked once for the whole roster
-  // rather than per restaurant, and asked of print_devices rather than of
-  // printer_expected - see orderDestinations() for why that flag cannot
-  // answer this.
-  const { data: deviceRows } = await admin
-    .from("print_devices")
-    .select("restaurant_id")
-    .eq("is_active", true);
-  const withPrinter = new Set((deviceRows ?? []).map((d: any) => d.restaurant_id));
-
-  // Every Zuppler listing each restaurant owns, so the console can see which
-  // of an account's listings are mapped and which will be dropped on arrival.
-  const { data: idRows } = await admin
-    .from("restaurant_zuppler_ids")
-    .select("restaurant_id, zuppler_restaurant_id");
-  const idsByRestaurant = new Map<string, Set<string>>();
-  for (const row of idRows ?? []) {
-    const set = idsByRestaurant.get(row.restaurant_id) ?? new Set<string>();
-    set.add(row.zuppler_restaurant_id);
-    idsByRestaurant.set(row.restaurant_id, set);
-  }
-
-  // What each restaurant's tablet last said, and how many browsers can ring
-  // for it. Read whole-roster rather than per row: the console asks for all
-  // of them at once, and a tablet's status is one row per restaurant.
-  const now = Date.now();
-  const [{ data: heartbeatRows }, { data: pushRows }] = await Promise.all([
-    admin
-      .from("dashboard_heartbeats")
-      .select("restaurant_id, last_seen_at, user_agent, push_subscribed, shell_version, alert_state"),
-    admin.from("push_subscriptions").select("restaurant_id"),
-  ]);
-  const heartbeatByRestaurant = new Map<string, HeartbeatRow>();
-  for (const h of (heartbeatRows ?? []) as any[]) heartbeatByRestaurant.set(h.restaurant_id, h);
-  const pushCount = new Map<string, number>();
-  for (const p of (pushRows ?? []) as any[]) {
-    pushCount.set(p.restaurant_id, (pushCount.get(p.restaurant_id) ?? 0) + 1);
-  }
+  // Side tables read once for the whole roster; each row is then shaped by
+  // the same function GET /:id and the issues feed use (lib/crm-roster.ts).
+  const ctx = await loadRosterContext();
 
   return NextResponse.json({
     // So the console can show what will actually print, rather than an empty
@@ -75,59 +36,8 @@ export async function GET(req: NextRequest) {
     // so the console can flag a tablet's shell_version without hardcoding
     // a number. null = no opinion set.
     latest_shell_version: minShellVersion() || null,
-    restaurants: (data ?? []).map((r: any) => {
-      // Images are returned as presence + size, never inline. A roster call
-      // that shipped every logo would be megabytes for a list view, and the
-      // console only needs to know whether one is set.
-      const { ticket_logo_b64, ticket_footer_image_b64, ...rest } = r;
-      return {
-        ...rest,
-        has_logo: Boolean(ticket_logo_b64),
-        logo_bytes: ticket_logo_b64 ? Buffer.from(ticket_logo_b64, "base64").length : 0,
-        has_footer_image: Boolean(ticket_footer_image_b64),
-        effective_footer_text: (r.ticket_footer_text ?? "").trim() || DEFAULT_FOOTER_TEXT,
-        prints_qr: r.ticket_footer_mode === "qr_with_text" && Boolean(r.ticket_footer_url),
-        // Surfaced so the console can show a misconfiguration before an order
-        // arrives, rather than after a ticket fails to reach anyone.
-        email_delivery_ready:
-          r.print_method !== "email" || Boolean((r.ticket_email_to ?? "").trim()),
-        has_active_printer: withPrinter.has(r.id),
-        // The straight answer to "where do this restaurant's orders go?".
-        // Computed here so the console never has to re-derive it from three
-        // columns and get a different answer than the ingest does. An empty
-        // list means orders arrive and nobody there is told.
-        // Which of the two looks their tablet is on, so the CRM can show the
-        // current setting rather than guessing at a default.
-        display_mode: r.display_mode ?? "kitchen",
-        // Which clock their tablet shows. Null = the device's own time.
-        timezone: r.timezone ?? null,
-        // Both mapping tables, primary first. Ingest honours both.
-        zuppler_ids: zupplerIdsFor(r.zuppler_restaurant_id, idsByRestaurant.get(r.id)),
-        // Whether the tablet is open, hearing alerts, and on which shell -
-        // from the dashboard's own heartbeat. Every field nullable, and
-        // null means "no data", never a guess. See lib/tablet-status.ts.
-        tablet: tabletStatus({
-          expected: Boolean(r.app_expected),
-          displayMode: r.display_mode,
-          heartbeat: heartbeatByRestaurant.get(r.id),
-          pushSubscriptions: pushCount.get(r.id) ?? 0,
-          now,
-        }),
-        destinations: orderDestinations({
-          print_method: r.print_method,
-          app_expected: r.app_expected,
-          hasActivePrinter: withPrinter.has(r.id),
-        }),
-      };
-    }),
+    restaurants: (data ?? []).map((r: any) => shapeRestaurantRow(r, ctx)),
   });
-}
-
-function zupplerIdsFor(primary: string | null, extra: Set<string> | undefined): string[] {
-  const out: string[] = [];
-  if (primary) out.push(primary);
-  for (const id of extra ?? []) if (!out.includes(id)) out.push(id);
-  return out;
 }
 
 /**

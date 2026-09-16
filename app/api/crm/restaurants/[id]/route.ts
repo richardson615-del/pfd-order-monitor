@@ -6,8 +6,38 @@ import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-imag
 import { ENABLED_TEMPLATES } from "@/lib/footer-engine";
 import { orderDestinations } from "@/lib/canonical";
 import { isValidTimeZone } from "@/lib/clock";
+import { RESTAURANT_SELECT, loadRosterContext, shapeRestaurantRow } from "@/lib/crm-roster";
+import { minShellVersion } from "@/lib/app-update";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/crm/restaurants/:id
+ *
+ * One restaurant, in exactly the roster's row shape (lib/crm-roster.ts) -
+ * the tablet object, timezone, destinations and all - plus the same
+ * `latest_shell_version` the roster carries, so a partner page can ask
+ * about one account without pulling five hundred rows to find it.
+ * 404 for an id the bridge has never heard of.
+ */
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const denied = authorizeCrmWrite(req);
+  if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+
+  const { data: row, error } = await supabaseAdmin()
+    .from("restaurants")
+    .select(RESTAURANT_SELECT)
+    .eq("id", params.id)
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!row) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
+
+  const ctx = await loadRosterContext([row.id]);
+  return NextResponse.json({
+    latest_shell_version: minShellVersion() || null,
+    restaurant: shapeRestaurantRow(row, ctx),
+  });
+}
 
 /**
  * POST /api/crm/restaurants/:id  { footer_text?, footer_url? }

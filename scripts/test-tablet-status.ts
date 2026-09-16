@@ -64,7 +64,39 @@ test("no heartbeat row: every derived field is null or false, the counts are rea
     shell_version: null,
     display_mode: "kitchen",
     user_agent: null,
+    device_ref: null,
+    device_seen_at: null,
+    device_model: null,
+    device_count: 0,
   });
+});
+
+test("the bound kiosk unit is named: the most recently seen one when a store runs two, never one from elsewhere", () => {
+  // kiosk_devices (I1): the serial Hexnode put on the shell, or the
+  // install's aid:<ANDROID_ID>. The CRM pushed the binding; this reads it
+  // back so the console can say which physical unit is on which wall.
+  const one = tabletStatus({
+    expected: true, displayMode: "kitchen", heartbeat: null, pushSubscriptions: 0, now: NOW,
+    kioskDevices: [{ device_ref: "R8YL42BJPSB", model: "SM-X133", last_seen_at: ago(120_000), bound_at: ago(86_400_000) }],
+  });
+  assert.equal(one.device_ref, "R8YL42BJPSB");
+  assert.equal(one.device_model, "SM-X133");
+  assert.equal(one.device_seen_at, ago(120_000));
+  assert.equal(one.device_count, 1);
+  const two = tabletStatus({
+    expected: true, displayMode: "kitchen", heartbeat: null, pushSubscriptions: 0, now: NOW,
+    kioskDevices: [
+      { device_ref: "aid:0123abcd", model: null, last_seen_at: null },
+      { device_ref: "R8YL42BJPSB", model: "SM-X133", last_seen_at: ago(60_000) },
+      { device_ref: "OLDER000001", model: "SM-X133", last_seen_at: ago(3_600_000) },
+    ],
+  });
+  assert.equal(two.device_ref, "R8YL42BJPSB", "the one that bootstrapped most recently");
+  assert.equal(two.device_count, 3);
+  // A unit that never bootstrapped is still a binding - named when alone.
+  assert.equal(tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: null, pushSubscriptions: 0, now: NOW, kioskDevices: [{ device_ref: "aid:0123abcd" }] }).device_ref, "aid:0123abcd");
+  // The roster only hands over rows bound to a restaurant, never unbound ones.
+  assert.match(src("lib/crm-roster.ts"), /from\("kiosk_devices"\)[\s\S]*\.not\("restaurant_id", "is", null\)/);
 });
 
 test("a full heartbeat comes through as-is", () => {
@@ -118,17 +150,36 @@ console.log("\nthe contract:");
 
 test("the roster carries tablet and latest_shell_version, computed here, never in the CRM", () => {
   const route = src("app/api/crm/restaurants/route.ts");
-  assert.match(route, /tablet: tabletStatus\(\{/);
+  const roster = src("lib/crm-roster.ts");
+  assert.match(route, /shapeRestaurantRow\(r, ctx\)/);
+  assert.match(roster, /tablet: tabletFor\(r, ctx\)/);
   assert.match(route, /latest_shell_version: minShellVersion\(\) \|\| null/);
-  assert.match(route, /from\("dashboard_heartbeats"\)/);
-  assert.match(route, /from\("push_subscriptions"\)/);
+  assert.match(roster, /from\("dashboard_heartbeats"\)/);
+  assert.match(roster, /from\("push_subscriptions"\)/);
   const doc = src("docs/crm-bridge-contract.md");
   const section = doc.slice(doc.indexOf("### The tablet object"));
   assert.ok(section.length > 0, "the contract must have a tablet section");
-  for (const field of ["expected", "last_seen_at", "online", "push_subscribed", "alert_state", "push_subscriptions", "shell_version", "display_mode", "user_agent", "latest_shell_version"]) {
+  for (const field of ["expected", "last_seen_at", "online", "push_subscribed", "alert_state", "push_subscriptions", "shell_version", "display_mode", "user_agent", "device_ref", "device_seen_at", "device_model", "device_count", "latest_shell_version"]) {
     assert.match(section, new RegExp(`"?${field}"?`), `contract must document ${field}`);
   }
   assert.match(section, /never a guess/);
+});
+
+test("one restaurant reads the same as the roster - same select, same shaping, plus the shell floor", () => {
+  // GET /api/crm/restaurants/:id (D1): a partner page asks about one
+  // account without pulling the whole roster, and gets the identical row.
+  const one = src("app/api/crm/restaurants/[id]/route.ts");
+  assert.match(one, /export async function GET\(/);
+  assert.match(one, /\.select\(RESTAURANT_SELECT\)/);
+  assert.match(one, /loadRosterContext\(\[row\.id\]\)/);
+  assert.match(one, /restaurant: shapeRestaurantRow\(row, ctx\)/);
+  assert.match(one, /latest_shell_version: minShellVersion\(\) \|\| null/);
+  assert.match(one, /status: 404/);
+  // Behind the same key as every other CRM call.
+  const get = one.slice(one.indexOf("export async function GET("), one.indexOf("export async function POST("));
+  assert.match(get, /authorizeCrmWrite\(req\)/);
+  assert.match(src("app/api/crm/restaurants/route.ts"), /\.select\(RESTAURANT_SELECT\)/);
+  assert.match(src("docs/crm-bridge-contract.md"), /\| GET \| `\/api\/crm\/restaurants\/:id` \|/);
 });
 
 console.log(`\n${passed} assertions passed.`);

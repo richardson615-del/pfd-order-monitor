@@ -397,15 +397,18 @@ five seconds and shows the restaurant's orders.
 
 `restaurant_id` is the bridge restaurant id (== CRM `accounts.id`).
 
-| status | meaning |
-|---|---|
-| `200 { ok, restaurant: {id, name}, login: {username, created}, note }` | Linked. `created: true` means this call made the login |
-| `400` | Code not six digits, or no `restaurant_id` |
-| `404 code_not_found` | No tablet is showing that code — ask them to read it again |
-| `404 restaurant not found` | |
-| `409 code_already_linked` | Somebody linked it already; the tablet should be showing orders |
-| `410 code_expired` | Codes live 30 minutes. The tablet shows a new one — ask for it |
-| `502` | Auth did not return a usable link. Nothing was changed |
+Refusals carry `code` and a human `error`, the same shape as the login-print
+endpoint, so the CRM can show the sentence to the person on the phone:
+
+| status | `code` | meaning |
+|---|---|---|
+| `200 { ok, restaurant: {id, name}, login: {username, created}, note }` | | Linked. `created: true` means this call made the login |
+| `400` | | Code not six digits, or no `restaurant_id` |
+| `404` | `code_not_found` | No tablet is showing that code — ask them to read it again |
+| `404` | `restaurant_not_found` | |
+| `409` | `code_already_linked` | Somebody linked it already; the tablet should be showing orders |
+| `410` | `code_expired` | Codes live 30 minutes. The tablet shows a new one — ask for it |
+| `502` | | Auth did not return a usable link. Nothing was changed |
 
 The CRM side: **Devices → Tablets → Link tablet**, code + restaurant. Full
 flow and the two public kiosk routes the tablet uses: `docs/kiosk.md`.

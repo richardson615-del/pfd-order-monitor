@@ -45,18 +45,20 @@ export async function POST(req: NextRequest) {
     .select("code, device_id, expires_at, restaurant_id, linked_at, token_hash, consumed_at")
     .eq("code", code)
     .maybeSingle();
-  if (!row) return NextResponse.json({ error: "code_not_found", message: "No tablet is showing that code." }, { status: 404 });
+  // `code` + `error`, the shape the CRM's bridge client turns into a refusal
+  // the person on the phone can act on (asRefusal in prs-crm).
+  if (!row) return NextResponse.json({ code: "code_not_found", error: "No tablet is showing that code. Ask them to read it again." }, { status: 404 });
 
   const state = linkCodeState(row, now);
   if (state === "expired") {
     return NextResponse.json(
-      { error: "code_expired", message: "That code has expired. The tablet shows a new one - ask for it." },
+      { code: "code_expired", error: "That code has expired. The tablet shows a new one - ask for it." },
       { status: 410 }
     );
   }
   if (state !== "pending") {
     return NextResponse.json(
-      { error: "code_already_linked", message: "That code has already been linked. The tablet should be showing orders." },
+      { code: "code_already_linked", error: "That code has already been linked. The tablet should be showing orders." },
       { status: 409 }
     );
   }
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest) {
     .select("id, name")
     .eq("id", restaurantId)
     .maybeSingle();
-  if (!restaurant) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
+  if (!restaurant) return NextResponse.json({ code: "restaurant_not_found", error: "restaurant not found" }, { status: 404 });
 
   try {
     const login = await ensureTabletLogin(restaurant, actor);
@@ -99,7 +101,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!linked) {
       return NextResponse.json(
-        { error: "code_already_linked", message: "Somebody linked that code a moment ago." },
+        { code: "code_already_linked", error: "Somebody linked that code a moment ago." },
         { status: 409 }
       );
     }

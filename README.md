@@ -578,6 +578,20 @@ and they are just as loud.
 `delivered_count = 0` with no `send_error` has one meaning worth knowing: the
 app is installed and signed in, but nobody ever tapped Enable notifications.
 
+### First run at a store: the tablet already knows its restaurant
+
+Since 2026-09-16 the restaurant touches nothing but the kiosk's own Wi-Fi
+button (Hexnode draws it; this app has no Wi-Fi UI). The Android shell puts
+a device reference on the start URL — the serial Hexnode pushed through
+managed app configuration, or the install's own id — and the tablet boots
+straight into the restaurant the CRM assigned it to, with no login screen.
+First time online with a session it shows a Ready screen with three real
+checks, then the orders. A tablet the office has not assigned yet shows a
+six-digit **link code** instead of a login form; `/login` is for Premium
+staff only. With no network at all the service worker serves an Offline
+page. All of it, including the Supabase session settings that must stay
+off: [`docs/kiosk.md`](docs/kiosk.md).
+
 ### Running the tablet as a kiosk
 
 The tablet runs in **kiosk mode with autostart** — it boots into the dashboard

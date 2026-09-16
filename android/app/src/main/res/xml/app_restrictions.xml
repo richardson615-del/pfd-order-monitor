@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Enterprise managed configuration for the Premium Orders shell.
+
+  One key. The MDM (Hexnode, App Configuration for com.pfdworks.orders)
+  fills device_ref per device with the tablet's serial number, using the
+  console's dynamic-value wildcard for serial. LauncherActivity reads it
+  and puts it on the start URL as ?device=<value>; the bridge maps it to
+  the restaurant the CRM assigned that serial to. When the key is absent
+  the shell falls back to the install's own ANDROID_ID.
+
+  See docs/kiosk.md, "Device binding".
+-->
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction
+        android:key="device_ref"
+        android:restrictionType="string"
+        android:title="@string/device_ref_title"
+        android:description="@string/device_ref_description"
+        android:defaultValue="" />
+</restrictions>

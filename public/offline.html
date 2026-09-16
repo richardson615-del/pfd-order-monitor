@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Premium Orders</title>
+<!--
+  The Offline screen, for a cold boot with no network.
+
+  Served by public/sw.js when a navigation cannot reach the network at all.
+  The app itself cannot load without a network, so this page is deliberately
+  self-contained: no stylesheet, no script, no font, no icon fetched from
+  anywhere. Everything it needs is in this file, and it is cached by the
+  worker at install.
+
+  It draws NO Wi-Fi control. Hexnode's kiosk puts a Wi-Fi button at the
+  bottom of the screen (Nick, 2026-09-16), and a web page cannot join a
+  network anyway; the one line about networks points at that button. What
+  this page does is say the truth - "not receiving orders" - name the
+  restaurant from the cache (the key is lib/kiosk-cache.ts's; this file
+  cannot import it, so the name is the contract), and leave for /dashboard
+  the moment the server answers.
+
+  Colours are the :root palette from app/globals.css, copied rather than
+  linked for the reason above. Keep them in step by hand.
+-->
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --border: #262c34;
+    --text: #f2f4f7; --text-dim: #98a2b3;
+    --brand: #38bdf8; --brand-2: #7dd3fc;
+    --late: #ff4d3d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  .strip { background: var(--late); color: #fff; font-weight: 800; font-size: 20px;
+    padding: 18px 24px; text-align: center; line-height: 1.3; }
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px 24px; }
+  .inner { width: 100%; max-width: 560px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .brand { font-weight: 800; font-size: 44px; letter-spacing: -0.03em; line-height: 1;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .brand small { display: block; font-size: 13px; letter-spacing: 0.32em; font-weight: 700; color: var(--text-dim);
+    -webkit-text-fill-color: var(--text-dim); margin-top: 8px; }
+  .restaurant { margin: 28px 0 0; font-size: 22px; font-weight: 700; color: var(--text-dim); }
+  h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; margin: 28px 0 12px; }
+  p { font-size: 19px; line-height: 1.45; color: var(--text-dim); margin: 0 0 8px; }
+  .hint { margin-top: 24px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 14px;
+    background: var(--panel); font-size: 18px; color: var(--text); font-weight: 600; }
+  .foot { padding: 20px 24px 28px; text-align: center; color: var(--text-dim); font-size: 16px; }
+</style>
+</head>
+<body>
+  <div class="strip" role="alert" id="strip">Not receiving orders — Wi-Fi is down · reconnecting</div>
+
+  <main>
+    <div class="inner">
+      <div class="brand" aria-label="Premium Orders">Premium<small>ORDERS</small></div>
+      <div class="restaurant" id="restaurant" hidden></div>
+
+      <h1>Not connected</h1>
+      <p>Orders can&rsquo;t reach this tablet until it&rsquo;s back on your network. This screen moves on by itself once it is.</p>
+
+      <div class="hint" role="note">To change networks, use the Wi-Fi button at the bottom of the screen.</div>
+    </div>
+  </main>
+
+  <div class="foot">If this lasts, Premium is told automatically.</div>
+
+<script>
+(function () {
+  var store = null;
+  try { store = window.localStorage; } catch (e) {}
+  var get = function (k) { try { return store ? store.getItem(k) : null; } catch (e) { return null; } };
+
+  var restaurant = null;
+  try { restaurant = JSON.parse(get("premium.restaurant") || "null"); } catch (e) {}
+  if (restaurant && restaurant.name) {
+    var r = document.getElementById("restaurant");
+    r.textContent = restaurant.name;
+    r.hidden = false;
+  }
+
+  // --- since when -----------------------------------------------------------
+  // Kept in sessionStorage so the strip does not restart its clock on every
+  // retry of this page. A "since" that keeps resetting is a "since" that
+  // means nothing.
+  var since = null;
+  try {
+    since = window.sessionStorage.getItem("premium.offlineSince");
+    if (!since) { since = String(Date.now()); window.sessionStorage.setItem("premium.offlineSince", since); }
+  } catch (e) {}
+  if (since) {
+    var t = new Date(Number(since)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    document.getElementById("strip").textContent = "Not receiving orders — Wi-Fi is down · reconnecting since " + t;
+  }
+
+  // --- leave as soon as the network is back ----------------------------------
+  var leaving = false;
+  function tryLeave() {
+    if (leaving) return;
+    fetch("/api/version", { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) return;
+        leaving = true;
+        try { window.sessionStorage.removeItem("premium.offlineSince"); } catch (e) {}
+        location.replace("/dashboard");
+      })
+      .catch(function () {});
+  }
+  window.addEventListener("online", tryLeave);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") tryLeave(); });
+  setInterval(tryLeave, 5000);
+  tryLeave();
+})();
+</script>
+</body>
+</html>

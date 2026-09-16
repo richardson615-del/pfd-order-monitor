@@ -86,7 +86,12 @@ export async function middleware(request: NextRequest) {
 
   if (!user && protectedPagePath && !isApiPath) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    // A kiosk page with no session goes to the Pairing screen, which shows
+    // a code for the office to link - never a username field (Nick,
+    // 2026-09-16: the restaurant's only setup step is Wi-Fi). /login still
+    // exists for Premium staff, who know its address; only /admin sends
+    // anyone there.
+    url.pathname = path.startsWith("/admin") ? "/login" : "/link";
     url.searchParams.set("next", path);
     return NextResponse.redirect(url);
   }

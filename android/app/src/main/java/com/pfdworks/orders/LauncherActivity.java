@@ -15,18 +15,40 @@
  */
 package com.pfdworks.orders;
 
+import android.content.Context;
+import android.content.RestrictionsManager;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 
-
-
+/**
+ * The one thing this shell adds to Bubblewrap's stock launcher: it tells
+ * the page which tablet it is running on, so the tablet boots straight
+ * into its restaurant with nobody typing anything (Workstream I1, 1b).
+ *
+ * The reference goes on the start URL as ?device=<ref>. It is, in order:
+ *
+ *   1b-i   the value Hexnode pushed through Android Enterprise managed
+ *          app configuration under the key "device_ref"
+ *          (res/xml/app_restrictions.xml) - the tablet's serial, filled in
+ *          per device by the MDM. The app cannot read the hardware serial
+ *          itself on Android 10+, and does not try.
+ *   1b-ii  failing that, the install's own ANDROID_ID, prefixed "aid:" so
+ *          the bridge can tell the two apart. Stable for the life of the
+ *          install, needs no permission, and lets the office assign a
+ *          tablet it has never heard of from its "new tablets seen" list.
+ *
+ * Nothing else about the launch changes. The page does the rest.
+ */
 public class LauncherActivity
         extends com.google.androidbrowserhelper.trusted.LauncherActivity {
-    
 
-    
+    /** Must match the key in res/xml/app_restrictions.xml and the Hexnode App Configuration. */
+    static final String DEVICE_REF_KEY = "device_ref";
+    static final String DEVICE_PARAM = "device";
+    static final String ANDROID_ID_PREFIX = "aid:";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,8 +69,38 @@ public class LauncherActivity
         // Get the original launch Url.
         Uri uri = super.getLaunchingUrl();
 
-        
+        String ref = deviceRef();
+        if (ref != null && uri.getQueryParameter(DEVICE_PARAM) == null) {
+            uri = uri.buildUpon().appendQueryParameter(DEVICE_PARAM, ref).build();
+        }
 
         return uri;
+    }
+
+    /** The managed-configuration value if the MDM set one, else "aid:" + ANDROID_ID, else null. */
+    private String deviceRef() {
+        try {
+            RestrictionsManager rm = (RestrictionsManager) getSystemService(Context.RESTRICTIONS_SERVICE);
+            if (rm != null) {
+                Bundle restrictions = rm.getApplicationRestrictions();
+                if (restrictions != null) {
+                    String managed = restrictions.getString(DEVICE_REF_KEY);
+                    if (managed != null && !managed.trim().isEmpty()) {
+                        return managed.trim();
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // No restrictions service, or a policy that refuses it. Fall through.
+        }
+        try {
+            String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            if (androidId != null && !androidId.trim().isEmpty()) {
+                return ANDROID_ID_PREFIX + androidId.trim();
+            }
+        } catch (RuntimeException ignored) {
+            // Nothing to identify this install by. The page shows the link code.
+        }
+        return null;
     }
 }

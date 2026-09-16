@@ -9,9 +9,8 @@ import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
 import ReadyScreen from "./ReadyScreen";
-import { OFFLINE_FOOTER, offlineNotice } from "@/lib/first-run";
-import { isSetupDone, markSetupDone, writeRestaurantCache } from "@/lib/kiosk-cache";
-import { WIFI_BUTTON_LABEL, wifiPanelUrl } from "@/lib/wifi";
+import { KIOSK_WIFI_HINT, OFFLINE_FOOTER, offlineNotice } from "@/lib/first-run";
+import { isSetupDone, markSetupDone, rememberDeviceRef, writeRestaurantCache } from "@/lib/kiosk-cache";
 import {
   SHELL_VERSION_KEY,
   readShellVersion,
@@ -103,11 +102,12 @@ export default function OrderDashboard({
    * the Pairing screen can name it without a network.
    */
   const [firstRun, setFirstRun] = useState<boolean | null>(null);
-  const [origin, setOrigin] = useState<string | null>(null);
   useEffect(() => {
     writeRestaurantCache({ id: restaurantId, name: restaurantName });
     setFirstRun(!isSetupDone());
-    setOrigin(window.location.origin);
+    // The shell's ?device= reference, kept so a lost session still knows
+    // which tablet this is (lib/device-binding.ts).
+    rememberDeviceRef(window.location.href);
   }, [restaurantId, restaurantName]);
   const finishSetup = useCallback(() => {
     markSetupDone();
@@ -517,9 +517,9 @@ export default function OrderDashboard({
       {offline && (
         <div className="offline-strip" role="alert">
           <span className="offline-text">{offlineNotice(offlineSince ? clockLabel(offlineSince, timezone) : null)}</span>
-          <a className="btn offline-wifi" href={wifiPanelUrl(origin)}>
-            {WIFI_BUTTON_LABEL}
-          </a>
+          {/* The kiosk's control, not ours. Hexnode draws the Wi-Fi button;
+              this app never does. */}
+          <span className="offline-hint">{KIOSK_WIFI_HINT}</span>
         </div>
       )}
 

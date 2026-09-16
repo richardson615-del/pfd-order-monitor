@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Brand } from "./Brand";
 import { useAlertGate } from "./useAlertGate";
 import { READY_AUTO_ADVANCE_MS, allReady, readyChecks } from "@/lib/first-run";
-import { WIFI_BUTTON_LABEL, wifiPanelUrl } from "@/lib/wifi";
 
 const SUPPORT_PHONE = "(615) 619-5081";
 
@@ -13,8 +12,9 @@ const SUPPORT_PHONE = "(615) 619-5081";
  *
  * Shown when the app has a network and a session and this device has never
  * finished setup (lib/first-run.ts). Three checks, each read from real
- * state and never assumed: Wi-Fi (this page loaded, and the list synced),
- * order alerts (the same hook the alert gate uses - if they are off, the
+ * state and never assumed: connected (this page loaded, and the list
+ * synced - if it is not, the kiosk's own Wi-Fi button is the fix, and the
+ * row says so; this app draws no Wi-Fi control), order alerts (the same hook the alert gate uses - if they are off, the
  * one tap happens here as the last step), and the kitchen printer (from the
  * bridge's own view; the row is omitted when there is no printer, not
  * ticked).
@@ -40,10 +40,6 @@ export default function ReadyScreen({
   const alertsOn = gate.state === null ? null : gate.state === "hidden";
 
   const [printer, setPrinter] = useState<{ online: boolean | null } | null | undefined>(undefined);
-  const [origin, setOrigin] = useState<string | null>(null);
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
 
   const readStatus = async () => {
     try {
@@ -119,11 +115,6 @@ export default function ReadyScreen({
                 {c.ok === null && <span className="ready-sub">Checking…</span>}
                 {c.ok === false && c.action && <span className="ready-sub">{c.action}</span>}
               </span>
-              {c.key === "wifi" && c.ok === false && (
-                <a className="btn ready-action" href={wifiPanelUrl(origin)}>
-                  {WIFI_BUTTON_LABEL}
-                </a>
-              )}
               {c.key === "alerts" && c.ok === false && gate.state === "ask" && (
                 <button className="btn primary ready-action" disabled={gate.busy} onClick={() => void gate.turnOn()}>
                   {gate.busy ? "Turning on…" : "Turn on alerts"}

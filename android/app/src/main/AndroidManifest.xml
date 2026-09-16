@@ -68,6 +68,13 @@
             android:name="asset_statements"
             android:resource="@string/assetStatements" />
 
+        <!-- Managed app configuration: the MDM pushes device_ref per tablet
+             (res/xml/app_restrictions.xml); LauncherActivity puts it on the
+             start URL. Workstream I1, 1b. -->
+        <meta-data
+            android:name="android.content.APP_RESTRICTIONS"
+            android:resource="@xml/app_restrictions" />
+
         
             <meta-data
                 android:name="web_manifest_url"

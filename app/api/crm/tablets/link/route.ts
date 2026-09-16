@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
-import { ensureTabletLogin } from "@/lib/provision";
-import { isLinkCode, linkCodeState, tokenHashFrom } from "@/lib/link-code";
+import { mintTabletSession } from "@/lib/tablet-session";
+import { isLinkCode, linkCodeState } from "@/lib/link-code";
 
 export const dynamic = "force-dynamic";
 
@@ -71,19 +71,9 @@ export async function POST(req: NextRequest) {
   if (!restaurant) return NextResponse.json({ code: "restaurant_not_found", error: "restaurant not found" }, { status: 404 });
 
   try {
-    const login = await ensureTabletLogin(restaurant, actor);
-
-    const { data: generated, error: genError } = await admin.auth.admin.generateLink({
-      type: "magiclink",
-      email: login.email,
-    });
-    const tokenHash = tokenHashFrom(generated);
-    if (genError || !tokenHash) {
-      return NextResponse.json(
-        { error: genError?.message ?? "auth did not return a usable link" },
-        { status: 502 }
-      );
-    }
+    const minted = await mintTabletSession(restaurant, actor);
+    if ("error" in minted) return NextResponse.json({ error: minted.error }, { status: 502 });
+    const { token_hash: tokenHash, login } = minted;
 
     // Written only onto a still-pending row, so two office users linking
     // the same code to two restaurants cannot both succeed.

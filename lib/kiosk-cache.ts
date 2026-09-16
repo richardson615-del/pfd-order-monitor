@@ -9,6 +9,9 @@
  *                       device - the first run is a one-time thing per unit
  *   premium.device      a random id the tablet mints once, which is what a
  *                       link code is bound to (see lib/link-code.ts)
+ *   premium.deviceRef   the reference the Android shell put on the start
+ *                       URL (?device=), which is what binds this tablet to
+ *                       its restaurant (see lib/device-binding.ts)
  *
  * Every read and write is wrapped: storage throws in a private window, on a
  * cleared profile and under some kiosk policies, and none of those may take
@@ -23,6 +26,29 @@
 export const RESTAURANT_KEY = "premium.restaurant";
 export const SETUP_DONE_KEY = "premium.setupDone";
 export const DEVICE_ID_KEY = "premium.device";
+/** The shell's device reference (?device= on the start URL), remembered so a lost session still knows who this tablet is. */
+export const DEVICE_REF_KEY = "premium.deviceRef";
+
+export function readDeviceRefCache(): string | null {
+  try {
+    const v = storage()?.getItem(DEVICE_REF_KEY);
+    return v && /^[A-Za-z0-9:._-]{4,128}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember the shell's reference if this URL carries one. Harmless anywhere else: no param, nothing written. */
+export function rememberDeviceRef(url: string): string | null {
+  try {
+    const v = new URL(url).searchParams.get("device");
+    if (v && /^[A-Za-z0-9:._-]{4,128}$/.test(v)) {
+      storage()?.setItem(DEVICE_REF_KEY, v);
+      return v;
+    }
+  } catch {}
+  return readDeviceRefCache();
+}
 
 export interface CachedRestaurant {
   id: string;

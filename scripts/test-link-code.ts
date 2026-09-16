@@ -167,7 +167,8 @@ test("the token is Supabase's hashed magic link, checked before it is stored", (
 test("the CRM route links only a pending code, once, and never returns the token", () => {
   const route = src("app/api/crm/tablets/link/route.ts");
   assert.match(route, /authorizeCrmWrite\(req\)/);
-  assert.match(route, /generateLink\(\{[\s\S]*type: "magiclink"/);
+  assert.match(route, /mintTabletSession\(restaurant, actor\)/);
+  assert.match(src("lib/tablet-session.ts"), /generateLink\(\{ type: "magiclink"/);
   assert.match(route, /\.is\("linked_at", null\)/, "two office users cannot both link one code");
   assert.match(route, /status: 410/, "expired is named");
   assert.match(route, /code_already_linked/);
@@ -179,7 +180,7 @@ test("the CRM route links only a pending code, once, and never returns the token
 test("the login it binds is the same one provisioning would create", () => {
   // Never a second login, never a reset password. ensureTabletLogin is the
   // one rule for which login a restaurant's tablet uses.
-  assert.match(src("app/api/crm/tablets/link/route.ts"), /ensureTabletLogin\(restaurant, actor\)/);
+  assert.match(src("lib/tablet-session.ts"), /ensureTabletLogin\(restaurant, actor\)/);
   assert.match(src("lib/provision.ts"), /const ensured = await ensureTabletLogin\(/);
   assert.match(src("lib/provision.ts"), /export async function ensureTabletLogin/);
 });

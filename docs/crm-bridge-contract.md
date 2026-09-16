@@ -413,6 +413,39 @@ endpoint, so the CRM can show the sentence to the person on the phone:
 The CRM side: **Devices → Tablets → Link tablet**, code + restaurant. Full
 flow and the two public kiosk routes the tablet uses: `docs/kiosk.md`.
 
+### Bind tablets to restaurants (I1, 1b)
+
+```
+POST /api/crm/tablets/bind
+{ "device_ref": "R52X30ABCDE", "restaurant_id": "<uuid>|null", "model": "Galaxy Tab A9", "actor": "…" }
+{ "bindings": [ { "device_ref": …, "restaurant_id": … }, … ], "actor": "…" }
+```
+
+**The CRM owns tablet assignment and pushes it here.** A tablet boots with a
+device reference on its start URL — the serial Hexnode set through managed
+app configuration, or `aid:<ANDROID_ID>` when there is none — and asks the
+bridge whose it is; the bridge answers from this map and mints a session
+for that restaurant's tablet login. Send one entry on assign and unassign
+(`restaurant_id: null` unbinds), and the whole current map after every
+MDM sync; the bridge upserts either way. `restaurant_id` is the bridge
+restaurant id (== CRM `accounts.id`). Up to 2000 per call.
+
+| status | meaning |
+|---|---|
+| `200 { ok, bound, unbound, unknown_restaurants: [] }` | Landed. A `restaurant_id` the bridge does not know is skipped and named |
+| `400` | No usable bindings — every entry needs a reference matching `[A-Za-z0-9:._-]{4,128}` |
+
+```
+GET /api/crm/tablets/unbound
+→ { devices: [ { device_ref, kind: "managed"|"android_id", model, user_agent, first_seen_at, last_seen_at } ] }
+```
+
+Tablets that have bootstrapped in the last 7 days and are assigned to
+nobody: the **"New tablet seen 2 min ago · model · Assign to…"** rows on the
+Tablets page. `kind` says where the reference came from; `model` is what
+the tablet said about itself, never identity. Assigning one = bind.
+
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

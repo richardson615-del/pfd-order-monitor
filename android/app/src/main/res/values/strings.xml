@@ -15,6 +15,10 @@
      limitations under the License.
 -->
 <resources>
+  <!-- Managed app configuration (res/xml/app_restrictions.xml). Shown in the MDM console, never to the restaurant. -->
+  <string name="device_ref_title">Device reference</string>
+  <string name="device_ref_description">The tablet\'s serial number, as recorded in the Premium CRM. Binds this tablet to its restaurant.</string>
+
   
 
   <!--

@@ -196,15 +196,32 @@ test("the restaurant comes from the session, never the request body", () => {
   // the blanket ban caught it.
   //
   // The property is unchanged and is now asserted directly: the body may only
-  // ever produce facts about THIS screen - `pushSubscribed` (migration 030)
-  // and `shellVersion` (migration 033) - and restaurant_id comes from the
-  // session. A client reporting on its own push state or its own Android
-  // shell cannot vouch for anywhere else, and it could already lie about
-  // being alive by not beating at all.
+  // ever produce facts about THIS screen - `pushSubscribed` (migration 030),
+  // `shellVersion` (migration 033) and `alertState` (migration 037) - and
+  // restaurant_id comes from the session. A client reporting on its own push
+  // state, its own Android shell or its own alert gate cannot vouch for
+  // anywhere else, and it could already lie about being alive by not
+  // beating at all.
   const body = route.slice(route.indexOf("req.json()"));
   const readsFromBody = [...body.matchAll(/body\?\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(readsFromBody)], ["pushSubscribed", "shellVersion"]);
+  assert.deepEqual([...new Set(readsFromBody)], ["pushSubscribed", "shellVersion", "alertState"]);
   assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
+});
+
+test("the alert state is one of the gate's four words or nothing - never free text", () => {
+  // The office reads this to decide whether to open the Hexnode console.
+  // A client that sent "Blocked" or "true" is recorded as "has not said",
+  // and the column's CHECK (migration 037) is the same four words, so a
+  // route bug cannot write a fifth.
+  assert.match(route, /ALERT_STATES\.has\(body\?\.alertState\)/);
+  assert.match(route, /new Set\(\["hidden", "ask", "blocked", "unsupported"\]\)/);
+  assert.match(route, /alert_state: alertState/);
+  const m037 = readFileSync(new URL("../db/migrations/037_heartbeat_alert_state.sql", import.meta.url), "utf8");
+  assert.match(m037, /check \(alert_state in \('hidden', 'ask', 'blocked', 'unsupported'\)\)/);
+  // Nullable and undefaulted, like 030: judged on the SQL, not on the
+  // comment that explains why.
+  const sql = m037.split(/\r?\n/).filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  assert.doesNotMatch(sql, /not null|default/i);
 });
 
 test("it refuses an unauthenticated caller", () =>

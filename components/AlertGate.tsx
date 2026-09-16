@@ -2,7 +2,7 @@
 
 import { Brand } from "./Brand";
 import { gateBlocks } from "@/lib/alert-gate";
-import { useAlertGate } from "./useAlertGate";
+import { useAlertGate, type OnAlertStateChange } from "./useAlertGate";
 
 /** The number on the printed login ticket, so a restaurant reads the same one everywhere. */
 const SUPPORT_PHONE = "(615) 619-5081";
@@ -23,7 +23,7 @@ export default function AlertGate({
   onSubscribedChange,
 }: {
   restaurantName: string;
-  onSubscribedChange?: (subscribed: boolean) => void;
+  onSubscribedChange?: OnAlertStateChange;
 }) {
   const { state, busy, error, check, turnOn } = useAlertGate(onSubscribedChange);
 
@@ -52,25 +52,20 @@ export default function AlertGate({
 
         {state === "blocked" && (
           <>
-            <h1 id="alert-gate-title">Alerts are blocked on this tablet</h1>
+            {/* A kiosk has no Settings app to open: Hexnode grants the
+                notification permission by policy (App Permissions → Premium
+                → Send push notifications: Allow), so "blocked" here means
+                that policy is missing or was changed - which only Premium
+                can fix, from the office. No steps, one number. The office
+                sees the same fact on the heartbeat (alert_state). */}
+            <h1 id="alert-gate-title">Alerts are off on this tablet</h1>
             <p>
-              Notifications were turned off for this app, and only Android can turn them back on —
-              this screen is not allowed to ask again.
+              Call Premium on <strong>{SUPPORT_PHONE}</strong> — we can turn them back on from the
+              office. Nothing needs doing on this screen.
             </p>
-            <ol className="alert-gate-steps">
-              <li>Open Android <strong>Settings</strong>.</li>
-              <li>
-                Go to <strong>Apps</strong> → <strong>Premium</strong> → <strong>Notifications</strong>.
-              </li>
-              <li>Turn notifications <strong>on</strong>.</li>
-              <li>Come back here and tap <strong>Check again</strong>.</li>
-            </ol>
             <button className="btn primary alert-gate-action" disabled={busy} onClick={() => void check()}>
               Check again
             </button>
-            <p className="alert-gate-help">
-              Stuck? Call Premium on <strong>{SUPPORT_PHONE}</strong>.
-            </p>
           </>
         )}
 

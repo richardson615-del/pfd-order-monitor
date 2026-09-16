@@ -97,6 +97,23 @@ and the link code's own poll. Copy: *"Waiting for Premium to assign this
 tablet — Premium can assign it from the office, or call (615) 619-5081 and
 read them this code."* No input of any kind; no link to `/login`.
 
+## What the Hexnode policy must set for `com.pfdworks.orders`
+
+Recorded 2026-09-16 from the trial tablet (FACT unless marked). Three
+things, and the CRM/bridge assume all three; a tablet enrolled without
+any one of them shows a screen that says so.
+
+| Hexnode console | Setting | Why |
+|---|---|---|
+| **Policies → Apps → Required Apps** (Android) | `com.pfdworks.orders` (the uploaded enterprise APK) — required, silent install and update | The restaurant downloads nothing. The shell reaches the tablet from here and nowhere else; new shells (appVersionCode bumps) are pushed the same way. |
+| **Policies → Apps → App Configuration** (managed app config) | `device_ref` = `%serialnumber%` (Hexnode's dynamic value for the device serial) | 1b-i above: the shell reads `device_ref` from managed configuration and puts it on the start URL, and the bridge resolves it to a restaurant through the CRM's inventory. The CRM's own `tablets.serial` comes from the same Hexnode record, so the two match with nobody typing a serial. Editor payload: `docs/hexnode-app-config.json`. If the editor does not expand the wildcard, leave the key unset and 1b-ii (`aid:<ANDROID_ID>`) takes over with no rebuild. |
+| **Policies → Apps → App Permissions** → Premium → **Send push notifications: Allow** | Pre-grant `POST_NOTIFICATIONS` | The alert gate reads `Notification.permission === "granted"` on first run without a tap. With this missing, a kiosk shows **"Alerts are off on this tablet — call Premium on (615) 619-5081"** and reports `alert_state: "blocked"` on its heartbeat (migration 037) — the tablet has no Settings app to open, so the fix is here, in the console, and the gate re-checks by itself once a minute until it lands. |
+
+Plus the kiosk profile itself (single-app kiosk on the package, screen on
+while charging, auto-launch on boot, status bar and navigation blocked,
+volume locked) — `docs/mdm-plan.md` §3 C7 lists it. None of those are read
+by the app; the three above are.
+
 ## Sessions that outlive a year on a wall
 
 The session has to survive a year of continuous use, power cuts, and

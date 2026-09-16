@@ -1,0 +1,6 @@
+{
+  "productId": "com.pfdworks.orders",
+  "managedProperty": [
+    { "key": "device_ref", "valueString": "%serialnumber%" }
+  ]
+}

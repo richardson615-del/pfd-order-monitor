@@ -162,7 +162,7 @@ test("a failed re-record does not lock a working tablet out of its orders", () =
   assert.match(granted, /setState\("hidden"\)/, "a subscribed browser is let through");
   assert.match(granted, /setState\("ask"\)/, "an unsubscribed one is still blocked");
   // Either way the office is told this tablet is not confirmed.
-  assert.match(granted, /onSubscribedChange\?\.\(false\)/);
+  assert.match(granted, /onSubscribedChange\?\.\(false, "hidden"\)/);
 });
 
 test("the subscription write is not refused by its own RLS", () => {
@@ -186,6 +186,43 @@ test("the real error is shown, not swallowed into a console", () => {
   assert.match(brain, /err instanceof Error \? err\.message/);
 });
 
+console.log("\non a kiosk, blocked is the office's problem:");
+
+test("the blocked screen never sends anyone to Android Settings", () => {
+  // Nick, 2026-09-16: the Hexnode policy pre-grants the notification
+  // permission (App Permissions -> Premium -> Send push notifications:
+  // Allow). A kiosk has no Settings app to open, so a screen that says
+  // "open Settings -> Apps -> Premium" is a screen that cannot be obeyed.
+  // "blocked" means the policy is missing, and only the office can fix it.
+  for (const [name, face] of [["gate", gate], ["ready", ready]] as const) {
+    assert.doesNotMatch(face, /Open Android|Android <strong>Settings|Settings<\/strong> →|Apps<\/strong>/, name);
+    assert.match(face, /Alerts are off on this tablet/, name);
+    assert.match(face, /SUPPORT_PHONE/, name);
+  }
+  assert.match(src("lib/first-run.ts"), /SUPPORT_PHONE = "\(615\) 619-5081"/);
+});
+
+test("the office is told which gate state the screen is in", () => {
+  // The hook reports the state with the boolean, the dashboard puts it on
+  // the heartbeat, and the CRM roster relays it: `blocked` on a kiosk is a
+  // Hexnode console job, not a phone call to the store.
+  assert.match(brain, /export type OnAlertStateChange = \(subscribed: boolean, state: AlertGateState\) => void/);
+  assert.match(brain, /onSubscribedChange\?\.\(false, next\)/);
+  assert.doesNotMatch(brain, /onSubscribedChange\?\.\((true|false)\)/, "every report carries the state");
+  assert.match(dashboard, /setAlertState\(state\)/);
+  assert.match(src("lib/tablet-status.ts"), /alert_state: ALERT_STATES\.has/);
+  assert.match(src("app/api/crm/restaurants/route.ts"), /push_subscribed, shell_version, alert_state/);
+  assert.match(src("docs/crm-bridge-contract.md"), /"alert_state"/);
+});
+
+test("a blocked screen re-reads the permission on its own, because nobody will tap", () => {
+  // The fix lands from the Hexnode console with nobody at the tablet, and a
+  // kiosk is always visible so visibilitychange never fires. Once a minute
+  // is often enough; the gate comes down by itself when the policy returns.
+  assert.match(brain, /if \(state !== "blocked"\) return;[\s\S]*setInterval\(\(\) => void check\(\), BLOCKED_RECHECK_MS\)/);
+  assert.match(brain, /BLOCKED_RECHECK_MS = 60_000/);
+});
+
 console.log("\nit stays on once it is on:");
 
 test("the service worker re-subscribes when the browser retires an endpoint", () => {
@@ -206,8 +243,8 @@ test("the page re-records the subscription on every return to the foreground", (
   assert.match(brain, /subscribeAndRecord/);
 });
 
-test("the heartbeat reports whether this screen can ring", () => {
-  assert.match(dashboard, /JSON\.stringify\(\{ pushSubscribed, shellVersion \}\)/);
+test("the heartbeat reports whether this screen can ring, and why not", () => {
+  assert.match(dashboard, /JSON\.stringify\(\{ pushSubscribed, shellVersion, alertState \}\)/);
   assert.match(migration, /push_subscribed boolean/);
   // Nullable and undefaulted: existing rows genuinely do not know, and
   // defaulting them either way states something on no evidence.

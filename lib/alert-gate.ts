@@ -15,11 +15,18 @@
  *
  * WHAT "ALWAYS ON" CAN AND CANNOT MEAN. The browser only grants
  * Notification.requestPermission() from a user gesture, and once somebody has
- * chosen Block, no amount of code can ask again - it has to be changed in
- * Android's settings. So "always on" is: never offer a way to skip it, take
- * one tap on first run, keep the subscription alive silently afterwards, and
- * when it has been blocked say exactly how to undo that rather than pretending
- * the tablet is fine. It cannot mean zero taps on a fresh install.
+ * chosen Block, no amount of code can ask again. So "always on" is: never
+ * offer a way to skip it, take one tap on first run, keep the subscription
+ * alive silently afterwards, and when it has been blocked say so rather than
+ * pretending the tablet is fine.
+ *
+ * ON A MANAGED KIOSK (Nick, 2026-09-16, verified on the trial tablet) the
+ * permission is pre-granted by the Hexnode policy - App Permissions ->
+ * Premium -> Send push notifications: Allow - so "blocked" means that policy
+ * is missing or was changed. A kiosk has no Settings app to open, so the
+ * screen must not send anyone there: it says to call Premium, and the
+ * heartbeat reports the state (alert_state, migration 037) so the office
+ * sees which tablet it is without a phone call.
  *
  * Pure, and separate from the component, for the same reason lib/kiosk.ts is:
  * this decides whether a kitchen finds out it has stopped being alerted.
@@ -30,7 +37,7 @@ export type AlertGateState =
   | "hidden"
   /** Never asked. One tap away - and the tap is the gesture the browser needs. */
   | "ask"
-  /** Explicitly denied. Only Android's settings can undo this. */
+  /** Explicitly denied. Nothing on this screen can undo it; on a kiosk, only the MDM policy can. */
   | "blocked"
   /** No Push API here at all - a desktop browser, or iOS Safari outside the home screen. */
   | "unsupported";
@@ -49,7 +56,7 @@ export function alertGateState(args: {
   if (!args.supported || args.permission === null) return "unsupported";
 
   // Denied outranks everything. Re-prompting is impossible, so the only
-  // honest screen is the one that says how to fix it in Android.
+  // honest screen is the one that says alerts are off and who can fix it.
   if (args.permission === "denied") return "blocked";
 
   if (args.permission === "default") return "ask";

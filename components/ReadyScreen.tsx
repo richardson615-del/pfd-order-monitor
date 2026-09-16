@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Brand } from "./Brand";
-import { useAlertGate } from "./useAlertGate";
-import { READY_AUTO_ADVANCE_MS, allReady, readyChecks } from "@/lib/first-run";
-
-const SUPPORT_PHONE = "(615) 619-5081";
+import { useAlertGate, type OnAlertStateChange } from "./useAlertGate";
+import { READY_AUTO_ADVANCE_MS, SUPPORT_PHONE, allReady, readyChecks } from "@/lib/first-run";
 
 /**
  * "You're all set" - the first thing a tablet shows at a store, once.
@@ -33,7 +31,7 @@ export default function ReadyScreen({
   restaurantName: string;
   /** The dashboard's own view: connected and synced at least once. */
   online: boolean;
-  onSubscribedChange?: (subscribed: boolean) => void;
+  onSubscribedChange?: OnAlertStateChange;
   onDone: () => void;
 }) {
   const gate = useAlertGate(onSubscribedChange);
@@ -55,7 +53,12 @@ export default function ReadyScreen({
     void readStatus();
   }, []);
 
-  const checks = readyChecks({ online, alertsOn, printer: printer === undefined ? { online: null } : printer });
+  const checks = readyChecks({
+    online,
+    alertsOn,
+    alertsWhy: gate.state === "blocked" || gate.state === "unsupported" || gate.state === "ask" ? gate.state : null,
+    printer: printer === undefined ? { online: null } : printer,
+  });
   const ready = allReady(checks);
 
   // The countdown. Restarts if anything goes red again.
@@ -136,9 +139,8 @@ export default function ReadyScreen({
 
         {gate.state === "blocked" && (
           <p className="alert-gate-help">
-            Alerts were turned off for this app in Android. Open <strong>Settings</strong> →{" "}
-            <strong>Apps</strong> → <strong>Premium</strong> → <strong>Notifications</strong>, turn them
-            on, then tap Check again. Stuck? Call Premium on <strong>{SUPPORT_PHONE}</strong>.
+            Alerts are off on this tablet — call Premium on <strong>{SUPPORT_PHONE}</strong> and we
+            can turn them back on from the office. Nothing needs doing on this screen.
           </p>
         )}
         {gate.state === "unsupported" && (

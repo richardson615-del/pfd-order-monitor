@@ -211,7 +211,7 @@ test("the office is told which gate state the screen is in", () => {
   assert.doesNotMatch(brain, /onSubscribedChange\?\.\((true|false)\)/, "every report carries the state");
   assert.match(dashboard, /setAlertState\(state\)/);
   assert.match(src("lib/tablet-status.ts"), /alert_state: ALERT_STATES\.has/);
-  assert.match(src("app/api/crm/restaurants/route.ts"), /push_subscribed, shell_version, alert_state/);
+  assert.match(src("lib/crm-roster.ts"), /push_subscribed, shell_version, alert_state/);
   assert.match(src("docs/crm-bridge-contract.md"), /"alert_state"/);
 });
 

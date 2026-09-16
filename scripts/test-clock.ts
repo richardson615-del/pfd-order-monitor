@@ -85,7 +85,7 @@ test("what is writable is also returned - the console merges the response over i
   assert.ok(i > -1);
   const returned = route.slice(i, route.indexOf(".single()", i));
   assert.match(returned, /timezone/);
-  assert.match(src("app/api/crm/restaurants/route.ts"), /timezone: r\.timezone \?\? null/);
+  assert.match(src("lib/crm-roster.ts"), /timezone: r\.timezone \?\? null/);
 });
 
 test("the dashboard reads it from the row and hands it to the clock", () => {

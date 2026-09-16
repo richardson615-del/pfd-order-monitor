@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { collectSnapshot, evaluateHealth } from "@/lib/health";
+import { loadRosterContext, tabletFor } from "@/lib/crm-roster";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -50,23 +51,35 @@ export async function GET(req: NextRequest) {
       .gte("resolved_at", resolvedWindowStart.toISOString())
       .order("resolved_at", { ascending: false })
       .limit(500),
-    admin.from("restaurants").select("id, crm_restaurant_id"),
+    admin.from("restaurants").select("id, crm_restaurant_id, app_expected, display_mode, timezone"),
   ]);
   const byKey = new Map((known ?? []).map((a: any) => [a.key, a]));
-  const crmIdOf = new Map((restaurantRows ?? []).map((r: any) => [r.id, r.crm_restaurant_id ?? null]));
+  const restaurantOf = new Map((restaurantRows ?? []).map((r: any) => [r.id, r]));
+
+  // The tablet object for every issue that is about one restaurant - the
+  // same object the roster carries (lib/crm-roster.ts), so a ticket can
+  // show last heartbeat, shell, alert state and which unit without a
+  // second call. Read once for the restaurants the issues name.
+  const named = [...new Set(issues.map((i) => i.restaurant_id).filter((id): id is string => Boolean(id)))];
+  const ctx = named.length ? await loadRosterContext(named) : null;
 
   const shaped = issues.map((i) => {
     const stamp = byKey.get(i.key);
+    const r = i.restaurant_id ? restaurantOf.get(i.restaurant_id) : undefined;
     return {
       key: i.key,
       severity: i.severity,
       title: i.title,
       detail: i.detail,
       restaurant_id: i.restaurant_id ?? null,
-      crm_restaurant_id: i.restaurant_id ? (crmIdOf.get(i.restaurant_id) ?? null) : null,
+      crm_restaurant_id: r?.crm_restaurant_id ?? null,
       device_id: i.device_id ?? null,
       first_seen_at: stamp?.first_seen_at ?? null,
       notified_at: stamp?.notified_at ?? null,
+      // Null for a fleet-wide issue (no restaurant), never for a
+      // restaurant one - the object itself says what is not known.
+      timezone: r?.timezone ?? null,
+      tablet: r && ctx ? tabletFor(r, ctx) : null,
     };
   });
   const current = since

@@ -26,7 +26,12 @@ function test(name: string, fn: () => void) {
 }
 
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
-const route = src("app/api/crm/restaurants/[id]/test-order/route.ts");
+// The rule lives in the lib since 2026-09-16: the tablet's own Ready screen
+// sends the same order (POST /api/dashboard/test-order), so the two routes
+// share one implementation and these assertions read that.
+const route = src("lib/test-order.ts");
+const crmRoute = src("app/api/crm/restaurants/[id]/test-order/route.ts");
+const tabletRoute = src("app/api/dashboard/test-order/route.ts");
 
 console.log("safe to point at a live restaurant:");
 
@@ -72,7 +77,7 @@ test("nowhere-to-receive is refused BEFORE an order is written", () => {
   const insert = route.indexOf('.from("orders")');
   assert.ok(check > -1 && insert > -1);
   assert.ok(check < insert, "the destination check must come before the insert");
-  assert.match(route, /Enable notifications/, "it must name the step that was missed");
+  assert.match(route, /Turn on alerts/, "it must name the step that was missed");
 });
 
 test("a restaurant with a printer but no tablet is NOT refused", () => {
@@ -116,7 +121,25 @@ test("it works before app_expected is turned on, and says so", () => {
   // very step this exists to make possible.
   const refusals = route.match(/status: 409/g) ?? [];
   assert.equal(refusals.length, 1, "there should be exactly one 409, for nowhere to receive");
-  assert.match(route, /Enable notifications[\s\S]*status: 409/);
+  assert.match(route, /status: 409,[\s\S]*Turn on alerts/);
+});
+
+console.log("\ntwo buttons, one order:");
+
+test("the CRM and the tablet send the same test order", () => {
+  // The office presses it from the CRM; the restaurant presses "Send me a
+  // test order" on the Ready screen. Neither route may grow its own copy.
+  assert.match(crmRoute, /sendTestOrder\(params\.id\)/);
+  assert.match(tabletRoute, /sendTestOrder\(restaurantId\)/);
+  assert.doesNotMatch(crmRoute, /from\("orders"\)/);
+  assert.doesNotMatch(tabletRoute, /from\("orders"\)/);
+});
+
+test("a tablet may only test itself", () => {
+  // The restaurant comes from the session, never from the body - the same
+  // rule the heartbeat follows, for the same reason.
+  assert.match(tabletRoute, /getCurrentUserRestaurantIds\(\)/);
+  assert.doesNotMatch(tabletRoute, /req\.json|restaurant_id/);
 });
 
 console.log(`\n${passed} assertions passed.`);

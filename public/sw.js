@@ -1,12 +1,72 @@
-// Minimal service worker: enables PWA installability + web push notifications.
-// No offline caching in the MVP - orders always need to be fresh from the server.
+// Minimal service worker: PWA installability, web push, and ONE offline page.
+//
+// It caches nothing of the app itself - orders always come fresh from the
+// server, and a stale cached dashboard is a screen that lies about what is
+// waiting. The one thing it holds is /offline.html, and it serves that only
+// when a navigation cannot reach the network at all.
+//
+// Why: the restaurant's only setup step is Wi-Fi (Nick, 2026-09-16). A
+// tablet bound at the office and powered on at a store with no known
+// network opens the app and, without this, gets Chrome's dinosaur - a page
+// with no brand, no restaurant name and no button that opens the Wi-Fi
+// picker. With this it gets the Wi-Fi screen. The worker was installed at
+// the office, when the tablet was signed in, so it is always there by the
+// time the tablet is somewhere with no network.
+
+const OFFLINE_CACHE = "premium-offline-v1";
+const OFFLINE_URL = "/offline.html";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    (async () => {
+      try {
+        const cache = await caches.open(OFFLINE_CACHE);
+        // cache: "reload" bypasses the HTTP cache so a new deploy's page is
+        // the one stored, not whatever Chrome had from last month.
+        await cache.add(new Request(OFFLINE_URL, { cache: "reload" }));
+      } catch (err) {
+        // Installing while offline, most likely. The worker still installs -
+        // push and everything else must not depend on this page - and the
+        // next activation tries again.
+        console.error("offline page not cached", err);
+      }
+    })()
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      await self.clients.claim();
+      const names = await caches.keys();
+      await Promise.all(names.filter((n) => n !== OFFLINE_CACHE).map((n) => caches.delete(n)));
+      // Refresh the page on every activation too, so a worker that installed
+      // offline (see above) eventually holds it.
+      try {
+        const cache = await caches.open(OFFLINE_CACHE);
+        await cache.add(new Request(OFFLINE_URL, { cache: "reload" }));
+      } catch {}
+    })()
+  );
+});
+
+/**
+ * Navigations only, and only on failure. Everything else - API calls,
+ * scripts, the realtime socket - goes straight to the network exactly as
+ * it did before this handler existed. The fetch is the browser's own,
+ * untouched; the cache is consulted only after it throws, which it does
+ * solely when there is no network. A 500 from the server is not "offline"
+ * and is shown as the 500 it is.
+ */
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode !== "navigate") return;
+  event.respondWith(
+    fetch(event.request).catch(async () => {
+      const cached = await caches.match(OFFLINE_URL);
+      return cached || Response.error();
+    })
+  );
 });
 
 /**

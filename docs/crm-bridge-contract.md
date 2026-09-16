@@ -374,6 +374,42 @@ so. That order matters: prove the tablet chimes first, then turn
 `app_expected` on. Reversed, every order raises a critical `app_alert_failed`
 until somebody enables notifications.
 
+The tablet's own first-run Ready screen has a **Send me a test order**
+button that sends the identical order (`lib/test-order.ts`, via the tablet's
+session at `POST /api/dashboard/test-order`). Two buttons, one order.
+
+### Link a tablet that has no session (I1.5)
+
+```
+POST /api/crm/tablets/link
+{ "code": "123456", "restaurant_id": "<uuid>", "actor": "nick@pfdworks.com" }
+```
+
+A tablet with a network and no valid session — never bound, or its session
+was lost — shows a six-digit code and "Call Premium". Nobody types a
+credential on a tablet, ever (Nick, 2026-09-16). The office enters the code
+here against the restaurant, and the bridge mints a session for that exact
+device: the restaurant's tablet login (found or created by the same rule
+provisioning uses — never a second login, never a reset password) gets a
+server-side magic link whose hash the tablet collects once and verifies in
+the browser. The office never sees the token; the tablet picks it up within
+five seconds and shows the restaurant's orders.
+
+`restaurant_id` is the bridge restaurant id (== CRM `accounts.id`).
+
+| status | meaning |
+|---|---|
+| `200 { ok, restaurant: {id, name}, login: {username, created}, note }` | Linked. `created: true` means this call made the login |
+| `400` | Code not six digits, or no `restaurant_id` |
+| `404 code_not_found` | No tablet is showing that code — ask them to read it again |
+| `404 restaurant not found` | |
+| `409 code_already_linked` | Somebody linked it already; the tablet should be showing orders |
+| `410 code_expired` | Codes live 30 minutes. The tablet shows a new one — ask for it |
+| `502` | Auth did not return a usable link. Nothing was changed |
+
+The CRM side: **Devices → Tablets → Link tablet**, code + restaurant. Full
+flow and the two public kiosk routes the tablet uses: `docs/kiosk.md`.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

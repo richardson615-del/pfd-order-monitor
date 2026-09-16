@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Premium Orders</title>
+<!--
+  The Wi-Fi screen, and the cold-boot offline screen.
+
+  Served by public/sw.js when a navigation cannot reach the network at all.
+  The app itself cannot load without a network, so this page is deliberately
+  self-contained: no stylesheet, no script, no font, no icon fetched from
+  anywhere. Everything it needs is in this file, and it is cached by the
+  worker at install.
+
+  Two states, decided from localStorage (the keys are lib/kiosk-cache.ts's;
+  this file cannot import it, so the names are the contract):
+
+    premium.setupDone absent  ->  first run: "Connect this tablet to your
+                                   Wi-Fi - that's the only thing to set up."
+    premium.setupDone = "1"   ->  a working tablet that lost its network:
+                                   the red strip, and the restaurant's name
+                                   from premium.restaurant.
+
+  Both have one button, which asks Android for its Wi-Fi picker (see
+  lib/wifi.ts for why an intent: URL, and which one). Both poll for the
+  network to come back and leave for /dashboard by themselves.
+
+  Colours are the :root palette from app/globals.css, copied rather than
+  linked for the reason above. Keep them in step by hand.
+-->
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --border: #262c34;
+    --text: #f2f4f7; --text-dim: #98a2b3;
+    --brand: #38bdf8; --brand-2: #7dd3fc;
+    --late: #ff4d3d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  .strip { display: none; background: var(--late); color: #fff; font-weight: 800; font-size: 20px;
+    padding: 18px 24px; text-align: center; line-height: 1.3; }
+  body.offline .strip { display: block; }
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px 24px; }
+  .inner { width: 100%; max-width: 560px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .brand { font-weight: 800; font-size: 44px; letter-spacing: -0.03em; line-height: 1;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .brand small { display: block; font-size: 13px; letter-spacing: 0.32em; font-weight: 700; color: var(--text-dim);
+    -webkit-text-fill-color: var(--text-dim); margin-top: 8px; }
+  .restaurant { margin: 28px 0 0; font-size: 22px; font-weight: 700; color: var(--text-dim); }
+  h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; margin: 28px 0 12px; }
+  p { font-size: 19px; line-height: 1.45; color: var(--text-dim); margin: 0 0 8px; }
+  .wifi { margin: 28px 0 8px; width: 96px; height: 96px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; margin-top: 28px;
+    min-height: 72px; padding: 0 40px; border-radius: 999px; font-size: 22px; font-weight: 800;
+    background: var(--brand); color: #04202e; text-decoration: none; }
+  .btn:active { filter: brightness(0.92); }
+  .help { display: none; margin-top: 24px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 14px;
+    background: var(--panel); font-size: 17px; }
+  body.wifi-unavailable .help { display: block; }
+  .help strong { color: var(--text); }
+  .foot { padding: 20px 24px 28px; text-align: center; color: var(--text-dim); font-size: 16px; }
+  body.offline .foot .setup { display: none; }
+  body:not(.offline) .foot .down { display: none; }
+</style>
+</head>
+<body>
+  <div class="strip" role="status" id="strip">Not receiving orders — Wi-Fi is down · reconnecting</div>
+
+  <main>
+    <div class="inner">
+      <div class="brand" aria-label="Premium Orders">Premium<small>ORDERS</small></div>
+      <div class="restaurant" id="restaurant" hidden></div>
+
+      <svg class="wifi" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+        <path d="M8 38c22-20 58-20 80 0" stroke="#38bdf8" stroke-width="7" stroke-linecap="round"/>
+        <path d="M22 52c14-13 38-13 52 0" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" opacity=".8"/>
+        <path d="M36 66c7-6 17-6 24 0" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" opacity=".6"/>
+        <circle cx="48" cy="80" r="6" fill="#38bdf8"/>
+      </svg>
+
+      <h1 id="title">Connect this tablet to your Wi-Fi</h1>
+      <p id="lead">That's the only thing to set up.</p>
+
+      <a class="btn" id="wifi" href="#">Choose Wi-Fi network</a>
+
+      <div class="help" role="note">
+        This tablet can't open Wi-Fi settings from here. Call Premium on
+        <strong>(615) 619-5081</strong> — we can send your Wi-Fi to it.
+      </div>
+    </div>
+  </main>
+
+  <div class="foot">
+    <span class="setup">Once it's connected, this screen moves on by itself.</span>
+    <span class="down">If this lasts, Premium is told automatically.</span>
+  </div>
+
+<script>
+(function () {
+  var store = null;
+  try { store = window.localStorage; } catch (e) {}
+  var get = function (k) { try { return store ? store.getItem(k) : null; } catch (e) { return null; } };
+
+  // --- which screen ---------------------------------------------------------
+  var setupDone = get("premium.setupDone") === "1";
+  var restaurant = null;
+  try { restaurant = JSON.parse(get("premium.restaurant") || "null"); } catch (e) {}
+
+  if (setupDone) {
+    document.body.classList.add("offline");
+    document.getElementById("title").textContent = "Wi-Fi is down";
+    document.getElementById("lead").textContent =
+      "Orders can't reach this tablet until it's back on your network. Choose the network below, or check the router.";
+  }
+  if (restaurant && restaurant.name) {
+    var r = document.getElementById("restaurant");
+    r.textContent = restaurant.name;
+    r.hidden = false;
+  }
+
+  // --- since when -----------------------------------------------------------
+  // Kept in sessionStorage so the strip does not restart its clock on every
+  // retry of this page. A "since" that keeps resetting is a "since" that
+  // means nothing.
+  var since = null;
+  try {
+    since = window.sessionStorage.getItem("premium.offlineSince");
+    if (!since) { since = String(Date.now()); window.sessionStorage.setItem("premium.offlineSince", since); }
+  } catch (e) {}
+  if (setupDone && since) {
+    var t = new Date(Number(since)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    document.getElementById("strip").textContent = "Not receiving orders — Wi-Fi is down · reconnecting since " + t;
+  }
+
+  // --- the one button -------------------------------------------------------
+  // The Wi-Fi settings panel (Android 10+), with Chrome's fallback pointing
+  // back at this page so a refused intent says so instead of doing nothing.
+  // Mirrors lib/wifi.ts.
+  var fallback = encodeURIComponent(location.origin + "/offline.html?wifi=unavailable");
+  document.getElementById("wifi").href =
+    "intent:#Intent;action=android.settings.panel.action.WIFI;S.browser_fallback_url=" + fallback + ";end";
+  if (/[?&]wifi=unavailable/.test(location.search)) document.body.classList.add("wifi-unavailable");
+
+  // --- leave as soon as the network is back ----------------------------------
+  var leaving = false;
+  function tryLeave() {
+    if (leaving) return;
+    fetch("/api/version", { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) return;
+        leaving = true;
+        try { window.sessionStorage.removeItem("premium.offlineSince"); } catch (e) {}
+        location.replace("/dashboard");
+      })
+      .catch(function () {});
+  }
+  window.addEventListener("online", tryLeave);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") tryLeave(); });
+  setInterval(tryLeave, 5000);
+  tryLeave();
+})();
+</script>
+</body>
+</html>

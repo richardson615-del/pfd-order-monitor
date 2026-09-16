@@ -25,6 +25,11 @@ function test(name: string, fn: () => void) {
 
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const gate = src("components/AlertGate.tsx");
+// The gate's brain moved into a hook on 2026-09-16 so the first-run Ready
+// screen can share it (Workstream I). The reading, the silent repair and the
+// one tap are asserted against the hook; the faces against the components.
+const brain = src("components/useAlertGate.ts");
+const ready = src("components/ReadyScreen.tsx");
 const dashboard = src("components/OrderDashboard.tsx");
 const sw = src("public/sw.js");
 const migration = src("db/migrations/030_heartbeat_push_state.sql");
@@ -106,7 +111,7 @@ test("the gate has no dismiss, no 'later', no close", () => {
 
 test("the gate renders above the orders, not beside them", () => {
   const gateAt = dashboard.indexOf("<AlertGate");
-  const listAt = dashboard.indexOf('className="app-list"');
+  const listAt = dashboard.indexOf('className={`app-list');
   assert.ok(gateAt > -1 && listAt > -1);
   assert.ok(gateAt < listAt);
 });
@@ -114,10 +119,29 @@ test("the gate renders above the orders, not beside them", () => {
 test("one tap does permission, subscription AND audio", () => {
   // All three need the same user gesture. Asking for it three times is how
   // two of them never happen.
-  const turnOn = gate.slice(gate.indexOf("async function turnOn"), gate.indexOf("// Nothing decided yet"));
+  const turnOn = brain.slice(brain.indexOf("const turnOn = useCallback"), brain.indexOf("return { state, busy, error"));
   assert.match(turnOn, /requestPermission\(\)/);
   assert.match(turnOn, /subscribeAndRecord\(\)/);
   assert.match(turnOn, /armAudio\(\)/);
+});
+
+test("the gate and the Ready screen share one brain", () => {
+  // Two faces, one answer to "will this tablet ring?". A second copy of the
+  // subscribe path in the Ready screen is how the two would drift.
+  assert.match(gate, /useAlertGate\(onSubscribedChange\)/);
+  assert.match(ready, /useAlertGate\(onSubscribedChange\)/);
+  assert.doesNotMatch(ready, /pushManager|requestPermission/);
+  assert.doesNotMatch(gate, /pushManager|requestPermission/);
+});
+
+test("the Ready screen does not move on while alerts are off", () => {
+  // That would be the old dismissible button under a new name. The printer
+  // row is advisory (orders still show without paper); Wi-Fi and alerts are
+  // not.
+  assert.match(ready, /disabled=\{!ready\}/);
+  assert.match(src("lib/first-run.ts"), /filter\(\(c\) => c\.key !== "printer"\)\.every\(\(c\) => c\.ok === true\)/);
+  // First run shows the Ready screen INSTEAD of the gate, never neither.
+  assert.match(dashboard, /firstRun === true \? \([\s\S]*<ReadyScreen[\s\S]*\) : firstRun === false \? \([\s\S]*<AlertGate/);
 });
 
 test("a failed re-record does not lock a working tablet out of its orders", () => {
@@ -129,10 +153,10 @@ test("a failed re-record does not lock a working tablet out of its orders", () =
   // genuinely silent. With one in hand, the server almost certainly has it
   // from a previous run, and today's refresh failing says nothing about
   // whether a push will actually arrive.
-  assert.match(gate, /if \(hasSubscription\) \{/);
-  const granted = gate.slice(
-    gate.indexOf('if (permission === "granted")'),
-    gate.indexOf("const next = alertGateState")
+  assert.match(brain, /if \(hasSubscription\) \{/);
+  const granted = brain.slice(
+    brain.indexOf('if (permission === "granted")'),
+    brain.indexOf("const next = alertGateState")
   );
   assert.ok(granted.length > 0, "the granted branch should be findable");
   assert.match(granted, /setState\("hidden"\)/, "a subscribed browser is let through");
@@ -158,7 +182,8 @@ test("the subscription write is not refused by its own RLS", () => {
 test("the real error is shown, not swallowed into a console", () => {
   // Nobody standing at a wall-mounted tablet can open a console.
   assert.match(gate, /alert-gate-error/);
-  assert.match(gate, /err instanceof Error \? err\.message/);
+  assert.match(ready, /alert-gate-error/);
+  assert.match(brain, /err instanceof Error \? err\.message/);
 });
 
 console.log("\nit stays on once it is on:");
@@ -177,8 +202,8 @@ test("the worker sends credentials, because the route reads a cookie", () => {
 test("the page re-records the subscription on every return to the foreground", () => {
   // This is what repairs whatever the worker could not: a service worker
   // cannot refresh an expired Supabase session, the page can.
-  assert.match(gate, /visibilitychange/);
-  assert.match(gate, /subscribeAndRecord/);
+  assert.match(brain, /visibilitychange/);
+  assert.match(brain, /subscribeAndRecord/);
 });
 
 test("the heartbeat reports whether this screen can ring", () => {

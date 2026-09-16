@@ -53,6 +53,8 @@ export function usernameCandidates(restaurantName: string, max = 20): string[] {
 export interface CreatedLogin {
   username: string;
   password: string;
+  email: string;
+  auth_user_id: string;
 }
 
 /**
@@ -96,9 +98,54 @@ export async function createLoginWithFreeUsername(
       .then(({ error: auditError }) => {
         if (auditError) console.error("login audit not recorded:", auditError.message);
       });
-    return { username, password };
+    return { username, password, email: usernameToEmail(username), auth_user_id: created.user.id };
   }
   throw new Error(lastError);
+}
+
+export interface EnsuredLogin {
+  username: string;
+  /** The auth email the username maps to - what a magic link is generated for. */
+  email: string;
+  auth_user_id: string;
+  /** Only when this call created it. Never the existing one. */
+  password?: string;
+  created: boolean;
+}
+
+/**
+ * The restaurant's tablet login, found or made.
+ *
+ * A login exists if any staff link does. Never reset one: the password on
+ * the wall is the one that works, and the CRM can reveal it if lost. Shared
+ * by provisioning (E1) and by linking a code (I1) - two ways to arrive at
+ * the same login, and one rule for which login that is.
+ */
+export async function ensureTabletLogin(
+  restaurant: { id: string; name: string },
+  actor: string | null
+): Promise<EnsuredLogin> {
+  const admin = supabaseAdmin();
+  const { data: links } = await admin
+    .from("restaurant_users")
+    .select("auth_user_id, role, created_at")
+    .eq("restaurant_id", restaurant.id)
+    .order("created_at");
+  if (links?.length) {
+    // Name the oldest staff login, resolved through auth like the list route.
+    const first = links[0];
+    const { data: user } = await admin.auth.admin.getUserById(first.auth_user_id);
+    const email = user?.user?.email ?? null;
+    const username = email ? (email.split("@")[0] ?? email) : first.auth_user_id;
+    return {
+      username,
+      email: email ?? usernameToEmail(username),
+      auth_user_id: first.auth_user_id,
+      created: false,
+    };
+  }
+  const created = await createLoginWithFreeUsername(restaurant, usernameCandidates(restaurant.name), actor);
+  return { ...created, created: true };
 }
 
 export interface ProvisionResult {
@@ -143,26 +190,11 @@ export async function provisionRestaurant(restaurantId: string, actor: string | 
     if (error) throw new Error(error.message);
   }
 
-  // A login exists if any staff link does. Never reset one: the password on
-  // the wall is the one that works, and the CRM can reveal it if lost.
-  const { data: links } = await admin
-    .from("restaurant_users")
-    .select("auth_user_id, role, created_at")
-    .eq("restaurant_id", r.id)
-    .order("created_at");
-  let login: ProvisionResult["login"] = null;
-  if (links?.length) {
-    // Name the oldest staff login, resolved through auth like the list route.
-    const first = links[0];
-    const { data: user } = await admin.auth.admin.getUserById(first.auth_user_id);
-    const email = user?.user?.email ?? null;
-    const username = email ? (email.split("@")[0] ?? email) : first.auth_user_id;
-    login = { username, created: false };
-  } else {
-    const created = await createLoginWithFreeUsername({ id: r.id, name: r.name }, usernameCandidates(r.name), actor);
-    login = { ...created, created: true };
-    changed.push("login");
-  }
+  const ensured = await ensureTabletLogin({ id: r.id, name: r.name }, actor);
+  const login: ProvisionResult["login"] = ensured.created
+    ? { username: ensured.username, password: ensured.password, created: true }
+    : { username: ensured.username, created: false };
+  if (ensured.created) changed.push("login");
 
   const { data: devices } = await admin
     .from("print_devices")

@@ -18,6 +18,12 @@ import { Brand } from "@/components/Brand";
  * The email-link form is still here, behind a link, because PFD's own admins
  * have real addresses and anyone who signed in before usernames existed still
  * has an account with no password. Removing it would lock them out.
+ *
+ * Since 2026-09-16 this page is for Premium staff only. A restaurant tablet
+ * never sees it: with no session it is sent to /link (the Pairing screen),
+ * and the office binds it from the CRM. The route stays because staff need
+ * it and because a session can still be created here at the office before
+ * a tablet ships.
  */
 function LoginForm() {
   const params = useSearchParams();
@@ -111,6 +117,13 @@ function LoginForm() {
           shorthand for a company they know as Premium. */}
       <div className="login-brand">
         <Brand size="lg" withSubtitle />
+        {/* Staff only, since 2026-09-16. A kitchen tablet with no session
+            lands on /link and shows a code for the office; nothing sends a
+            restaurant here and nothing on the tablet links to it. */}
+        <p className="muted login-staff-note">
+          Premium staff sign-in. Kitchen tablets don&apos;t sign in here — they show a link code
+          for the office instead.
+        </p>
       </div>
 
       <div style={{ padding: 16 }}>

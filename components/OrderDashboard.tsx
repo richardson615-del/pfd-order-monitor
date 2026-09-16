@@ -8,6 +8,10 @@ import { ageMs, elapsedLabel, isSettled, isWaiting, type DisplayMode } from "@/l
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
+import ReadyScreen from "./ReadyScreen";
+import { OFFLINE_FOOTER, offlineNotice } from "@/lib/first-run";
+import { isSetupDone, markSetupDone, writeRestaurantCache } from "@/lib/kiosk-cache";
+import { WIFI_BUTTON_LABEL, wifiPanelUrl } from "@/lib/wifi";
 import {
   SHELL_VERSION_KEY,
   readShellVersion,
@@ -90,6 +94,25 @@ export default function OrderDashboard({
    */
   const [heartbeatOkAt, setHeartbeatOkAt] = useState<number | null>(null);
   const [pushSubscribed, setPushSubscribed] = useState<boolean | null>(null);
+
+  /**
+   * First run on this device (Workstream I). null until read - localStorage
+   * is not available during the server render, and a Ready screen that
+   * flashes over a working tablet on every load would be worse than none.
+   * The restaurant is remembered at the same time, so the offline page and
+   * the Pairing screen can name it without a network.
+   */
+  const [firstRun, setFirstRun] = useState<boolean | null>(null);
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    writeRestaurantCache({ id: restaurantId, name: restaurantName });
+    setFirstRun(!isSetupDone());
+    setOrigin(window.location.origin);
+  }, [restaurantId, restaurantName]);
+  const finishSetup = useCallback(() => {
+    markSetupDone();
+    setFirstRun(false);
+  }, []);
 
   /**
    * Which Android shell this page runs inside, from the TWA's ?shell= param
@@ -438,6 +461,18 @@ export default function OrderDashboard({
   });
 
   /**
+   * When this stretch of being offline began, for the strip's "reconnecting
+   * since 6:39 PM". Set on the way into offline, cleared on the way out; a
+   * clock that restarted on every render would say "since just now" forever.
+   */
+  const [offlineSince, setOfflineSince] = useState<number | null>(null);
+  useEffect(() => {
+    if (live.level === "offline") setOfflineSince((s) => s ?? Date.now());
+    else setOfflineSince(null);
+  }, [live.level]);
+  const offline = live.level === "offline";
+
+  /**
    * The oldest thing nobody has accepted. "3 waiting" says how much; this
    * says how bad, which is the number somebody in a kitchen acts on.
    */
@@ -457,11 +492,34 @@ export default function OrderDashboard({
     <div className="app" data-display={mode}>
       {/* Above everything. Nothing below this renders while alerts are off -
           a tablet that cannot ring is not a tablet, it is a screen. */}
-      <AlertGate restaurantName={restaurantName} onSubscribedChange={setPushSubscribed} />
+      {/* First run on this device: the Ready screen carries the same gate as
+          one of its three checks, and the one tap happens there. Every run
+          after that: the gate on its own, only if alerts are ever off. */}
+      {firstRun === true ? (
+        <ReadyScreen
+          restaurantName={restaurantName}
+          online={connection !== "down" && !stale}
+          onSubscribedChange={setPushSubscribed}
+          onDone={finishSetup}
+        />
+      ) : firstRun === false ? (
+        <AlertGate restaurantName={restaurantName} onSubscribedChange={setPushSubscribed} />
+      ) : null}
 
-      {warning && (
+      {/* Offline has its own strip below, with the button that fixes it; the
+          generic banner keeps only the sound case, which outranks it. */}
+      {warning && (!offline || !soundArmed) && (
         <div className={`kiosk-banner kiosk-${warning.level}`} role="status">
           {warning.text}
+        </div>
+      )}
+
+      {offline && (
+        <div className="offline-strip" role="alert">
+          <span className="offline-text">{offlineNotice(offlineSince ? clockLabel(offlineSince, timezone) : null)}</span>
+          <a className="btn offline-wifi" href={wifiPanelUrl(origin)}>
+            {WIFI_BUTTON_LABEL}
+          </a>
         </div>
       )}
 
@@ -536,7 +594,7 @@ export default function OrderDashboard({
         ))}
       </div>
 
-      <div className="app-list">
+      <div className={`app-list${offline ? " offline" : ""}`}>
         {filtered.length === 0 && (
           <div className="app-empty">
             {tab === "waiting"
@@ -550,6 +608,12 @@ export default function OrderDashboard({
           <OrderCard key={order.id} order={order} now={now} />
         ))}
       </div>
+
+      {/* The orders above stay so the kitchen can finish them; this says who
+          else already knows. True because the health check raises
+          tablet_not_watching once the heartbeat has been silent long enough
+          while orders arrive - "if this lasts", not "right now". */}
+      {offline && <p className="offline-foot">{OFFLINE_FOOTER}</p>}
     </div>
   );
 }

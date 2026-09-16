@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { constantTimeEquals } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { listOrderMessageIds, getMessageContent } from "@/lib/gmail";
 import {
@@ -32,8 +33,27 @@ const POLL_SLOW_MS = 45_000;
 
 export async function GET(req: NextRequest) {
   const startedAt = Date.now();
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  // The same two faults the 2026-09-11 review found in the monitor cron, which
+  // this check was written alongside and missed by:
+  //
+  //   if (auth !== `Bearer ${process.env.CRON_SECRET}`)
+  //
+  // It FAILED OPEN. With CRON_SECRET unset that template is the literal string
+  // "Bearer undefined", so a caller sending exactly that header authenticated -
+  // to an endpoint that reads restaurant inboxes through stored OAuth tokens.
+  // A missing secret has to deny everyone, the same judgement authorizeCrmWrite
+  // already made by answering 503.
+  //
+  // And it compared with !==, which returns as soon as two bytes differ.
+  const expected = process.env.CRON_SECRET;
+  if (!expected) {
+    return NextResponse.json(
+      { error: "CRON_SECRET is not set - the Gmail poll endpoint is disabled" },
+      { status: 503 }
+    );
+  }
+  const presented = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!presented || !constantTimeEquals(presented, expected)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

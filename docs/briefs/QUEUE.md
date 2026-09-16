@@ -14,6 +14,6 @@ Claude Code: when Nick says **"Work the queue"**, take the top `open` item, set 
 | 5 | D3b test hygiene (whatever is still open) | docs/briefs/2026-09-15-tablet-fleet-and-followups.md | done — nothing open: prs-crm #50 (Node 24 in engines + CI), #56 (two timeouts + the stranding teardown), #72 (integration suite in CI on postgres:17, TEST_DB_ALLOWLIST), #117 (CI builds the app); latest merged PR #160 green |
 | 6 | Pre-launch load test against a dev deployment — **STOP: needs Nick to create the dev deployment + a tablet login** | docs/scale-500.md | open — STOP (Nick) |
 | 7 | Rotate Hexnode API key + update Vercel — **STOP: Nick does this in Hexnode Admin → API before first fleet ship** | — | open — STOP (Nick) |
-| 8 | PR #48 (2026-09-15): Gmail poll shared-secret check fails open when `CRON_SECRET` is unset and compares with `!==` — rebase on main, CI, merge | PR #48 body | claimed (2026-09-16) |
+| 8 | PR #48 (2026-09-15): Gmail poll shared-secret check fails open when `CRON_SECRET` is unset and compares with `!==` — rebase on main, CI, merge | PR #48 body | PR #48 — merged 2026-09-16 (rebased over E3's timer line); production c6bb846 answers 401 to no header and to `Bearer undefined`, so `CRON_SECRET` is set there |
 
 Done today (2026-09-16): #60 I2, #61 I1, #62 alert copy, #63 D1, #64 stale-print, #65 poll-first, #66 queue file — all merged; production build 515565f, migrations 037–039 applied. This file replaces docs/work-queue.md. APK 1.3.0 (code 5) uploaded to Hexnode; policy Premium #1 v6 has device_ref=%serialnumber% and notifications=Allow.

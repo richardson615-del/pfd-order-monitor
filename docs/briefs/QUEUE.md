@@ -6,13 +6,13 @@ Claude Code: when Nick says **"Work the queue"**, take the top `open` item, set 
 
 | # | Item | Brief | Status |
 |---|---|---|---|
-| 0 | Enable auto-merge on the open PRs in this order: #62, then #63 (retarget base to main after #62 merges), then #64 | — | done 2026-09-16 — #62, #63, #64 merged (repo auto-merge is off; `gh pr merge --auto` merges immediately on green CI, which is what happened) |
-| 1 | E3 follow-up `feat/poll-first`: Realtime opt-in (env flag, default off), incremental poll "changed since last sync" | docs/scale-500.md §6 | PR #65 — merged 2026-09-16 |
-| 2 | C4 leftovers: `MIN_SHELL_VERSION` gate + `/api/version` idle-reload verified on 1.3.0 — **STOP before setting MIN_SHELL_VERSION=5 in Vercel; Nick confirms fleet is on 1.3.0** | docs/briefs/2026-09-14-premium-brand-dashboard-alerts.md | **STOP 2026-09-16** — code side verified on main (startUrl `?shell=5`, `/api/version` + heartbeat carry `minShellVersion`, amber line + idle reload tested); production has no `MIN_SHELL_VERSION` yet. Nick: confirm every unit shows 1.3.0 in Hexnode / shell 5 on CRM Tablets, then set `MIN_SHELL_VERSION=5` in Vercel (production) and redeploy |
+| 0 | Enable auto-merge on the open PRs in this order: #62, then #63 (retarget base to main after #62 merges), then #64 | — | open |
+| 1 | E3 follow-up `feat/poll-first`: Realtime opt-in (env flag, default off), incremental poll "changed since last sync" | docs/scale-500.md §6 | open |
+| 2 | C4 leftovers: `MIN_SHELL_VERSION` gate + `/api/version` idle-reload verified on 1.3.0 — **STOP before setting MIN_SHELL_VERSION=5 in Vercel; Nick confirms fleet is on 1.3.0** | docs/briefs/2026-09-14-premium-brand-dashboard-alerts.md | open |
 | 3 | Kiosk acceptance script: `scripts/test-kiosk-flow.ts` covering bootstrap bound/unbound/throttled, link code, unseen(), buckets, per-day aggregation in America/Chicago | docs/briefs/2026-09-16-kiosk-first-run-and-orders.md | open |
 | 4 | Ready screen "Send me a test order" wired to `/api/dashboard/test-order`; auto-advance 20 s | same | open |
 | 5 | D3b test hygiene (whatever is still open) | docs/briefs/2026-09-15-tablet-fleet-and-followups.md | open |
 | 6 | Pre-launch load test against a dev deployment — **STOP: needs Nick to create the dev deployment + a tablet login** | docs/scale-500.md | open |
 | 7 | Rotate Hexnode API key + update Vercel — **STOP: Nick does this in Hexnode Admin → API before first fleet ship** | — | open |
 
-Done today (2026-09-16): #60 I2, #61 I1, #62 alert copy, #63 D1, #64 stale-print, #65 poll-first — all merged; production build 515565f, migrations 037–039 applied. APK 1.3.0 (code 5) uploaded to Hexnode; policy Premium #1 v6 has device_ref=%serialnumber% and notifications=Allow.
+Done today (2026-09-16): #60 I2, #61 I1, #62 alert copy, #63 D1, #64 stale-print — open, awaiting auto-merge (item 0). APK 1.3.0 (code 5) uploaded to Hexnode; policy Premium #1 v6 has device_ref=%serialnumber% and notifications=Allow.

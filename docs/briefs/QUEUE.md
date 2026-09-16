@@ -12,7 +12,7 @@ Claude Code: when Nick says **"Work the queue"**, take the top `open` item, set 
 | 3 | Kiosk acceptance script: `scripts/test-kiosk-flow.ts` covering bootstrap bound/unbound/throttled, link code, unseen(), buckets, per-day aggregation in America/Chicago | docs/briefs/2026-09-16-kiosk-first-run-and-orders.md | PR #67 |
 | 4 | Ready screen "Send me a test order" wired to `/api/dashboard/test-order`; auto-advance 20 s | same | done — shipped in #61 (I1): `ReadyScreen.tsx` posts to `/api/dashboard/test-order`, `READY_AUTO_ADVANCE_MS = 20_000`; pinned by `scripts/test-first-run.ts` and `test-kiosk-flow.ts` |
 | 5 | D3b test hygiene (whatever is still open) | docs/briefs/2026-09-15-tablet-fleet-and-followups.md | done — nothing open: prs-crm #50 (Node 24 in engines + CI), #56 (two timeouts + the stranding teardown), #72 (integration suite in CI on postgres:17, TEST_DB_ALLOWLIST), #117 (CI builds the app); latest merged PR #160 green |
-| 6 | Pre-launch load test against a dev deployment — **STOP: needs Nick to create the dev deployment + a tablet login** | docs/scale-500.md | open |
-| 7 | Rotate Hexnode API key + update Vercel — **STOP: Nick does this in Hexnode Admin → API before first fleet ship** | — | done 2026-09-16 — #62, #63, #64 merged (and #65, #66). Repo auto-merge is now ON |
+| 6 | Pre-launch load test against a dev deployment — **STOP: needs Nick to create the dev deployment + a tablet login** | docs/scale-500.md | open — STOP (Nick) |
+| 7 | Rotate Hexnode API key + update Vercel — **STOP: Nick does this in Hexnode Admin → API before first fleet ship** | — | open — STOP (Nick) |
 
 Done today (2026-09-16): #60 I2, #61 I1, #62 alert copy, #63 D1, #64 stale-print, #65 poll-first, #66 queue file — all merged; production build 515565f, migrations 037–039 applied. This file replaces docs/work-queue.md. APK 1.3.0 (code 5) uploaded to Hexnode; policy Premium #1 v6 has device_ref=%serialnumber% and notifications=Allow.

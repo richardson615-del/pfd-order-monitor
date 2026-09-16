@@ -149,9 +149,15 @@ export function withJitter(ms: number, rand: () => number = Math.random, spread 
   return Math.round(ms * (1 - spread + 2 * spread * r));
 }
 
-/** The poll, jittered. Same cadence on average; never the same second on two tablets. */
-export const pollDelayMs = (c: Connection, rand: () => number = Math.random): number =>
-  withJitter(pollIntervalMs(c), rand);
+/**
+ * The poll, jittered. Same cadence on average; never the same second on
+ * two tablets. `liveMs` overrides the healthy cadence: the poll-only feed
+ * (lib/order-sync.ts, Realtime off) runs every thirty seconds instead of
+ * sixty. The down cadence is the same either way - fifteen seconds, because
+ * then this poll is the only way an order can arrive.
+ */
+export const pollDelayMs = (c: Connection, rand: () => number = Math.random, liveMs: number = POLL_LIVE_MS): number =>
+  withJitter(c === "live" ? liveMs : POLL_DOWN_MS, rand);
 
 export const RECONNECT_BASE_MS = 1_000;
 export const RECONNECT_MAX_MS = 60_000;

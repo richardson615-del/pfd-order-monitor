@@ -24,6 +24,15 @@ import {
 } from "@/lib/app-update";
 import { armAudio, isAudioArmed, playAlertBeep } from "@/lib/sound";
 import {
+  POLL_ONLY_MS,
+  SW_ORDER_MESSAGE,
+  advanceCursor,
+  mergeOrders,
+  pollConnection,
+  realtimeOrdersEnabled,
+  syncPlan,
+} from "@/lib/order-sync";
+import {
   Connection,
   isStale,
   kioskWarning,
@@ -148,29 +157,86 @@ export default function OrderDashboard({
   /**
    * Reconcile against the database directly.
    *
-   * Runs on a timer whether or not the socket is healthy, because realtime is
-   * an optimisation here and not the guarantee. A websocket that has been open
-   * for three weeks on a kitchen wall and quietly died is the failure this
-   * survives - and a missed order costs far more than a query a minute.
+   * This is the feed, not a backstop: Realtime is opt-in since 2026-09-16
+   * (lib/order-sync.ts says why) and off by default, so the list is kept
+   * current by this poll plus the service worker's nudge when a push
+   * lands. Incremental - "changed since the last row I saw", by
+   * orders.updated_at - with a full pull on load, on return to the
+   * foreground, after a failure, and once an hour regardless. A websocket
+   * that has been open for three weeks on a kitchen wall and quietly died
+   * was the failure the poll always existed to survive; now it is simply
+   * how orders arrive.
    */
-  const sync = useCallback(async () => {
-    const supabase = supabaseBrowser();
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("restaurant_id", restaurantId)
-      .order("received_at", { ascending: false })
-      .limit(200);
-    if (error || !data) return;
-    setOrders(data as Order[]);
-    setLastSyncAt(Date.now());
-  }, [restaurantId]);
+  const cursorRef = useRef<string | null>(advanceCursor(null, initialOrders));
+  const lastFullAtRef = useRef<number | null>(Date.now());
+  const pollFailuresRef = useRef(0);
+  const pollEverOkRef = useRef(false);
+  const sync = useCallback(
+    async (force: "full" | null = null) => {
+      const supabase = supabaseBrowser();
+      const now = Date.now();
+      const mode = force ?? syncPlan({ cursor: cursorRef.current, lastFullAt: lastFullAtRef.current, now });
+      let query = supabase.from("orders").select("*").eq("restaurant_id", restaurantId);
+      if (mode === "incremental") query = query.gt("updated_at", cursorRef.current as string).order("updated_at", { ascending: true });
+      else query = query.order("received_at", { ascending: false });
+      const { data, error } = await query.limit(200);
+      if (error || !data) {
+        // One blip is not an outage; two in a row and the screen must stop
+        // claiming it can receive orders. The next successful poll is a
+        // full one, so nothing that changed during the gap is skipped.
+        pollFailuresRef.current += 1;
+        lastFullAtRef.current = null;
+        if (!realtimeOrdersEnabled()) setConnection(pollConnection({ everSucceeded: pollEverOkRef.current, failures: pollFailuresRef.current }));
+        return;
+      }
+      pollFailuresRef.current = 0;
+      pollEverOkRef.current = true;
+      const rows = data as Order[];
+      if (mode === "full") {
+        setOrders(rows);
+        lastFullAtRef.current = now;
+      } else if (rows.length) {
+        setOrders((prev) => mergeOrders(prev, rows));
+      }
+      cursorRef.current = advanceCursor(cursorRef.current, rows);
+      setLastSyncAt(Date.now());
+      if (!realtimeOrdersEnabled()) setConnection(pollConnection({ everSucceeded: true, failures: 0 }));
+    },
+    [restaurantId]
+  );
 
-  // --- Realtime, with its status actually observed ---------------------------
-  // .subscribe() used to be called with no callback at all, so a dropped
-  // channel was invisible: the list simply stopped updating and the screen
-  // kept saying what it said an hour ago.
+  // --- The service worker's nudge: a push landed, sync now ---------------
+  // With no channel open, this is what makes a new order appear within a
+  // second of the chime rather than at the next poll. The worker posts
+  // SW_ORDER_MESSAGE to every open page from its push handler.
   useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === SW_ORDER_MESSAGE) void sync();
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [sync]);
+
+  // Back in the foreground, the list is by definition behind: a full pull,
+  // not a cursor read, because a tablet that slept through an hour may have
+  // slept through a full-sync deadline too.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void sync("full");
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [sync]);
+
+  // --- Realtime, opt-in, with its status actually observed -----------------
+  // Off unless the build says NEXT_PUBLIC_REALTIME_ORDERS: Supabase Pro caps
+  // it at 500 connections and the fleet is heading for 500 tablets. When
+  // it is on, .subscribe() is called WITH a callback - it used to be called
+  // with none, so a dropped channel was invisible: the list simply stopped
+  // updating and the screen kept saying what it said an hour ago.
+  useEffect(() => {
+    if (!realtimeOrdersEnabled()) return;
     const supabase = supabaseBrowser();
     const channel = supabase
       .channel(`orders-${restaurantId}`)
@@ -184,18 +250,12 @@ export default function OrderDashboard({
         },
         (payload) => {
           setLastSyncAt(Date.now());
-          setOrders((prev) => {
-            if (payload.eventType === "INSERT") {
-              const newOrder = payload.new as Order;
-              if (prev.some((o) => o.id === newOrder.id)) return prev;
-              return [newOrder, ...prev];
-            }
-            if (payload.eventType === "UPDATE") {
-              const updated = payload.new as Order;
-              return prev.map((o) => (o.id === updated.id ? updated : o));
-            }
-            return prev;
-          });
+          if (payload.eventType !== "INSERT" && payload.eventType !== "UPDATE") return;
+          const row = payload.new as Order;
+          // Same merge as the poll, and the cursor moves with it, so a
+          // change that arrived on the socket is not read again next poll.
+          setOrders((prev) => mergeOrders(prev, [row]));
+          cursorRef.current = advanceCursor(cursorRef.current, [row]);
         }
       )
       .subscribe((status) => {
@@ -203,7 +263,7 @@ export default function OrderDashboard({
         setConnection(next);
         // Coming back from a drop, the list is by definition behind - whatever
         // arrived while the socket was down was never delivered to this tab.
-        if (next === "live") void sync();
+        if (next === "live") void sync("full");
       });
 
     return () => {
@@ -211,17 +271,19 @@ export default function OrderDashboard({
     };
   }, [restaurantId, sync]);
 
-  // --- Poll, always, faster when the socket is known to be down -------------
+  // --- Poll, always; faster when the feed is known to be down --------------
   // A timeout chain rather than an interval, so each wait is jittered on
-  // its own: five hundred tablets on a fixed 60 s interval all poll in the
-  // same second forever (see pollDelayMs).
+  // its own: five hundred tablets on a fixed interval all poll in the same
+  // second forever (see pollDelayMs). With Realtime off the poll IS the
+  // feed and runs every thirty seconds (POLL_ONLY_MS); with it on, the
+  // sixty-second backstop of old.
   useEffect(() => {
     let id: ReturnType<typeof setTimeout>;
     const tick = () => {
       id = setTimeout(() => {
         void sync();
         tick();
-      }, pollDelayMs(connection));
+      }, pollDelayMs(connection, Math.random, realtimeOrdersEnabled() ? undefined : POLL_ONLY_MS));
     };
     tick();
     return () => clearTimeout(id);

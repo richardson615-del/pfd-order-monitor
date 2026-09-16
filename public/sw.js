@@ -146,7 +146,20 @@ self.addEventListener("push", (event) => {
     requireInteraction: true,
   };
 
-  event.waitUntil(self.registration.showNotification(data.title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(data.title, options),
+      // Tell every open page, so the list updates now rather than at the
+      // next poll. Realtime is opt-in since 2026-09-16 (lib/order-sync.ts);
+      // this is what keeps a new order's latency at the push's, not the
+      // poll's. Best-effort: a page that is not open hears nothing, and
+      // the poll still covers it.
+      self.clients
+        .matchAll({ type: "window", includeUncontrolled: true })
+        .then((pages) => pages.forEach((p) => p.postMessage({ type: "premium:order", orderId: data.orderId })))
+        .catch(() => {}),
+    ])
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

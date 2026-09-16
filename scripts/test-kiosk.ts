@@ -235,11 +235,13 @@ test("the realtime subscription observes its own status", () =>
 
 test("polling does not depend on the socket being down", () =>
   // A jittered timeout chain since E3, still unconditional on the socket:
-  // the delay is a function of connection state, never gated on it.
-  assert.match(dash, /\}, pollDelayMs\(connection\)\);/));
+  // the delay is a function of connection state, never gated on it. Since
+  // poll-first (2026-09-16) the cadence also depends on whether Realtime
+  // is on at all - scripts/test-order-sync.ts.
+  assert.match(dash, /\}, pollDelayMs\(connection, Math\.random, realtimeOrdersEnabled\(\) \? undefined : POLL_ONLY_MS\)\);/));
 
 test("reconnecting resyncs, because the tab missed whatever arrived", () =>
-  assert.match(dash, /if \(next === "live"\) void sync\(\)/));
+  assert.match(dash, /if \(next === "live"\) void sync\("full"\)/));
 
 test("the chime never fires while sound is known to be off", () =>
   assert.match(
@@ -381,7 +383,7 @@ test("a new build is taken somewhere in a ten-minute window, not on the next bea
 });
 
 test("the client uses the jittered rules, and reconnects through them", () => {
-  assert.match(dash, /setTimeout\(\(\) => \{[\s\S]*?void sync\(\);[\s\S]*?\}, pollDelayMs\(connection\)\)/, "poll is a jittered timeout chain");
+  assert.match(dash, /setTimeout\(\(\) => \{[\s\S]*?void sync\(\);[\s\S]*?\}, pollDelayMs\(connection, Math\.random, /, "poll is a jittered timeout chain");
   assert.doesNotMatch(dash, /setInterval\(\(\) => void sync\(\)/, "no fixed-interval poll");
   assert.match(dash, /reloadNotBeforeRef\.current = Date\.now\(\) \+ reloadHoldMs\(\)/);
   assert.match(dash, /Date\.now\(\) < reloadNotBeforeRef\.current\) return;/);

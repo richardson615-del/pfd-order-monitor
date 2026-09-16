@@ -59,4 +59,10 @@ export interface Order {
   printed_at: string | null;
   /** Set when the order was cancelled upstream. The food must not be made. */
   cancelled_at: string | null;
+  /**
+   * Moves on every write (migration 039 trigger). The tablet's poll asks
+   * for rows past the newest one it has seen. Optional: a row read before
+   * the migration ran, or a fixture, may not carry it.
+   */
+  updated_at?: string | null;
 }

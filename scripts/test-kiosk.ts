@@ -19,7 +19,7 @@ import {
   liveState,
   pollIntervalMs,
   realtimeConnection,
-  unseen,
+  unaccepted,
   HEARTBEAT_MIN_INTERVAL_MS,
   RELOAD_SPREAD_MS,
   pollDelayMs,
@@ -122,7 +122,7 @@ test("connecting is a warning, not a page-stopping alarm", () => {
 console.log("\nwhat the chime sounds for:");
 
 /**
- * A fixed clock, passed to EVERY unseen() call.
+ * A fixed clock, passed to EVERY unaccepted() call.
  *
  * Three assertions here were left on the default Date.now() when the
  * six-hour chime window landed. They passed when written and failed hours
@@ -142,45 +142,45 @@ const order = (over: Record<string, any> = {}) => ({
   ...over,
 });
 
-test("an order nobody has opened keeps the alert going", () =>
-  assert.equal(unseen([order()], NOW).length, 1));
+test("an order nobody has accepted keeps the alert going", () =>
+  assert.equal(unaccepted([order()], NOW).length, 1));
 
-test("opening the ticket silences it - opening is the acknowledgement", () => {
-  // There is no Accept step (Nick, 2026-09-16). The order page stamps
-  // opened_at on first view, and that is what stops the chime.
-  assert.equal(unseen([order({ status: "opened", opened_at: minutesAgo(1) })], NOW).length, 0);
+test("opening the ticket does NOT silence it - Accept does (I3, Nick 2026-09-17)", () => {
+  // I2 made opening the acknowledgement; on a live tablet that gave the
+  // kitchen no way to say "we've got it". Accept is a tap of its own.
+  assert.equal(unaccepted([order({ status: "opened", opened_at: minutesAgo(1) })], NOW).length, 1);
+  assert.equal(unaccepted([order({ status: "opened", opened_at: minutesAgo(1), accepted_at: minutesAgo(1) })], NOW).length, 0);
 });
 
-test("status 'opened' alone is not enough - the stamp is", () => {
-  // The status word and the timestamp used to be able to disagree (a
-  // 'printed' order that was opened kept its status). The chime reads the
-  // stamp, which is written whatever the status.
-  assert.equal(unseen([order({ status: "opened" })], NOW).length, 1);
-  assert.equal(unseen([order({ status: "printed", opened_at: minutesAgo(1) })], NOW).length, 0);
+test("status alone is not enough - the accepted_at stamp is", () => {
+  // The status word and the timestamp can disagree (a 'printed' order that
+  // was accepted keeps its status). The chime reads the stamp.
+  assert.equal(unaccepted([order({ status: "opened" })], NOW).length, 1);
+  assert.equal(unaccepted([order({ status: "printed", accepted_at: minutesAgo(1) })], NOW).length, 0);
 });
 
-test("an order accepted under the old button does not start ringing again", () =>
-  assert.equal(unseen([order({ accepted_at: "2026-09-10T18:00:00Z" })], NOW).length, 0));
+test("an order accepted before the deploy does not start ringing again", () =>
+  assert.equal(unaccepted([order({ accepted_at: "2026-09-10T18:00:00Z" })], NOW).length, 0));
 
 test("the paper channel does not answer for the tablet", () => {
   // The printer and the tablet are independent ways for a restaurant to
   // receive an order. A ticket having printed says nothing about whether the
   // tablet has done its job, so it cannot silence it.
-  assert.equal(unseen([order({ status: "printed" })], NOW).length, 1);
+  assert.equal(unaccepted([order({ status: "printed" })], NOW).length, 1);
 });
 
 test("a cancelled order never chimes, opened or not", () =>
   // The point of a cancellation is that the food is NOT to be made. Sounding
   // an alert to demand acknowledgement of that would be worse than useless.
-  assert.equal(unseen([order({ status: "cancelled" })], NOW).length, 0));
+  assert.equal(unaccepted([order({ status: "cancelled" })], NOW).length, 0));
 
 test("a completed order never chimes", () =>
-  assert.equal(unseen([order({ status: "completed" })], NOW).length, 0));
+  assert.equal(unaccepted([order({ status: "completed" })], NOW).length, 0));
 
-test("it counts every unopened order, not just the first", () =>
+test("it counts every unaccepted order, not just the first", () =>
   assert.equal(
-    unseen(
-      [order({ id: "a" }), order({ id: "b", status: "printed" }), order({ id: "c", opened_at: "x" })],
+    unaccepted(
+      [order({ id: "a" }), order({ id: "b", status: "printed" }), order({ id: "c", accepted_at: "x" })],
       NOW
     ).length,
     2
@@ -194,27 +194,27 @@ test("an order older than a service does not chime", () => {
   // unopened - because until that moment there was no tablet to open one
   // on. The screen came up chiming about the entire backlog, and the only way
   // to silence it was to open each order in turn.
-  assert.equal(unseen([order({ received_at: minutesAgo(7 * 60) })], NOW).length, 0);
+  assert.equal(unaccepted([order({ received_at: minutesAgo(7 * 60) })], NOW).length, 0);
 });
 
 test("an order from earlier in the same service still chimes", () => {
   // The window has to be wider than a service, or it would silence a real
   // order during a genuinely busy night - which is the failure that actually
   // costs a restaurant money.
-  assert.equal(unseen([order({ received_at: minutesAgo(5 * 60) })], NOW).length, 1);
+  assert.equal(unaccepted([order({ received_at: minutesAgo(5 * 60) })], NOW).length, 1);
 });
 
 test("a missing timestamp chimes rather than going quiet", () => {
   // A field we cannot read must never be the reason an order goes
   // unannounced. Silence is the expensive failure here, noise is not.
-  assert.equal(unseen([order({ received_at: null })], NOW).length, 1);
-  assert.equal(unseen([order({ received_at: "not a date" })], NOW).length, 1);
+  assert.equal(unaccepted([order({ received_at: null })], NOW).length, 1);
+  assert.equal(unaccepted([order({ received_at: "not a date" })], NOW).length, 1);
 });
 
-test("age alone never overrides opening or cancellation", () => {
+test("age alone never overrides acceptance or cancellation", () => {
   // The age check narrows what chimes; it must not widen it.
-  assert.equal(unseen([order({ received_at: minutesAgo(1), status: "cancelled" })], NOW).length, 0);
-  assert.equal(unseen([order({ received_at: minutesAgo(1), opened_at: "x" })], NOW).length, 0);
+  assert.equal(unaccepted([order({ received_at: minutesAgo(1), status: "cancelled" })], NOW).length, 0);
+  assert.equal(unaccepted([order({ received_at: minutesAgo(1), accepted_at: "x" })], NOW).length, 0);
 });
 
 console.log("\nthe dashboard actually applies them:");
@@ -274,18 +274,18 @@ test("a failed heartbeat cannot disturb the thing it reports on", () => {
   assert.doesNotMatch(caught.slice(0, caught.indexOf("});") + 3), /set[A-Z]\w+\(|reload|throw/);
 });
 
-test("the chime is keyed on opening, not on status", () => {
-  assert.match(dash, /unseen\(orders\)/);
+test("the chime is keyed on Accept, not on status and not on opening", () => {
+  assert.match(dash, /unaccepted\(orders\)/);
   assert.doesNotMatch(
     dash,
     /o\.status === "new"/,
     "the status word can disagree with the stamp; the stamp is what is read"
   );
-  // And the order page writes the stamp - both stamps - on first view,
-  // never twice, and never on a settled order.
+  // The order page stamps opened_at on first view - the office's record -
+  // and never accepted_at: that is the tap's to write (I3).
   const page = src("app/order/[id]/page.tsx");
-  assert.match(page, /if \(!order\.opened_at\) update\.opened_at = now;/);
-  assert.match(page, /if \(!order\.accepted_at\) update\.accepted_at = now;/);
+  assert.match(page, /const update: Record<string, unknown> = \{ opened_at: now \};/);
+  assert.doesNotMatch(page, /update\.accepted_at|accepted_at: now/, "the page never writes accepted_at");
   assert.match(page, /!SETTLED\.has\(order\.status\)/);
 });
 

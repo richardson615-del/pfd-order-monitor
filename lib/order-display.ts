@@ -59,13 +59,13 @@ export function isSettled(order: Pick<Order, "status">): boolean {
 }
 
 /**
- * Nobody here has looked at it yet. This is the NEW pill, and it is what
- * the chime sounds for (see unseen() in lib/kiosk.ts). accepted_at counts
- * as well as opened_at so that an order accepted under the old button does
- * not come back as NEW after the deploy.
+ * Nobody here has ACCEPTED it yet. This is the NEW pill, and it is what
+ * the chime sounds for (see unaccepted() in lib/kiosk.ts). Opening the
+ * ticket does not clear it (I3, Nick 2026-09-17): a look is not "we've
+ * got it". Kept under its old name so nothing that reads it has to move.
  */
 export function isUnopened(order: Pick<Order, "status" | "opened_at" | "accepted_at">): boolean {
-  return !isSettled(order) && !order.opened_at && !order.accepted_at;
+  return !isSettled(order) && !order.accepted_at;
 }
 
 /** Which of the tablet's lists an order belongs to, today. */
@@ -188,9 +188,9 @@ export interface OrderFlag {
 /**
  * What the pill on a row says - or null when there is nothing to say.
  *
- * NEW until somebody opens the ticket; nothing at all while it is being
- * cooked (the timer says everything); Completed or Cancelled once settled.
- * There is no "Accepted" any more, and no "Printed": paper is a fact about
+ * NEW until somebody taps Accept; nothing at all from this function while
+ * it is being cooked (the card shows the countdown instead, lib/countdown.ts);
+ * Completed or Cancelled once settled. No "Printed": paper is a fact about
  * the paper channel, which the tablet does not report on.
  */
 export function orderFlag(order: Pick<Order, "status" | "opened_at" | "accepted_at">): OrderFlag | null {

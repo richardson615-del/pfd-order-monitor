@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
 import OrderDashboard from "@/components/OrderDashboard";
+import { prepMinutesOf } from "@/lib/countdown";
 import { displayMode } from "@/lib/order-display";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export default async function DashboardPage() {
   // rather than the quiet one - see displayMode().
   const { data: restaurant } = await supabase
     .from("restaurants")
-    .select("name, display_mode, timezone")
+    .select("name, display_mode, timezone, prep_minutes")
     .eq("id", restaurantId)
     .maybeSingle();
 
@@ -50,6 +51,7 @@ export default async function DashboardPage() {
       mode={displayMode(restaurant?.display_mode)}
       restaurantName={restaurant?.name ?? "this restaurant"}
       timezone={restaurant?.timezone ?? null}
+      prepMinutes={prepMinutesOf(restaurant?.prep_minutes)}
     />
   );
 }

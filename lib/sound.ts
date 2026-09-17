@@ -64,6 +64,31 @@ export async function armAudio(): Promise<boolean> {
  * only a gesture can - and pretending otherwise is exactly what hid the
  * problem before.
  */
+/**
+ * One short single tone: the countdown just hit zero (I3). Once per order,
+ * never repeating - the repeating chime is for an order nobody has
+ * accepted, and this must not be mistaken for it.
+ */
+export function playShortChime() {
+  const c = audioContext();
+  if (!c || c.state !== "running") return;
+  try {
+    const now = c.currentTime;
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 660;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.3, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(gain).connect(c.destination);
+    osc.start(now);
+    osc.stop(now + 0.32);
+  } catch {
+    // Web Audio not available - fail silently, same as the chime.
+  }
+}
+
 export function playAlertBeep() {
   const c = audioContext();
   if (!c || c.state !== "running") return;

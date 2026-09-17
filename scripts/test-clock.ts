@@ -89,7 +89,7 @@ test("what is writable is also returned - the console merges the response over i
 });
 
 test("the dashboard reads it from the row and hands it to the clock", () => {
-  assert.match(src("app/dashboard/page.tsx"), /"name, display_mode, timezone"/);
+  assert.match(src("app/dashboard/page.tsx"), /"name, display_mode, timezone, prep_minutes"/);
   assert.match(src("app/dashboard/page.tsx"), /timezone=\{restaurant\?\.timezone \?\? null\}/);
   const dash = src("components/OrderDashboard.tsx");
   assert.match(dash, /clockLabel\(now, timezone\)/);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Order } from "@/lib/types";
 import TicketBody from "./TicketBody";
 import { ageClass, elapsedLabel, isSettled, orderFlag } from "@/lib/order-display";
+import { countdown, isUnaccepted, prepTimeLabel } from "@/lib/countdown";
 import { timeLabel } from "@/lib/local-day";
 import { useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 import { useTicking } from "@/lib/use-ticking";
@@ -12,21 +13,26 @@ import { useTicking } from "@/lib/use-ticking";
 /**
  * The ticket, on the tablet.
  *
- * One action: Done. There is no Accept - opening this page was the
- * acknowledgement (the server stamped opened_at and accepted_at on the way
- * in, and the chime stopped). What is left is to cook it and press the big
- * green button, which marks it completed and goes back to the kitchen list.
+ * Two actions, in order (I3, Nick 2026-09-17): ACCEPT - "we've got it" -
+ * which stops the chime and starts the countdown from the restaurant's
+ * prep target; then COMPLETE, any time after, which marks it completed
+ * and goes back to the kitchen list. Opening this page stamps opened_at
+ * for the office's records and changes nothing the kitchen hears.
  *
  * Print again sends it to the restaurant's own printer, and only there.
  * A completed or cancelled ticket is read-only: Print again still works,
- * Done is gone, and the footer says when it was done instead.
+ * Complete is gone, and the footer says when it was done and how long the
+ * kitchen took.
  */
 export default function OrderViewer({
   order: initialOrder,
   timezone,
+  prepMinutes,
 }: {
   order: Order;
   timezone: string | null;
+  /** The restaurant's prep target, minutes - what Accept counts down from. */
+  prepMinutes: number;
 }) {
   const [order, setOrder] = useState(initialOrder);
   const [busy, setBusy] = useState(false);
@@ -43,9 +49,35 @@ export default function OrderViewer({
   useFreshBuildOnReturn(idle);
 
   /**
-   * Done. Marks it completed, then goes back to the list - a full
+   * Accept. One PATCH; the row the server hands back replaces ours so the
+   * countdown runs from the server's accepted_at. Stays on the ticket -
+   * the cook is reading it.
+   */
+  async function accept() {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepted: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPrintNote(data.error ?? "Could not accept that. Try again.");
+        return;
+      }
+      if (data.order) setOrder(data.order);
+    } catch {
+      setPrintNote("Could not reach the server. The order is still waiting.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Complete. Marks it completed, then goes back to the list - a full
    * navigation, so the list is re-read from the server rather than trusting
-   * that the realtime event beat us there.
+   * that the next poll beat us there.
    */
   async function markDone() {
     setBusy(true);
@@ -57,7 +89,7 @@ export default function OrderViewer({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setPrintNote(data.error ?? "Could not mark that done. Try again.");
+        setPrintNote(data.error ?? "Could not mark that complete. Try again.");
         return;
       }
       if (data.order) setOrder(data.order);
@@ -115,11 +147,15 @@ export default function OrderViewer({
 
   const flag = orderFlag(order);
   const settled = isSettled(order);
-  const age = ageClass(order, now);
+  const cd = countdown(order, prepMinutes, now);
+  const waiting = isUnaccepted(order);
+  // Accepted: the page's colour follows the countdown, not the age.
+  const age = cd ? (cd.phase === "calm" ? "age-calm" : cd.phase === "amber" ? "age-warn" : "age-late") : ageClass(order, now);
   const kind = order.order_type === "delivery" ? "Delivery" : "Pickup";
+  const prepTaken = prepTimeLabel(order.accepted_at, order.completed_at);
 
   return (
-    <div className={`app ticket-page ${age}`} data-display="kitchen">
+    <div className={`app ticket-page ${age}${cd ? ` counting ${cd.phase}` : ""}`} data-display="kitchen">
       <div className="ticket-top no-print">
         <Link href="/dashboard" className="btn ticket-back">
           &larr; Orders
@@ -130,14 +166,23 @@ export default function OrderViewer({
         {/* The word a person can act on, not the database's own. This used
             to render order.status raw, so a ticket said "printed" - a fact
             about the paper channel, which is independent of this screen. */}
-        {flag && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>}
+        {flag && !cd && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>}
       </div>
 
       <div className="ticket-head">
         <span className="ticket-no num">#{order.order_number}</span>
-        {/* The big timer: how long the customer has been waiting, counting
-            up, in the colour the card had. Green and still once settled. */}
-        <span className={`ticket-timer num ${age}`}>{elapsedLabel(order, now)}</span>
+        {/* The big number. Accepted: the countdown - the promise, large,
+            amber under five minutes, red and counting up past zero. Not yet
+            accepted, or settled: the timer - how long the customer has been
+            waiting, counting up, in the colour the card had. */}
+        {cd ? (
+          <span className={`ticket-timer ticket-countdown num ${cd.phase}`} aria-live="off">
+            {cd.label}
+            <small className="ticket-countdown-age num">waiting {elapsedLabel(order, now)}</small>
+          </span>
+        ) : (
+          <span className={`ticket-timer num ${age}`}>{elapsedLabel(order, now)}</span>
+        )}
       </div>
 
       <div className="ticket-who">
@@ -190,18 +235,23 @@ export default function OrderViewer({
         <button className="btn ticket-print" disabled={busy || printing} onClick={sendToPrinter}>
           {printing ? "Sending…" : "Print again"}
         </button>
-        {/* Done is the loud one: green, tall, and it fills the rest of the
-            row, because on a screen read from across a kitchen the one
-            action there is should not be the same size as "Print again". */}
+        {/* The loud one - Accept first, then Complete - green, tall, and it
+            fills the rest of the row, because on a screen read from across
+            a kitchen the one action there is should not be the same size
+            as "Print again". */}
         {settled ? (
           <span className={`ticket-settled ${order.status}`}>
             {order.status === "cancelled"
               ? `Cancelled ${timeLabel(order.cancelled_at ?? order.received_at, timezone)}`
-              : `Done ${timeLabel(order.completed_at ?? order.received_at, timezone)}`}
+              : `Completed ${timeLabel(order.completed_at ?? order.received_at, timezone)}${prepTaken ? ` (${prepTaken})` : ""}`}
           </span>
+        ) : waiting ? (
+          <button className="btn ticket-done ticket-accept" disabled={busy} onClick={accept}>
+            {busy ? "Accepting…" : "Accept"}
+          </button>
         ) : (
           <button className="btn ticket-done" disabled={busy} onClick={markDone}>
-            {busy ? "Marking done…" : "Done"}
+            {busy ? "Completing…" : "Complete"}
           </button>
         )}
       </div>

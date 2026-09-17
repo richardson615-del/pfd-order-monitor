@@ -7,6 +7,7 @@ import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-imag
 import { ENABLED_TEMPLATES } from "@/lib/footer-engine";
 import { orderDestinations } from "@/lib/canonical";
 import { isValidTimeZone } from "@/lib/clock";
+import { MAX_PREP_MINUTES, MIN_PREP_MINUTES, isValidPrepMinutes } from "@/lib/countdown";
 import { RESTAURANT_SELECT, loadRosterContext, shapeRestaurantRow } from "@/lib/crm-roster";
 import { minShellVersion } from "@/lib/app-update";
 
@@ -138,6 +139,20 @@ export async function POST(
       );
     }
     updates.display_mode = v;
+  }
+
+  // How long the tablet counts down from Accept (I3, migration 040). An
+  // integer number of minutes, 1..180; there is no "unset" - the column
+  // has a default and the tablet never invents one.
+  if ("prep_minutes" in body) {
+    const v = body.prep_minutes;
+    if (!isValidPrepMinutes(v)) {
+      return NextResponse.json(
+        { error: `prep_minutes must be a whole number of minutes from ${MIN_PREP_MINUTES} to ${MAX_PREP_MINUTES}`, code: "invalid_prep_minutes" },
+        { status: 400 }
+      );
+    }
+    updates.prep_minutes = v;
   }
 
   // Which clock their tablet shows. An IANA name Intl can render, or null to

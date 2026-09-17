@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { restaurantRefFilter } from "@/lib/restaurant-ref";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { composeBrandedTicketEmail, sendTicketEmail, SENDER_ADDRESS } from "@/lib/email-out";
 import { SAMPLE_ORDER } from "@/lib/ticket-preview";
@@ -37,7 +38,8 @@ export async function POST(
   const { data: r } = await admin
     .from("restaurants")
     .select("id, name, print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_logo_b64, ticket_design_style")
-    .eq("id", params.id)
+    .or(restaurantRefFilter(params.id) ?? "id.eq.00000000-0000-0000-0000-000000000000")
+    .limit(1)
     .maybeSingle();
   if (!r) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
 

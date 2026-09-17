@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { supabaseAdmin } from "./supabase-server";
+import { restaurantRefFilter } from "./restaurant-ref";
 import { generatePassword, isValidUsername, normaliseUsername, usernameToEmail } from "./usernames";
 import { orderDestinations } from "./canonical";
 
@@ -171,7 +172,9 @@ export async function provisionRestaurant(restaurantId: string, actor: string | 
   const { data: r } = await admin
     .from("restaurants")
     .select("id, name, is_active, app_expected, display_mode, timezone, crm_restaurant_id, print_method")
-    .eq("id", restaurantId)
+    // Either id - the CRM's account id or ours (lib/restaurant-ref.ts).
+    .or(restaurantRefFilter(restaurantId) ?? "id.eq.00000000-0000-0000-0000-000000000000")
+    .limit(1)
     .maybeSingle();
   if (!r) return null;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { findRestaurantByRef } from "@/lib/restaurant-ref";
 import { mintTabletSession } from "@/lib/tablet-session";
 import { isLinkCode, linkCodeState } from "@/lib/link-code";
 
@@ -63,11 +64,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: restaurant } = await admin
-    .from("restaurants")
-    .select("id, name")
-    .eq("id", restaurantId)
-    .maybeSingle();
+  // Either id: the CRM's account id or this database's uuid (lib/restaurant-ref.ts).
+  const restaurant = await findRestaurantByRef<{ id: string; name: string }>(restaurantId, "id, name");
   if (!restaurant) return NextResponse.json({ code: "restaurant_not_found", error: "restaurant not found" }, { status: 404 });
 
   try {

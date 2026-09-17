@@ -470,6 +470,11 @@ POST /api/crm/tablets/bind
 { "bindings": [ { "device_ref": …, "restaurant_id": … }, … ], "actor": "…" }
 ```
 
+`restaurant_id` may be the CRM's account id or the bridge's own uuid — the
+bridge resolves either (Standing rules). Until 2026-09-17 only the bridge's
+uuid was accepted, so every push from the CRM's inventory (which holds
+`accounts.id`) came back in `unknown_restaurants` and no tablet could bind.
+
 **The CRM owns tablet assignment and pushes it here.** A tablet boots with a
 device reference on its start URL — the serial Hexnode set through managed
 app configuration, or `aid:<ANDROID_ID>` when there is none — and asks the
@@ -571,6 +576,17 @@ no-printer checks.
 
 ## Standing rules
 
+- **Two ids, and `restaurant_id` in CRM calls is the CRM account id; the
+  bridge resolves it** (2026-09-17). Every restaurant here has its own
+  uuid (`restaurants.id`, what the roster returns as `id`) and the CRM's
+  account id beside it (`restaurants.crm_restaurant_id`, what the roster
+  returns as `crm_restaurant_id`). They are different values — the bridge
+  creates its row with a fresh uuid. Every `/api/crm/restaurants/:id/*`
+  path segment, `POST /api/crm/tablets/bind`'s `restaurant_id` and
+  `POST /api/crm/tablets/link`'s `restaurant_id` accept **either**; the
+  bridge looks both columns up (`lib/restaurant-ref.ts`) and works with
+  its own id from there, so the CRM may send `accounts.id` straight from
+  its tablets inventory. Responses always carry the bridge's `id`.
 - **QR points at the restaurant's own website.** The Zuppler ordering page is
   fallback-only, for restaurants with no site of their own.
 - Email delivery is an interim bridge. These sites still move to Epson

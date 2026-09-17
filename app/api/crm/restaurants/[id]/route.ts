@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { restaurantRefFilter } from "@/lib/restaurant-ref";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
 import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-image";
@@ -27,7 +28,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const { data: row, error } = await supabaseAdmin()
     .from("restaurants")
     .select(RESTAURANT_SELECT)
-    .eq("id", params.id)
+    // Either id - the CRM's account id or ours (lib/restaurant-ref.ts).
+    .or(restaurantRefFilter(params.id) ?? "id.eq.00000000-0000-0000-0000-000000000000")
+    .limit(1)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
@@ -62,7 +65,8 @@ export async function POST(
   const { data: restaurant } = await admin
     .from("restaurants")
     .select("id, name, print_method, ticket_email_to, app_expected")
-    .eq("id", params.id)
+    .or(restaurantRefFilter(params.id) ?? "id.eq.00000000-0000-0000-0000-000000000000")
+    .limit(1)
     .maybeSingle();
   if (!restaurant) {
     return NextResponse.json({ error: "restaurant not found" }, { status: 404 });

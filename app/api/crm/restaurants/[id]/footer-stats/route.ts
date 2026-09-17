@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { findRestaurantByRef } from "@/lib/restaurant-ref";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +23,13 @@ export async function GET(
   const since = new Date(Date.now() - weeks * 7 * 86_400_000);
 
   const admin = supabaseAdmin();
+  // Either id (lib/restaurant-ref.ts); footer_events is keyed on ours.
+  const restaurant = await findRestaurantByRef<{ id: string }>(params.id, "id");
+  if (!restaurant) return NextResponse.json({ error: "restaurant not found" }, { status: 404 });
   const { data, error } = await admin
     .from("footer_events")
     .select("template_id, kind, created_at")
-    .eq("restaurant_id", params.id)
+    .eq("restaurant_id", restaurant.id)
     .gte("created_at", since.toISOString());
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

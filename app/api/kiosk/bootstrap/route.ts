@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { findRestaurantByRef } from "@/lib/restaurant-ref";
 import { mintTabletSession } from "@/lib/tablet-session";
 import {
   BOOTSTRAP_POLL_MS,
@@ -82,11 +83,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: decision, poll_every_ms: BOOTSTRAP_POLL_MS }, { headers: noStore });
   }
 
-  const { data: restaurant } = await admin
-    .from("restaurants")
-    .select("id, name")
-    .eq("id", row!.restaurant_id!)
-    .maybeSingle();
+  const restaurant = await findRestaurantByRef<{ id: string; name: string }>(row!.restaurant_id!, "id, name");
   if (!restaurant) {
     // Bound to a restaurant that no longer exists. Unbound is the honest
     // answer; the office will see it on the list and re-assign.

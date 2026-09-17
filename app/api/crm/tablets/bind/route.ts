@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { resolveRestaurantIds } from "@/lib/restaurant-ref";
 import { parseBindings } from "@/lib/device-binding";
 
 export const dynamic = "force-dynamic";
@@ -32,23 +33,25 @@ export async function POST(req: NextRequest) {
   const actor = typeof body?.actor === "string" && body.actor.trim() ? body.actor.trim().slice(0, 200) : null;
 
   const admin = supabaseAdmin();
+  // The CRM sends ITS account id (restaurants.crm_restaurant_id), not this
+  // database's uuid - the two are different values (lib/restaurant-ref.ts).
+  // Resolve every reference to the local id before it is written, because
+  // kiosk_devices.restaurant_id is a foreign key to restaurants.id.
   const wanted = [...new Set(bindings.map((b) => b.restaurant_id).filter((x): x is string => Boolean(x)))];
-  const { data: known } = wanted.length
-    ? await admin.from("restaurants").select("id").in("id", wanted)
-    : { data: [] as { id: string }[] };
-  const knownIds = new Set((known ?? []).map((r: { id: string }) => r.id));
+  const localIdOf = await resolveRestaurantIds(wanted);
 
   const nowIso = new Date().toISOString();
   const rows = [];
   const unknown_restaurants: string[] = [];
   for (const b of bindings) {
-    if (b.restaurant_id && !knownIds.has(b.restaurant_id)) {
+    const localId = b.restaurant_id ? (localIdOf.get(b.restaurant_id) ?? null) : null;
+    if (b.restaurant_id && !localId) {
       unknown_restaurants.push(b.restaurant_id);
       continue;
     }
     rows.push({
       device_ref: b.device_ref,
-      restaurant_id: b.restaurant_id,
+      restaurant_id: localId,
       ...(b.model ? { model: b.model } : {}),
       bound_at: b.restaurant_id ? nowIso : null,
       bound_by: b.restaurant_id ? actor : null,

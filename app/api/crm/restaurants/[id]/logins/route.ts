@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { findRestaurantByRef } from "@/lib/restaurant-ref";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import {
   MIN_PASSWORD_LENGTH,
@@ -78,13 +79,9 @@ async function audit(entry: {
 const actorOf = (body: any): string | null =>
   typeof body?.actor === "string" && body.actor.trim() ? body.actor.trim().slice(0, 200) : null;
 
+/** Either id - the CRM's account id or ours (lib/restaurant-ref.ts). */
 async function findRestaurant(id: string) {
-  const { data } = await supabaseAdmin()
-    .from("restaurants")
-    .select("id, name")
-    .eq("id", id)
-    .maybeSingle();
-  return data;
+  return findRestaurantByRef<{ id: string; name: string }>(id, "id, name");
 }
 
 /**

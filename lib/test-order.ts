@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase-server";
+import { restaurantRefFilter } from "./restaurant-ref";
 import { deliverToApp } from "./canonical";
 import { queueOrderToPrinters } from "./print-queue";
 
@@ -37,7 +38,9 @@ export async function sendTestOrder(restaurantId: string): Promise<TestOrderOutc
   const { data: restaurant } = await admin
     .from("restaurants")
     .select("id, name, app_expected, print_method")
-    .eq("id", restaurantId)
+    // Either id - the CRM's account id or ours (lib/restaurant-ref.ts).
+    .or(restaurantRefFilter(restaurantId) ?? "id.eq.00000000-0000-0000-0000-000000000000")
+    .limit(1)
     .maybeSingle();
   if (!restaurant) return { status: 404, body: { error: "restaurant not found" } };
 

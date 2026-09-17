@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { restaurantRefFilter } from "@/lib/restaurant-ref";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { publicBase } from "@/lib/footer-engine";
 import { buildLoginTicket } from "@/lib/print-document";
@@ -194,7 +195,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: restaurant } = await admin
     .from("restaurants")
     .select("id, name")
-    .eq("id", params.id)
+    .or(restaurantRefFilter(params.id) ?? "id.eq.00000000-0000-0000-0000-000000000000")
+    .limit(1)
     .maybeSingle();
   if (!restaurant) return fail("restaurant_not_found", "restaurant not found", 404);
 

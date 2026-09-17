@@ -30,6 +30,12 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // The new-order clip (I4): fetched once per tablet boot and never
+        // changes at a given path - a new recording gets a new filename.
+        source: "/sounds/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
         // Service worker must be served from root with no-cache so updates are picked up
         source: "/sw.js",
         headers: [

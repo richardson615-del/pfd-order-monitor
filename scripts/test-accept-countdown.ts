@@ -179,8 +179,8 @@ test("each order chimes once when it crosses zero; what is already over on load 
   assert.ok(loaded.has("b"));
   const dash = src("components/OrderDashboard.tsx");
   assert.match(dash, /if \(overRef\.current === null\) \{[\s\S]*?newlyOver\(kitchen, prepMinutes, now, overRef\.current\);\s*return;/, "seeded on first look, not announced");
-  assert.match(dash, /if \(crossed\.length && soundArmed\) playShortChime\(\)/);
-  assert.match(src("lib/sound.ts"), /export function playShortChime\(\)/);
+  assert.match(dash, /if \(crossed\.length && soundArmed\) playOvertimeTone\(\)/);
+  assert.match(src("lib/sound.ts"), /export function playOvertimeTone\(\)/);
 });
 
 console.log("\nComplete records the real prep time:");

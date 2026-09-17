@@ -22,7 +22,7 @@ import {
   shouldReloadNow,
   updateAvailable,
 } from "@/lib/app-update";
-import { armAudio, isAudioArmed, playAlertBeep, playShortChime } from "@/lib/sound";
+import { armAudio, isAudioArmed, playNewOrderAlert, playOvertimeTone } from "@/lib/sound";
 import { heroSummary, kitchenSort, newlyOver } from "@/lib/countdown";
 import {
   POLL_ONLY_MS,
@@ -522,8 +522,8 @@ export default function OrderDashboard({
   useEffect(() => {
     if (hasNewOrders && soundArmed) {
       if (!soundIntervalRef.current) {
-        playAlertBeep();
-        soundIntervalRef.current = setInterval(playAlertBeep, 8000);
+        playNewOrderAlert();
+        soundIntervalRef.current = setInterval(playNewOrderAlert, 8000);
       }
     } else if (soundIntervalRef.current) {
       clearInterval(soundIntervalRef.current);
@@ -591,7 +591,7 @@ export default function OrderDashboard({
       return;
     }
     const crossed = newlyOver(kitchen, prepMinutes, now, overRef.current);
-    if (crossed.length && soundArmed) playShortChime();
+    if (crossed.length && soundArmed) playOvertimeTone();
   }, [kitchen, prepMinutes, now, soundArmed]);
 
   /**

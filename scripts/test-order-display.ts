@@ -25,7 +25,7 @@ import {
   itemsLine,
   orderFlag,
 } from "@/lib/order-display";
-import { STILL_ACTIONABLE_MS, unseen } from "@/lib/kiosk";
+import { STILL_ACTIONABLE_MS, unaccepted } from "@/lib/kiosk";
 import { dayLabel, isSameLocalDay, localDayKey, recentDayKeys, timeLabel } from "@/lib/local-day";
 import { HISTORY_DAY_CAP, countsForHistory, historyWindowStart, money, weekHistory } from "@/lib/history";
 
@@ -150,21 +150,23 @@ test("the dashboard's lists and counts all come from bucketOf", () => {
   assert.match(dash, /bucketOf\(o, now, timezone\) === "orders"/);
   assert.match(dash, /bucketOf\(o, now, timezone\) === "completed"/);
   assert.doesNotMatch(dash, /isWaiting|inTab\(|"Show all"|key === "accepted"/);
-  // Orders oldest first; the hero reads the top of the list.
-  assert.match(dash, /a\.received_at < b\.received_at \? -1/);
-  assert.match(dash, /const oldest = kitchen\[0\]/);
+  // Orders: unaccepted oldest-first, then accepted by least time left
+  // (lib/countdown.ts kitchenSort, I3); the hero reads the same list.
+  assert.match(dash, /kitchenSort\(orders\.filter\(\(o\) => bucketOf\(o, now, timezone\) === "orders"\), prepMinutes, now\)/);
+  assert.match(dash, /const hero = useMemo\(\(\) => heroSummary\(kitchen, prepMinutes, now, AGE_LATE_MS\)/);
   // The tabs are the three Nick named.
   for (const t of ["Orders", "Completed", "Past week"]) assert.ok(dash.includes(`\n          ${t}`) || dash.includes(`>${t}`) || dash.includes(` ${t} `), `tab ${t}`);
 });
 
 console.log("\nthe NEW pill and the chime agree:");
 
-test("NEW means nobody has opened it; opening clears it; so does an old acceptance", () => {
+test("NEW means nobody has accepted it; opening does NOT clear it (I3); Accept does", () => {
   assert.equal(isUnopened(order()), true);
   assert.equal(orderFlag(order())?.label, "New");
-  assert.equal(isUnopened(order({ opened_at: agoMs(1000) })), false);
-  assert.equal(orderFlag(order({ status: "opened", opened_at: agoMs(1000) })), null, "nothing to say while it is being cooked");
+  assert.equal(isUnopened(order({ opened_at: agoMs(1000) })), true, "a look is not 'we've got it'");
+  assert.equal(orderFlag(order({ status: "opened", opened_at: agoMs(1000) }))?.label, "New");
   assert.equal(isUnopened(order({ accepted_at: agoMs(1000) })), false);
+  assert.equal(orderFlag(order({ status: "opened", accepted_at: agoMs(1000) })), null, "nothing to say from here while it is being cooked - the countdown speaks");
 });
 
 test("the pill and the chime cannot drift", () => {
@@ -177,16 +179,18 @@ test("the pill and the chime cannot drift", () => {
     order({ status: "completed" }),
     order({ status: "cancelled" }),
   ]) {
-    assert.equal(orderFlag(o)?.tone === "new", unseen([o], NOW).length === 1, JSON.stringify(o));
+    assert.equal(orderFlag(o)?.tone === "new", unaccepted([o], NOW).length === 1, JSON.stringify(o));
   }
 });
 
-test("there is no Accepted flag, no Printed flag, and no Accept button", () => {
+test("there is no Printed flag; Accept and Complete are the two actions (I3)", () => {
   assert.equal(orderFlag(order({ status: "printed" }))?.label, "New", "paper is not a state the tablet reports");
   assert.doesNotMatch(src("lib/order-display.ts"), /label: "(Accepted|Printed|Waiting)"/);
-  assert.doesNotMatch(src("components/OrderViewer.tsx"), /accepted: true|Accept order|Mark complete/);
-  assert.match(src("components/OrderViewer.tsx"), /status: "completed"/, "Done is the one action");
-  assert.match(src("components/OrderViewer.tsx"), /window\.location\.assign\("\/dashboard"\)/, "and it returns to Orders");
+  const viewer = src("components/OrderViewer.tsx");
+  assert.match(viewer, /accepted: true/, "Accept is a tap on the ticket");
+  assert.match(viewer, /status: "completed"/, "Complete ends it");
+  assert.match(viewer, /window\.location\.assign\("\/dashboard"\)/, "and returns to Orders");
+  assert.doesNotMatch(viewer, />\s*Done\s*</, "the button is Complete now");
 });
 
 console.log("\nan order only shouts while somebody has to act on it:");
@@ -229,7 +233,7 @@ test("the chime, the list and the late flag all let go at the same six hours", (
   // an order that is not on screen, or sit red on a list the chime had
   // given up on.
   const stale = order({ received_at: agoMs(STILL_ACTIONABLE_MS) });
-  assert.equal(unseen([stale], NOW).length, 0, "the chime lets it go");
+  assert.equal(unaccepted([stale], NOW).length, 0, "the chime lets it go");
   assert.equal(bucketOf(stale, NOW, TZ), "past", "and so does the list");
   assert.equal(isLate(stale, NOW), false, "and so does the hero's red");
   assert.equal(ageClass(stale, NOW), "age-stale", "if it were ever painted, muted, not red");
@@ -287,7 +291,9 @@ test("a card shows the six things and the pill - never where the order came from
   for (const fact of ["card-no", "card-type", "card-age", "card-name", "card-total", "card-items"]) {
     assert.match(card, new RegExp(`className=[{"]\`?${fact}`), `card must still show ${fact}`);
   }
-  assert.match(card, /\{flag && <span className=\{`card-flag \$\{flag\.tone\}`\}>/);
+  // The pill: the countdown once accepted, the flag (NEW) before.
+  assert.match(card, /flag && <span className=\{`card-flag \$\{flag\.tone\}`\}>/);
+  assert.match(card, /card-flag countdown \$\{cd\.phase\}/);
   assert.doesNotMatch(src("components/OrderViewer.tsx"), /order\.source(?!\s*===\s*"test")/, "the ticket view does not name the platform either");
 });
 

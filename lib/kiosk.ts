@@ -61,27 +61,27 @@ const STILL_WAITING_EXCLUDES = new Set(["completed", "cancelled"]);
 export const STILL_ACTIONABLE_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Orders nobody at the restaurant has opened yet.
+ * Orders nobody at the restaurant has ACCEPTED yet.
  *
- * This is what the chime keys off. Opening the ticket is the
- * acknowledgement (Nick, 2026-09-16: there is no Accept step; "when the
- * ticket is opened treat that as accepted"). accepted_at counts too, so an
- * order accepted under the old button does not start ringing again after
- * the deploy.
+ * This is what the chime keys off. Accept is a tap on the card or the
+ * ticket (Nick, 2026-09-17, I3 - reversing I2's "opening the ticket is
+ * the acknowledgement": an order that only offered Done gave the kitchen
+ * no way to say "we've got it"). Opening the ticket stamps opened_at for
+ * the office's records and stops nothing.
  *
- * It asks only about the tablet: has somebody here opened this order, is
- * the order still live, and is it recent enough to still be worth acting
- * on. What any other delivery channel did is not an input.
+ * It asks only about the tablet: has somebody here accepted this order,
+ * is the order still live, and is it recent enough to still be worth
+ * acting on. What any other delivery channel did is not an input.
  *
- * Note this governs the CHIME, not the list. An old unopened order stays on
- * screen until midnight where staff can still see and open it - it just
- * stops demanding to be dealt with this second.
+ * Note this governs the CHIME, not the list. An old unaccepted order
+ * stays on screen where staff can still see and accept it - it just stops
+ * demanding to be dealt with this second.
  */
-export function unseen<
-  T extends { status: string; opened_at?: string | null; accepted_at: string | null; received_at?: string | null }
+export function unaccepted<
+  T extends { status: string; accepted_at: string | null; received_at?: string | null }
 >(orders: T[], now: number = Date.now()): T[] {
   return orders.filter((o) => {
-    if (o.opened_at || o.accepted_at || STILL_WAITING_EXCLUDES.has(o.status)) return false;
+    if (o.accepted_at || STILL_WAITING_EXCLUDES.has(o.status)) return false;
 
     // No timestamp means we cannot tell how old it is, so chime. A missing
     // field must never be the reason a real order goes unannounced - silence

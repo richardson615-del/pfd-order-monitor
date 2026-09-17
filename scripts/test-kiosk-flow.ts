@@ -35,7 +35,7 @@ import {
   type LinkCodeRow,
 } from "../lib/link-code";
 import { READY_AUTO_ADVANCE_MS, allReady, firstRunScreen, readyChecks } from "../lib/first-run";
-import { STILL_ACTIONABLE_MS, unseen } from "../lib/kiosk";
+import { STILL_ACTIONABLE_MS, unaccepted } from "../lib/kiosk";
 import { bucketOf, isLate, orderFlag } from "../lib/order-display";
 import { HISTORY_DAYS, countsForHistory, weekHistory } from "../lib/history";
 import { dayLabel, localDayKey, recentDayKeys } from "../lib/local-day";
@@ -208,14 +208,15 @@ const order = (id: string, receivedMs: number, over: Partial<O> = {}): O => ({
   ...over,
 });
 
-test("a new order chimes until somebody opens it; opened, cancelled and six-hour-old orders do not", () => {
+test("a new order chimes until somebody ACCEPTS it; opening does not stop it; accepted, cancelled and six-hour-old orders do not chime", () => {
   const now = AFTERNOON + 2 * H; // 6 PM
   const fresh = order("a1", now - 2 * M);
   const opened = order("a2", now - 4 * M, { status: "opened", opened_at: at(now - 3 * M) });
+  const accepted = order("a5", now - 4 * M, { status: "opened", opened_at: at(now - 3 * M), accepted_at: at(now - 3 * M) });
   const cancelled = order("a3", now - 5 * M, { status: "cancelled", cancelled_at: at(now - M) });
   const stale = order("a4", now - STILL_ACTIONABLE_MS, {});
-  const ids = unseen([fresh, opened, cancelled, stale], now).map((o) => o.id);
-  assert.deepEqual(ids, ["a1"]);
+  const ids = unaccepted([fresh, opened, accepted, cancelled, stale], now).map((o) => o.id);
+  assert.deepEqual(ids, ["a1", "a2"], "I3: a look is not 'we've got it'");
   assert.equal(isLate(fresh, now), false);
   assert.equal(isLate(order("a5", now - 11 * M), now), true, "ten minutes unopened is late");
   assert.equal(orderFlag(fresh)?.label !== undefined, true);

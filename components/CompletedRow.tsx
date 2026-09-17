@@ -1,23 +1,25 @@
 import Link from "next/link";
 import { Order } from "@/lib/types";
 import { timeLabel } from "@/lib/local-day";
+import { prepTimeLabel } from "@/lib/countdown";
 
 /**
  * One row in Completed, or under a day in Past week.
  *
  * Quieter than a kitchen card on purpose: nothing here is owed. A dot for
  * the state, the number, who and what kind, the total, and when it was
- * done. A cancelled order is in the list - struck through, red dot - so
- * that a ticket somebody remembers seeing does not simply vanish. An order
- * that was never marked Done (it aged out at midnight) says so; it is not
+ * done - with the real prep time when Accept was tapped (I3). A cancelled
+ * order is in the list - struck through, red dot - so that a ticket
+ * somebody remembers seeing does not simply vanish. An order that was
+ * never marked Complete (it aged out at midnight) says so; it is not
  * dressed up as completed.
  *
- * Tap opens the ticket read-only: Print again works, Done is gone.
+ * Tap opens the ticket read-only: Print again works, Complete is gone.
  */
 export type CompletedRowOrder = Pick<
   Order,
   "id" | "order_number" | "order_type" | "customer_name" | "customer_total" | "status" | "source" | "received_at" | "completed_at" | "cancelled_at"
->;
+> & { accepted_at?: string | null };
 
 export default function CompletedRow({
   order,
@@ -28,12 +30,18 @@ export default function CompletedRow({
 }) {
   const state =
     order.status === "cancelled" ? "cancelled" : order.status === "completed" ? "done" : "open";
+  // "Accepted 6:02 · Done 6:19 (17 min)" - the real prep time, when the
+  // order was accepted (I3). An order completed without Accept (the old
+  // flow, or a tap straight to Complete) just says when it was done.
+  const prep = prepTimeLabel(order.accepted_at, order.completed_at);
   const when =
     state === "done"
-      ? `Done ${timeLabel(order.completed_at ?? order.received_at, timezone)}`
+      ? order.accepted_at && prep
+        ? `Accepted ${timeLabel(order.accepted_at, timezone)} · Done ${timeLabel(order.completed_at ?? order.received_at, timezone)} (${prep})`
+        : `Done ${timeLabel(order.completed_at ?? order.received_at, timezone)}`
       : state === "cancelled"
         ? `Cancelled ${timeLabel(order.cancelled_at ?? order.received_at, timezone)}`
-        : "Not marked done";
+        : "Not marked complete";
 
   return (
     <Link href={`/order/${order.id}`} className={`done-row ${state}`}>

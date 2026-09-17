@@ -6,7 +6,7 @@ import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
 import CompletedRow from "./CompletedRow";
 import PastWeek from "./PastWeek";
-import { bucketOf, elapsedLabel, isLate, type DisplayMode } from "@/lib/order-display";
+import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
@@ -22,7 +22,8 @@ import {
   shouldReloadNow,
   updateAvailable,
 } from "@/lib/app-update";
-import { armAudio, isAudioArmed, playAlertBeep } from "@/lib/sound";
+import { armAudio, isAudioArmed, playAlertBeep, playShortChime } from "@/lib/sound";
+import { heroSummary, kitchenSort, newlyOver } from "@/lib/countdown";
 import {
   POLL_ONLY_MS,
   SW_ORDER_MESSAGE,
@@ -39,7 +40,7 @@ import {
   pollDelayMs,
   reloadHoldMs,
   realtimeConnection,
-  unseen,
+  unaccepted,
   liveState,
   HEARTBEAT_EVERY_MS,
 } from "@/lib/kiosk";
@@ -49,10 +50,10 @@ import {
  *
  * Two lists and a history (Nick, 2026-09-16). "Orders" is everything in
  * the kitchen today; "Completed" is what was finished today; "Past week"
- * is read-only. Was Waiting / Accepted / Done - three states of a step
- * that no longer exists. There is no Accept: opening a ticket is the
- * acknowledgement, Done is the one action, and an order nobody marked done
- * ages off the list six hours after it arrived.
+ * is read-only. Inside Orders (I3, Nick 2026-09-17): a new order chimes
+ * until somebody taps ACCEPT, which starts a countdown from the
+ * restaurant's prep target; COMPLETE ends it. An order nobody accepted
+ * stops chiming six hours after it arrived but stays on the list.
  */
 type TabKey = "orders" | "completed" | "past";
 
@@ -62,6 +63,7 @@ export default function OrderDashboard({
   mode,
   restaurantName,
   timezone,
+  prepMinutes,
 }: {
   initialOrders: Order[];
   restaurantId: string;
@@ -76,6 +78,8 @@ export default function OrderDashboard({
    * hour slow all day.
    */
   timezone: string | null;
+  /** The restaurant's prep target, minutes (restaurants.prep_minutes, default 25) - what Accept counts down from. */
+  prepMinutes: number;
 }) {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [tab, setTab] = useState<TabKey>("orders");
@@ -146,13 +150,43 @@ export default function OrderDashboard({
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /**
-   * What the chime is sounding for: orders nobody here has opened. Keyed
-   * on opening, not on acceptance - there is no Accept step any more - and
-   * still bounded to the six-hour window so a tablet does not ring all day
-   * about a backlog nobody is going to cook.
+   * What the chime is sounding for: orders nobody here has ACCEPTED (I3).
+   * Bounded to the six-hour window so a tablet does not ring all day about
+   * a backlog nobody is going to cook.
    */
-  const waiting = useMemo(() => unseen(orders), [orders]);
+  const waiting = useMemo(() => unaccepted(orders), [orders]);
   const hasNewOrders = waiting.length > 0;
+
+  /**
+   * Accept, from a card. One PATCH; the row the server hands back replaces
+   * ours, so the countdown starts from the server's accepted_at and two
+   * screens at one restaurant agree to the second. A second tap is a no-op
+   * on the server (accepted_at is never rewritten) and harmless here.
+   */
+  const accept = useCallback(async (order: Order) => {
+    try {
+      const res = await fetch(`/api/orders/${order.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepted: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.order) {
+        const updated = data.order as Order;
+        setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+      }
+    } catch {
+      // The card keeps ringing; the next tap or the next poll settles it.
+    }
+  }, []);
+
+  /**
+   * One short chime the moment a countdown crosses zero - once per order,
+   * not repeating (Nick, 2026-09-17). Seeded with whatever is already over
+   * when the screen loads, so a reload does not re-announce an order that
+   * went over an hour ago.
+   */
+  const overRef = useRef<Set<string> | null>(null);
 
   /**
    * Reconcile against the database directly.
@@ -204,6 +238,14 @@ export default function OrderDashboard({
     },
     [restaurantId]
   );
+
+  // One sync straight away. With Realtime off the poll is what says
+  // "connected", and a screen that read "Connecting…" for the first half
+  // minute after every load was the poll-first change's one visible cost
+  // (seen in the I3 screenshots). Incremental, so it is a tiny read.
+  useEffect(() => {
+    void sync();
+  }, [sync]);
 
   // --- The service worker's nudge: a push landed, sync now ---------------
   // With no channel open, this is what makes a new order appear within a
@@ -517,11 +559,8 @@ export default function OrderDashboard({
    * which is how an order ages off the list without a reload.
    */
   const kitchen = useMemo(
-    () =>
-      orders
-        .filter((o) => bucketOf(o, now, timezone) === "orders")
-        .sort((a, b) => (a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0)),
-    [orders, now, timezone]
+    () => kitchenSort(orders.filter((o) => bucketOf(o, now, timezone) === "orders"), prepMinutes, now),
+    [orders, now, timezone, prepMinutes]
   );
   const completed = useMemo(
     () =>
@@ -538,12 +577,22 @@ export default function OrderDashboard({
   const completedTotal = completedCounted.reduce((sum, o) => sum + (o.customer_total ?? 0), 0);
 
   /**
-   * The oldest thing in the kitchen. "3 orders" says how much; this says
-   * how bad, which is the number somebody in a kitchen acts on. Red the
-   * moment any of them is late.
+   * The hero line: how many, how many still need Accept, and the soonest
+   * countdown. Red the moment an unaccepted order is late or a countdown
+   * is over - the two things somebody in a kitchen acts on.
    */
-  const oldest = kitchen[0] ?? null;
-  const anyLate = kitchen.some((o) => isLate(o, now));
+  const hero = useMemo(() => heroSummary(kitchen, prepMinutes, now, AGE_LATE_MS), [kitchen, prepMinutes, now]);
+
+  useEffect(() => {
+    if (overRef.current === null) {
+      // First look: remember what is already over without announcing it.
+      overRef.current = new Set();
+      newlyOver(kitchen, prepMinutes, now, overRef.current);
+      return;
+    }
+    const crossed = newlyOver(kitchen, prepMinutes, now, overRef.current);
+    if (crossed.length && soundArmed) playShortChime();
+  }, [kitchen, prepMinutes, now, soundArmed]);
 
   /**
    * When this stretch of being offline began, for the strip's "reconnecting
@@ -652,13 +701,18 @@ export default function OrderDashboard({
           {/* The hero. The count IS the headline; the age beside it is how
               bad. Red the moment anything is late, so a glance from across
               the room is enough. */}
-          <div className={`app-hero ${anyLate ? "late" : kitchen.length ? "busy" : "idle"}`} role="status">
+          <div className={`app-hero ${hero.tone}`} role="status">
             {kitchen.length ? (
               <>
-                <b className="num">{kitchen.length}</b> {kitchen.length === 1 ? "order" : "orders"} in the kitchen
-                {oldest && (
+                <b className="num">{hero.count}</b> {hero.count === 1 ? "order" : "orders"}
+                {hero.unaccepted > 0 && (
                   <>
-                    {" "}· oldest <span className="num">{elapsedLabel(oldest, now)}</span>
+                    {" "}· <span className="num">{hero.unaccepted}</span> not accepted
+                  </>
+                )}
+                {hero.next && (
+                  <>
+                    {" "}· {hero.next.phase === "over" ? <span className={`num hero-count over`}>{hero.next.label}</span> : <>next up in <span className={`num hero-count ${hero.next.phase}`}>{hero.next.label}</span></>}
                   </>
                 )}
               </>
@@ -671,10 +725,10 @@ export default function OrderDashboard({
 
           <div className={`app-list${offline ? " offline" : ""}`}>
             {kitchen.length === 0 && (
-              <div className="app-empty">Nothing in the kitchen. New orders show here and ring until they&apos;re opened.</div>
+              <div className="app-empty">Nothing in the kitchen. New orders show here and ring until they&apos;re accepted.</div>
             )}
             {kitchen.map((order) => (
-              <OrderCard key={order.id} order={order} now={now} />
+              <OrderCard key={order.id} order={order} now={now} prepMinutes={prepMinutes} onAccept={accept} />
             ))}
           </div>
         </>

@@ -137,6 +137,7 @@ Writable on `POST /api/crm/restaurants/:id`:
 | `app_expected` | `true` \| `false` — is this site meant to watch orders on the tablet? |
 | `display_mode` | `kitchen` \| `standard` — which look their tablet renders |
 | `timezone` | IANA zone (`America/New_York`) the tablet clock shows, or `null` for the device's own time. 400 for a name Intl cannot render. Presentation only (migration 032) |
+| `prep_minutes` | whole minutes the tablet counts down from **Accept** (I3, 2026-09-17, migration 040). Integer 1–180; default 25; 400 `invalid_prep_minutes` otherwise. Never null |
 
 `GET /api/crm/restaurants` adds:
 
@@ -144,6 +145,7 @@ Writable on `POST /api/crm/restaurants/:id`:
 |---|---|
 | `app_expected` | as above |
 | `timezone` | as above, `null` when never set |
+| `prep_minutes` | as above; always a number (25 unless the CRM set it) |
 | `zuppler_ids` | every Zuppler listing this restaurant routes, primary first |
 | `tablet` | the tablet's state from its own heartbeat — see below |
 | `has_active_printer` | whether an active print device exists — a fact, not an intention |

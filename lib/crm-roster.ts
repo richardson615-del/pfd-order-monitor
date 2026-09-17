@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabase-server";
 import { DEFAULT_FOOTER_TEXT } from "./ticket";
 import { orderDestinations } from "./canonical";
 import { tabletStatus, type HeartbeatRow, type KioskDeviceRow, type TabletStatus } from "./tablet-status";
+import { prepMinutesOf } from "./countdown";
 
 /**
  * One restaurant row, as the CRM sees it - built in one place so the
@@ -14,7 +15,7 @@ import { tabletStatus, type HeartbeatRow, type KioskDeviceRow, type TabletStatus
 
 /** The columns every CRM-facing read selects. One string, so the three routes cannot drift. */
 export const RESTAURANT_SELECT =
-  "id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected, display_mode, timezone";
+  "id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected, display_mode, timezone, prep_minutes";
 
 /** Everything a row needs from other tables, read once for however many rows are being shaped. */
 export interface RosterContext {
@@ -125,6 +126,9 @@ export function shapeRestaurantRow(r: any, ctx: RosterContext) {
     display_mode: r.display_mode ?? "kitchen",
     // Which clock their tablet shows. Null = the device's own time.
     timezone: r.timezone ?? null,
+    // How long the tablet counts down from Accept (I3). Never null: the
+    // column defaults to 25 and the tablet reads it the same way.
+    prep_minutes: prepMinutesOf(r.prep_minutes),
     // Both mapping tables, primary first. Ingest honours both.
     zuppler_ids: zupplerIdsFor(r.zuppler_restaurant_id, ctx.idsByRestaurant.get(r.id)),
     // Whether the tablet is open, hearing alerts, on which shell, and which

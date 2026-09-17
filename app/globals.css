@@ -956,8 +956,42 @@ table.admin-table th, table.admin-table td {
   margin-right: 0.2em;
 }
 
-/* NEW until somebody opens it. The one pill on a kitchen card. */
+/* NEW until somebody accepts it (I3). The one pill on a kitchen card
+   before Accept; the countdown takes its place after. */
 .card-flag.new { background: var(--st-waiting); color: #fff; }
+
+/* --- Accept + countdown (I3, Nick 2026-09-17) --------------------------- */
+/* The card is a block with the link filling it and the Accept button laid
+   over the bottom-right, so a tap anywhere else still opens the ticket. */
+.card .card-body { display: block; color: inherit; text-decoration: none; }
+.card-accept {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  min-height: 64px;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: var(--st-done);
+  border-color: var(--st-done);
+  color: #06251a;
+  border-radius: 10px;
+  justify-content: center;
+}
+[data-display="kitchen"] .card-accept { min-height: 76px; font-size: 26px; margin-left: -34px; margin-right: -24px; margin-bottom: -20px; width: calc(100% + 58px); border-radius: 0 0 10px 10px; }
+
+/* The countdown pill: the promise, in the colour of how it is going. Calm
+   is quiet; amber under five minutes; over is red and reads "+3:12 over". */
+.card-flag.countdown { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; text-transform: none; }
+.card-flag.countdown.calm { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+.card-flag.countdown.amber { background: var(--age-warn); color: #2a1d00; }
+.card-flag.countdown.over { background: var(--age-late); color: #fff; }
+[data-display="kitchen"] .card-flag.countdown { font-size: 22px; padding: 6px 16px; }
+/* An over countdown carries age-late (OrderCard maps the phase to the
+   tone), so it breathes through the same rule as a late unaccepted order. */
+.app-hero .hero-count.amber { color: var(--age-warn); }
+.app-hero .hero-count.over { color: var(--age-late); }
 
 /* One line of what they ordered. The ticket has the rest. */
 .card-items {
@@ -1053,6 +1087,15 @@ table.admin-table th, table.admin-table td {
 .ticket-timer.age-warn { color: var(--age-warn); }
 .ticket-timer.age-late { color: var(--age-late); }
 .ticket-timer.settled { color: var(--st-done); }
+
+/* The countdown on the ticket: bigger than the timer it replaces, and the
+   time since arrival under it in small type - the promise and the truth. */
+.ticket-countdown { display: inline-flex; flex-direction: column; align-items: flex-end; font-size: 56px; font-variant-numeric: tabular-nums; }
+.ticket-countdown.calm { color: var(--text); }
+.ticket-countdown.amber { color: var(--age-warn); }
+.ticket-countdown.over { color: var(--age-late); }
+.ticket-countdown-age { font-size: 16px; font-weight: 700; color: var(--text-dim); margin-top: 6px; letter-spacing: 0.02em; }
+.ticket-accept { text-transform: uppercase; letter-spacing: 0.03em; }
 
 .ticket-who {
   display: flex;

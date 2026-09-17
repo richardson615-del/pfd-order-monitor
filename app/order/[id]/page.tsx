@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import OrderViewer from "@/components/OrderViewer";
+import { prepMinutesOf } from "@/lib/countdown";
 
 export const dynamic = "force-dynamic";
 
@@ -23,23 +24,20 @@ export default async function OrderDetailPage({
   if (!order) notFound();
 
   /**
-   * Opening the ticket is the acknowledgement.
+   * Opening the ticket is a look, not an acceptance.
    *
-   * There is no Accept step (Nick, 2026-09-16): the first time somebody
-   * opens this order, opened_at is stamped - which stops the chime - and
-   * accepted_at with it ("when the ticket is opened treat that as
-   * accepted"), so the office's "nobody has looked at this order" alarm
-   * keeps its meaning and orders accepted under the old button read the
-   * same as ones opened under this. Neither is ever rewritten: the first
-   * look is the one that means something. status 'new' still becomes
-   * 'opened', as it always did; a 'printed' order keeps its status - that
-   * word belongs to the paper channel.
+   * I3 (Nick, 2026-09-17) reverses I2 here: opened_at is stamped the first
+   * time somebody opens this order - the office's "has anyone looked"
+   * record - but accepted_at is NOT. Accept is its own tap (on the card or
+   * on this ticket) and is what stops the chime and starts the countdown.
+   * Neither timestamp is ever rewritten: the first look and the first
+   * acceptance are the ones that mean something. status 'new' still
+   * becomes 'opened', as it always did; a 'printed' order keeps its status
+   * - that word belongs to the paper channel.
    */
-  if (!SETTLED.has(order.status) && (!order.opened_at || !order.accepted_at)) {
+  if (!SETTLED.has(order.status) && !order.opened_at) {
     const now = new Date().toISOString();
-    const update: Record<string, unknown> = {};
-    if (!order.opened_at) update.opened_at = now;
-    if (!order.accepted_at) update.accepted_at = now;
+    const update: Record<string, unknown> = { opened_at: now };
     if (order.status === "new") update.status = "opened";
     const { data: updated } = await supabase
       .from("orders")
@@ -52,9 +50,15 @@ export default async function OrderDetailPage({
 
   const { data: restaurant } = await supabase
     .from("restaurants")
-    .select("timezone")
+    .select("timezone, prep_minutes")
     .eq("id", order.restaurant_id)
     .maybeSingle();
 
-  return <OrderViewer order={order} timezone={restaurant?.timezone ?? null} />;
+  return (
+    <OrderViewer
+      order={order}
+      timezone={restaurant?.timezone ?? null}
+      prepMinutes={prepMinutesOf(restaurant?.prep_minutes)}
+    />
+  );
 }

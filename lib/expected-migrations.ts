@@ -40,4 +40,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "037_heartbeat_alert_state.sql",
   "038_print_job_age_and_provenance.sql",
   "039_orders_updated_at.sql",
+  "040_restaurant_prep_minutes.sql",
 ];

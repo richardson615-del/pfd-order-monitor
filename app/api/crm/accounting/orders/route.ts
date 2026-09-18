@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
+import { findRestaurantByRef } from "@/lib/restaurant-ref";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -50,7 +51,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "from/to must be parseable dates" }, { status: 400 });
   }
 
-  const restaurantId = q.get("restaurant_id");
+  // Either id - the CRM's account id or ours (lib/restaurant-ref.ts). This
+  // used to be a plain .eq on our uuid, so a CRM account id silently
+  // returned zero rows (M1, 2026-09-18). An id neither column knows is a
+  // 404 rather than an empty statement.
+  let restaurantId: string | null = null;
+  const ref = q.get("restaurant_id");
+  if (ref) {
+    const r = await findRestaurantByRef<{ id: string }>(ref, "id");
+    if (!r) return NextResponse.json({ error: "restaurant not found", code: "restaurant_not_found" }, { status: 404 });
+    restaurantId = r.id;
+  }
   const limit = Math.min(2000, Math.max(1, Number(q.get("limit") || 1000)));
 
   const admin = supabaseAdmin();

@@ -1,16 +1,24 @@
 let ctx: AudioContext | null = null;
 
 /**
- * The new-order alert is a voice clip - "ANOTHER ONE!" (I4, Nick
- * 2026-09-17; Matt's recording, not anyone else's) - decoded once into
- * this buffer and played through the SAME armed context as everything
- * else. Prefetched inside armAudio() so the first order is not delayed by
- * a network round-trip, and a tablet that comes up after a power cut has
- * it before anyone touches the screen. Null until decoded, and null for
- * good if the fetch or decode fails - the two-tone chime plays instead.
- * Never silent where the old code would have made a sound.
+ * The new-order alert is the two-tone chime (Nick, 2026-09-18 - reverted
+ * from the "ANOTHER ONE!" voice clip of I4 after a day in live kitchens).
+ * The clip's code path and the recording stay, behind
+ * NEXT_PUBLIC_NEW_ORDER_ALERT=clip, so it can come back without a
+ * rebuild of anything but the web deploy: with the flag, the clip is
+ * decoded once into this buffer inside armAudio() (so a tablet that comes
+ * up after a power cut has it before the first order) and played through
+ * the SAME armed context; without it, nothing is fetched and the chime
+ * plays. Either way, never silent where a sound was owed.
  */
 export const NEW_ORDER_CLIP_URL = "/sounds/another-one.mp3";
+
+export type NewOrderAlertMode = "chime" | "clip";
+
+/** Which sound a new order gets. Build-time; "chime" unless the env says "clip". */
+export function newOrderAlertMode(env: Record<string, string | undefined> = process.env): NewOrderAlertMode {
+  return (env.NEXT_PUBLIC_NEW_ORDER_ALERT ?? "").trim().toLowerCase() === "clip" ? "clip" : "chime";
+}
 let clipBuffer: AudioBuffer | null = null;
 let clipLoading: Promise<void> | null = null;
 /** When the clip currently playing ends (context time); the 8 s repeat must not start a second one over it. */
@@ -37,13 +45,14 @@ export type NewOrderAlertPlan = "clip" | "chime" | "skip";
 
 /**
  * Which sound a new-order alert makes right now. Pure, so the choice is
- * testable without audio: the clip when it is decoded and not already
- * playing; the chime when there is no clip; nothing when the clip is
- * still sounding from the last repeat (an alert that overlaps itself is
- * noise, and the next repeat is eight seconds away).
+ * testable without audio: the chime unless the mode is "clip"; with it,
+ * the clip when it is decoded and not already playing, the chime when
+ * there is no clip, and nothing when the clip is still sounding from the
+ * last repeat (an alert that overlaps itself is noise, and the next
+ * repeat is eight seconds away).
  */
-export function newOrderAlertPlan(args: { hasClip: boolean; clipEndsAt: number; now: number }): NewOrderAlertPlan {
-  if (!args.hasClip) return "chime";
+export function newOrderAlertPlan(args: { mode: NewOrderAlertMode; hasClip: boolean; clipEndsAt: number; now: number }): NewOrderAlertPlan {
+  if (args.mode !== "clip" || !args.hasClip) return "chime";
   return args.now < args.clipEndsAt ? "skip" : "clip";
 }
 
@@ -101,23 +110,25 @@ export async function armAudio(): Promise<boolean> {
     // Rejected because this was not a genuine user gesture. Not fatal, and
     // not worth logging on every stray event - the caller reports the state.
   }
-  // Decode the clip now, whatever the resume did: decodeAudioData needs no
-  // gesture, and the first order must not wait on the network.
-  void preloadNewOrderClip(c);
+  // With the clip turned on, decode it now, whatever the resume did:
+  // decodeAudioData needs no gesture, and the first order must not wait on
+  // the network. With the chime (the default), nothing is fetched.
+  if (newOrderAlertMode() === "clip") void preloadNewOrderClip(c);
   return c.state === "running";
 }
 
 /**
- * The new-order alert: "ANOTHER ONE!", or the two-tone chime when the clip
- * is not available. Repeats every 8 s from the dashboard until Accept.
- * Does nothing when the context is not running - it cannot fix that
- * itself, only a gesture can.
+ * The new-order alert: the two-tone chime, or "ANOTHER ONE!" when
+ * NEXT_PUBLIC_NEW_ORDER_ALERT=clip and the clip is decoded. Repeats every
+ * 8 s from the dashboard until Accept. Does nothing when the context is
+ * not running - it cannot fix that itself, only a gesture can.
  */
 export function playNewOrderAlert() {
   const c = audioContext();
   if (!c || c.state !== "running") return;
-  if (!clipBuffer) void preloadNewOrderClip(c);
-  const plan = newOrderAlertPlan({ hasClip: Boolean(clipBuffer), clipEndsAt, now: c.currentTime });
+  const mode = newOrderAlertMode();
+  if (mode === "clip" && !clipBuffer) void preloadNewOrderClip(c);
+  const plan = newOrderAlertPlan({ mode, hasClip: Boolean(clipBuffer), clipEndsAt, now: c.currentTime });
   if (plan === "skip") return;
   if (plan === "chime") {
     playChime();

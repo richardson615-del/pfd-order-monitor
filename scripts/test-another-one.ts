@@ -1,15 +1,16 @@
 /**
- * "ANOTHER ONE!" (I4, Nick 2026-09-17).
+ * "ANOTHER ONE!" (I4, Nick 2026-09-17) - and the revert (2026-09-18).
  *
- * The new-order alert is a voice clip; everything else about the alert is
- * unchanged. What has to be true: the alert rule did not move, the clip
- * is the recording we own and small, it is decoded once on arming through
- * the same context, the chooser prefers it and falls back to the chime,
- * it never overlaps itself, and the 0:00 tone stays a plain tone.
+ * After a day in live kitchens the new-order alert went back to the
+ * two-tone chime. The clip stays behind NEXT_PUBLIC_NEW_ORDER_ALERT=clip.
+ * What has to be true: the chime is the default and the clip is never
+ * fetched without the flag; with the flag the chooser prefers the clip,
+ * falls back to the chime, and never overlaps itself; the alert rule did
+ * not move; the recording is ours and small; the 0:00 tone stays a tone.
  */
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
-import { NEW_ORDER_CLIP_URL, newOrderAlertPlan } from "../lib/sound";
+import { NEW_ORDER_CLIP_URL, newOrderAlertMode, newOrderAlertPlan } from "../lib/sound";
 import { unaccepted } from "../lib/kiosk";
 
 let passed = 0;
@@ -48,20 +49,30 @@ test("it is served immutable - fetched once per tablet boot", () => {
 
 console.log("\nthe chooser:");
 
-test("the clip when it is decoded and not still playing; the chime when there is no clip; nothing over itself", () => {
-  assert.equal(newOrderAlertPlan({ hasClip: false, clipEndsAt: 0, now: 10 }), "chime");
-  assert.equal(newOrderAlertPlan({ hasClip: true, clipEndsAt: 0, now: 10 }), "clip");
-  assert.equal(newOrderAlertPlan({ hasClip: true, clipEndsAt: 10.5, now: 10 }), "skip", "still sounding from the last repeat");
-  assert.equal(newOrderAlertPlan({ hasClip: true, clipEndsAt: 10, now: 10 }), "clip", "ended exactly now");
+test("the chime is the default: no flag, no clip - even with a buffer in hand", () => {
+  assert.equal(newOrderAlertMode({}), "chime");
+  assert.equal(newOrderAlertMode({ NEXT_PUBLIC_NEW_ORDER_ALERT: "" }), "chime");
+  assert.equal(newOrderAlertMode({ NEXT_PUBLIC_NEW_ORDER_ALERT: "voice" }), "chime", "only the one word turns it on");
+  assert.equal(newOrderAlertMode({ NEXT_PUBLIC_NEW_ORDER_ALERT: " CLIP " }), "clip");
+  assert.equal(newOrderAlertPlan({ mode: "chime", hasClip: true, clipEndsAt: 0, now: 10 }), "chime");
+  assert.equal(newOrderAlertPlan({ mode: "chime", hasClip: false, clipEndsAt: 0, now: 10 }), "chime");
+});
+
+test("with the flag: the clip when it is decoded and not still playing; the chime when there is no clip; nothing over itself", () => {
+  assert.equal(newOrderAlertPlan({ mode: "clip", hasClip: false, clipEndsAt: 0, now: 10 }), "chime");
+  assert.equal(newOrderAlertPlan({ mode: "clip", hasClip: true, clipEndsAt: 0, now: 10 }), "clip");
+  assert.equal(newOrderAlertPlan({ mode: "clip", hasClip: true, clipEndsAt: 10.5, now: 10 }), "skip", "still sounding from the last repeat");
+  assert.equal(newOrderAlertPlan({ mode: "clip", hasClip: true, clipEndsAt: 10, now: 10 }), "clip", "ended exactly now");
 });
 
 test("the code follows the plan: one decoded buffer, the same context, the chime as the fallback", () => {
   const s = src("lib/sound.ts");
   assert.match(s, /let clipBuffer: AudioBuffer \| null = null;/);
   assert.match(s, /clipBuffer = await c\.decodeAudioData\(bytes\)/);
-  assert.match(s, /void preloadNewOrderClip\(c\);\s*return c\.state === "running";/, "prefetched inside armAudio()");
+  assert.match(s, /if \(newOrderAlertMode\(\) === "clip"\) void preloadNewOrderClip\(c\);\s*return c\.state === "running";/, "prefetched inside armAudio() only with the flag");
   const play = s.slice(s.indexOf("export function playNewOrderAlert()"), s.indexOf("export function playOvertimeTone()"));
-  assert.match(play, /newOrderAlertPlan\(\{ hasClip: Boolean\(clipBuffer\), clipEndsAt, now: c\.currentTime \}\)/);
+  assert.match(play, /if \(mode === "clip" && !clipBuffer\) void preloadNewOrderClip\(c\)/, "never fetched without the flag");
+  assert.match(play, /newOrderAlertPlan\(\{ mode, hasClip: Boolean\(clipBuffer\), clipEndsAt, now: c\.currentTime \}\)/);
   assert.match(play, /if \(plan === "skip"\) return;/);
   assert.match(play, /if \(plan === "chime"\) \{\s*playChime\(\);/);
   assert.match(play, /c\.createBufferSource\(\)/);

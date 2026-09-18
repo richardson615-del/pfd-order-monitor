@@ -1,5 +1,7 @@
 # Claude Code instruction package — I4: "ANOTHER ONE!" new-order alert (`pfd-order-monitor`)
 
+> **Reverted 2026-09-18 (Nick, after a day in live kitchens):** the new-order alert is the two-tone chime again. The clip and its code path stay, behind `NEXT_PUBLIC_NEW_ORDER_ALERT=clip` (build-time; unset = chime, and the clip is not fetched). Shipped as I4 in #74/#75; reverted in the PR for queue item 0f.
+
 Author: Nick Davies. Date: 2026-09-17. Obey `README.md`; repo rules win — stop and say so. One PR `feat/another-one-alert`, auto-merge on green. Web-only: no APK.
 
 ## Nick's decision (2026-09-17)

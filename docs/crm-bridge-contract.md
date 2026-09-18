@@ -747,13 +747,18 @@ cancelled, each print attempt named by device and outcome), `print_jobs`
 or test order: `{ order_uuid, restaurant_id, admin_url }`. `order_uuid` is
 Zuppler's uuid (our `external_id`), `restaurant_id` Zuppler's numeric
 restaurant id. **`admin_url`** is the way back to the order in Zuppler's
-customer-service area, built from the bridge's `ZUPPLER_ORDER_URL_TEMPLATE`
-(placeholders `{order_uuid}` `{order_number}` `{restaurant_id}`, values
-URL-encoded); **`null` when the template is unset or a placeholder's value
-is missing** — the CRM shows the "Edit in Zuppler" button only when it is a
-string. Zuppler's own payload carries no such link (the LoadOrder GraphQL
-selection set has no URL field), so the template is set by hand from a real
-order link, never guessed.
+customer-service area:
+`https://customer-service.zuppler.com/#/lists/<list id>/order/<order uuid>`
+(FACT, Nick 2026-09-18, from a real link; the list id is one saved list
+shared by every restaurant, the order uuid is `external_id`). The bridge
+fills it from `ZUPPLER_CS_LIST_ID`; `ZUPPLER_ORDER_URL_TEMPLATE` overrides
+the whole shape if Zuppler ever moves (placeholders `{list_id}`
+`{order_uuid}` `{order_number}` `{restaurant_id}`, values URL-encoded).
+**`null` when the list id is unset or a placeholder's value is missing** —
+the CRM shows the "Edit in Zuppler" button only when it is a string.
+Zuppler's own payload carries no such link (the LoadOrder GraphQL
+selection set has no URL field); the shape came from a pasted link, never a
+guess.
 
 **Actions** exist only because both primitives already did: `reprint` is
 `queueOrderToPrinters()` — the tablet's own Print button — recorded as

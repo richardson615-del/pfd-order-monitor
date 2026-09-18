@@ -172,6 +172,8 @@ export interface RestaurantRef {
   id: string;
   crm_restaurant_id: string | null;
   name: string | null;
+  /** Zuppler's numeric restaurant id - the routing key, and a placeholder in the back-link (lib/zuppler-link.ts). */
+  zuppler_restaurant_id?: string | null;
   prep_minutes?: number | null;
   print_method?: string | null;
   app_expected?: boolean | null;

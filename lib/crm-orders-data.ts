@@ -27,7 +27,7 @@ export async function loadOrderContext(orders: { id: string; restaurant_id: stri
   const orderIds = orders.map((o) => o.id);
   const [{ data: rRows }, { data: dRows }, { data: jRows }] = await Promise.all([
     restaurantIds.length
-      ? admin.from("restaurants").select("id, crm_restaurant_id, name, prep_minutes, print_method, app_expected").in("id", restaurantIds)
+      ? admin.from("restaurants").select("id, crm_restaurant_id, name, zuppler_restaurant_id, prep_minutes, print_method, app_expected").in("id", restaurantIds)
       : Promise.resolve({ data: [] as any[] }),
     restaurantIds.length
       ? admin.from("print_devices").select("restaurant_id").eq("is_active", true).in("restaurant_id", restaurantIds)

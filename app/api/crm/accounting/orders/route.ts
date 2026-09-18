@@ -12,7 +12,20 @@ export const maxDuration = 30;
  * Per-order money rows for a date range. Every one of the nine money fields
  * Zuppler sends, plus channel, order type and payment type.
  *
- * Two deliberate properties:
+ * PAGINATION (2026-09-19): `limit` (default 1000, max 2000) caps a single
+ * response; `offset` (default 0) pages through a range larger than that.
+ * `truncated: true` means exactly "this page is full, there may be more" --
+ * the caller must request `offset + limit` next, not treat the response as
+ * complete. A week carrying partner + chain + backfill volume together
+ * crossed 1000 orders for the first time on 2026-09-18 and the CRM's own
+ * client silently trusted a truncated single request until then (it now
+ * loops on `truncated` -- see prs-crm's `fetchAccountingOrders`). Ordering
+ * is `received_at, id` -- the `id` tiebreaker is REQUIRED for correct
+ * paging: two orders sharing the same `received_at` timestamp would
+ * otherwise land on either side of a page boundary nondeterministically
+ * across requests, silently duplicating or skipping a row.
+ *
+ * Two further deliberate properties:
  *
  * 1. money_variance is returned on EVERY row, not filtered out. A row that
  *    does not balance is exactly what accounting must not silently average
@@ -63,6 +76,7 @@ export async function GET(req: NextRequest) {
     restaurantId = r.id;
   }
   const limit = Math.min(2000, Math.max(1, Number(q.get("limit") || 1000)));
+  const offset = Math.max(0, Number(q.get("offset") || 0));
 
   const admin = supabaseAdmin();
   let query = admin
@@ -72,8 +86,14 @@ export async function GET(req: NextRequest) {
     .lte("received_at", toISO)
     // Test prints are not revenue.
     .neq("source", "test")
+    // `id` is a REQUIRED secondary sort key, not cosmetic: `received_at`
+    // alone is not unique (multiple orders can share the same timestamp),
+    // and without a stable tiebreaker two orders on a page boundary could
+    // land on either side of it nondeterministically between requests --
+    // silently duplicating one row and skipping another across pages.
     .order("received_at", { ascending: true })
-    .limit(limit);
+    .order("id", { ascending: true })
+    .range(offset, offset + limit - 1);
   if (restaurantId) query = query.eq("restaurant_id", restaurantId);
 
   const { data, error } = await query;
@@ -130,7 +150,12 @@ export async function GET(req: NextRequest) {
     from: fromISO,
     to: toISO,
     count: rows.length,
+    // Page-full signal, not "here's everything" -- see this route's own
+    // pagination comment above. offset/limit echoed back so a paging
+    // client never has to reconstruct what it asked for.
     truncated: rows.length === limit,
+    offset,
+    limit,
     // Named so nobody can mistake what the totals cover.
     billable_count: billable.length,
     cancelled_count: cancelled.length,

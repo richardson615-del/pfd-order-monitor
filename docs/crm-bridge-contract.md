@@ -509,7 +509,7 @@ the tablet said about itself, never identity. Assigning one = bind.
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
 | POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app", actor }` | `{ ok, action, … }`; 409 `order_settled` / `app_not_expected`; 400 `invalid_action` |
-| GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit]` | money rows for statements — see below |
+| GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown, the
 customer's full phone is in the detail (staff need to call), and nothing is
@@ -781,6 +781,20 @@ received/printed/cancelled — use `/api/crm/orders` for those. Since
 2026-09-18 its `restaurant_id` goes through the same either-id resolver (it
 used to match the bridge uuid only, so a CRM account id silently returned
 zero rows).
+
+`limit` (default 1000, max 2000) caps a single response; `offset`
+(default 0, added 2026-09-19) pages through a range larger than that.
+`truncated: true` means exactly "this page is full, there may be more" —
+the caller must request `offset + limit` next, not treat one response as
+complete. `offset`/`limit` are echoed back on every response. Ordering is
+`received_at, id` — the `id` tiebreaker is required for correct paging,
+since `received_at` alone is not unique and two orders sharing a
+timestamp would otherwise land on either side of a page boundary
+nondeterministically between requests. A week carrying partner + chain +
+backfill volume together crossed 1000 orders for the first time on
+2026-09-18, and the CRM's own client was silently trusting a truncated
+single request until this was added — see `fetchAccountingOrders` in
+prs-crm, which now loops on `truncated`.
 
 ## Email delivery (Automatic Email Manager restaurants)
 

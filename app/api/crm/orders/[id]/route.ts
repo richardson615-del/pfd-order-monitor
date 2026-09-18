@@ -4,6 +4,7 @@ import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { ORDER_DETAIL_SELECT, loadOrderContext } from "@/lib/crm-orders-data";
 import { appDelivery, orderTimeline, shapeOrderRow, type OrderRowInput } from "@/lib/crm-orders";
 import { UUID_RE } from "@/lib/restaurant-ref";
+import { zupplerLinkFor, zupplerUrlTemplate } from "@/lib/zuppler-link";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       ...list,
       external_id: row.external_id ?? null,
       zuppler_order_uuid: row.source === "zuppler" ? (row.external_id ?? null) : null,
+      // The way back to the order in Zuppler's customer-service area (M1b).
+      // admin_url is null until ZUPPLER_ORDER_URL_TEMPLATE is set - never a
+      // guessed hostname - and the whole object is null for a non-Zuppler order.
+      zuppler: zupplerLinkFor({ source: row.source, external_id: row.external_id ?? null, order_number: row.order_number }, restaurant, zupplerUrlTemplate()),
       ticket_restaurant_name: row.ticket_restaurant_name ?? null,
       customer: { name: row.customer_name ?? null, phone: row.customer_phone ?? null, address: row.customer_address ?? null },
       items: Array.isArray(row.items) ? row.items : [],

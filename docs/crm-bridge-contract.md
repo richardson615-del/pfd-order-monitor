@@ -743,6 +743,18 @@ cancelled, each print attempt named by device and outcome), `print_jobs`
 }
 ```
 
+**`zuppler`** (M1b, 2026-09-18) — on the detail only, `null` for an email
+or test order: `{ order_uuid, restaurant_id, admin_url }`. `order_uuid` is
+Zuppler's uuid (our `external_id`), `restaurant_id` Zuppler's numeric
+restaurant id. **`admin_url`** is the way back to the order in Zuppler's
+customer-service area, built from the bridge's `ZUPPLER_ORDER_URL_TEMPLATE`
+(placeholders `{order_uuid}` `{order_number}` `{restaurant_id}`, values
+URL-encoded); **`null` when the template is unset or a placeholder's value
+is missing** — the CRM shows the "Edit in Zuppler" button only when it is a
+string. Zuppler's own payload carries no such link (the LoadOrder GraphQL
+selection set has no URL field), so the template is set by hand from a real
+order link, never guessed.
+
 **Actions** exist only because both primitives already did: `reprint` is
 `queueOrderToPrinters()` — the tablet's own Print button — recorded as
 `queued_by: reprint:crm:<actor>` (an order older than `PRINT_MAX_AGE_HOURS`

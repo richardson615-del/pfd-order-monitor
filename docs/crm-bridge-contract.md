@@ -502,6 +502,269 @@ Tablets page. `kind` says where the reference came from; `model` is what
 the tablet said about itself, never identity. Assigning one = bind.
 
 
+## Orders (M1, 2026-09-18) — today's tickets for the office
+
+| method | path | body / query | returns |
+|---|---|---|---|
+| GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
+| GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app", actor }` | `{ ok, action, … }`; 409 `order_settled` / `app_not_expected`; 400 `invalid_action` |
+| GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit]` | money rows for statements — see below |
+
+**Who this is for:** PFD staff in a browser. So `source` is shown, the
+customer's full phone is in the detail (staff need to call), and nothing is
+softened. **What is never returned:** `raw_html` / `raw_payload` — the email
+parser's source can carry card-holder data.
+
+**The day.** `date` is the calendar day in `tz` (default `America/Chicago`);
+the window is exact for the two days a year that are not 24 hours. A bad
+date or zone is 400 `invalid_date`. `restaurant_id` is **either id** (CRM
+account id or the bridge's uuid — Standing rules); an id neither column knows
+is 404 `restaurant_not_found`, not an empty day. Test orders are hidden unless
+`include_test=1`. **`since`** returns only rows whose `updated_at` is after it
+(migration 039) — poll it every 20 s for almost nothing; `counts` are always
+the whole day's and `deleted` is always `[]` (a cancellation is a status).
+Sorted **as the tablet sorts**: unaccepted oldest first, then in the kitchen
+by least time left on the countdown, then completed/cancelled newest first.
+Limit 2000 rows (`truncated: true` beyond).
+
+**Each list row** (from the shaping code, `lib/crm-orders.ts`):
+
+```json
+{
+  "date": "2026-09-18",
+  "tz": "America/Chicago",
+  "generated_at": "2026-09-18T23:30:00.000Z",
+  "since": null,
+  "truncated": false,
+  "counts": {
+    "total": 2,
+    "unaccepted": 1,
+    "in_kitchen": 1,
+    "completed": 0,
+    "cancelled": 0,
+    "unprinted": 1,
+    "test": 0
+  },
+  "orders": [
+    {
+      "order_id": "a1",
+      "order_number": "1184",
+      "source": "zuppler",
+      "status": "new",
+      "restaurant": {
+        "id": "940bf644-0000-4000-8000-000000000001",
+        "crm_restaurant_id": "45bef1a1-0000-4000-8000-000000000002",
+        "name": "Willie Mae's Kitchen"
+      },
+      "received_at": "2026-09-18T23:26:00.000Z",
+      "opened_at": null,
+      "accepted_at": null,
+      "completed_at": null,
+      "cancelled_at": null,
+      "printed_at": null,
+      "updated_at": "2026-09-18T23:26:00.000Z",
+      "due_time": null,
+      "order_type": "pickup",
+      "payment_type": "card",
+      "channel_id": "web",
+      "customer": {
+        "name": "Marcus Bell",
+        "phone_last4": "0142"
+      },
+      "items_line": "Shrimp Po'Boy · Gumbo (cup) · Lemonade …",
+      "item_count": 4,
+      "total": 31.92,
+      "prep_minutes": 25,
+      "destinations": [
+        "printer",
+        "app"
+      ],
+      "print": {
+        "state": "none",
+        "job_id": null,
+        "failed_reason": null
+      },
+      "flags": {
+        "unaccepted_over_3m": true,
+        "late": false,
+        "overtime": false
+      }
+    }
+  ],
+  "deleted": []
+}
+```
+
+- `customer.phone_last4` — the list never carries the full number.
+- `items_line` — the first three items, as the tablet card shows them; `item_count` the total.
+- `prep_minutes` — the restaurant's target; `accepted_at + prep_minutes` is the countdown the tablet shows.
+- `destinations` — `orderDestinations()`, same as the roster.
+- `print.state` — `printed` \| `queued` \| `held` (printer waiting for paper/cover) \| `stuck` (pending past ten minutes) \| `failed` \| `expired` (too old to print, never printed) \| `none`; `failed_reason` is the printer's sentence (E2). Paper jobs only — the tablet push is `app_delivery` on the detail.
+- `flags` — computed with the tablet's own helpers: `unaccepted_over_3m` (health's `order_unaccepted` line), `late` (ten minutes, `isLate`), `overtime` (countdown past zero).
+
+**The detail** adds the full customer, the items with modifiers and prices
+as printed, `notes`, `money` (dollars; `variance` ≠ 0 means the components
+do not explain the total), `external_id` / `zuppler_order_uuid`, the
+`timeline` (received → print attempts → opened → accepted → completed /
+cancelled, each print attempt named by device and outcome), `print_jobs`
+(paper only) and `app_delivery` (`null` when no push row exists):
+
+```json
+{
+  "generated_at": "2026-09-18T23:30:00.000Z",
+  "order": {
+    "order_id": "a2",
+    "order_number": "1183",
+    "source": "zuppler",
+    "status": "opened",
+    "restaurant": {
+      "id": "940bf644-0000-4000-8000-000000000001",
+      "crm_restaurant_id": "45bef1a1-0000-4000-8000-000000000002",
+      "name": "Willie Mae's Kitchen"
+    },
+    "received_at": "2026-09-18T23:26:00.000Z",
+    "opened_at": "2026-09-18T23:26:30.000Z",
+    "accepted_at": "2026-09-18T23:27:00.000Z",
+    "completed_at": null,
+    "cancelled_at": null,
+    "printed_at": "2026-09-18T23:26:12.000Z",
+    "updated_at": "2026-09-18T23:26:00.000Z",
+    "due_time": null,
+    "order_type": "pickup",
+    "payment_type": "card",
+    "channel_id": "web",
+    "customer": {
+      "name": "Marcus Bell",
+      "phone": "(615) 555-0142",
+      "address": null
+    },
+    "items_line": "Shrimp Po'Boy · Gumbo (cup) · Lemonade …",
+    "item_count": 4,
+    "total": 31.92,
+    "prep_minutes": 25,
+    "destinations": [
+      "printer",
+      "app"
+    ],
+    "print": {
+      "state": "printed",
+      "job_id": "5c1d…",
+      "failed_reason": null
+    },
+    "flags": {
+      "unaccepted_over_3m": false,
+      "late": false,
+      "overtime": false
+    },
+    "external_id": "zup-7f3a…",
+    "zuppler_order_uuid": "zup-7f3a…",
+    "ticket_restaurant_name": null,
+    "items": [
+      {
+        "name": "Shrimp Po'Boy",
+        "price": "$14.00",
+        "modifiers": [
+          "Dressed"
+        ]
+      },
+      {
+        "name": "Gumbo (cup)",
+        "price": "$6.00",
+        "modifiers": []
+      },
+      {
+        "name": "Lemonade",
+        "price": "$3.00",
+        "modifiers": []
+      },
+      {
+        "name": "Beignets",
+        "price": "$5.00",
+        "modifiers": []
+      }
+    ],
+    "notes": "Extra napkins",
+    "money": {
+      "subtotal": 28,
+      "tax": 2.59,
+      "service_fee": null,
+      "delivery_fee": null,
+      "tip": 1.33,
+      "discount": null,
+      "included_tax": null,
+      "hidden_fee": null,
+      "total": 31.92,
+      "variance": 0
+    },
+    "timeline": [
+      {
+        "at": "2026-09-18T23:26:00.000Z",
+        "event": "received",
+        "detail": null
+      },
+      {
+        "at": "2026-09-18T23:26:12.000Z",
+        "event": "printed",
+        "detail": "printed on Kitchen"
+      },
+      {
+        "at": "2026-09-18T23:26:30.000Z",
+        "event": "opened",
+        "detail": null
+      },
+      {
+        "at": "2026-09-18T23:27:00.000Z",
+        "event": "accepted",
+        "detail": null
+      }
+    ],
+    "print_jobs": [
+      {
+        "id": "5c1d…",
+        "status": "printed",
+        "device_id": "dev-1",
+        "device_name": "Kitchen",
+        "queued_at": "2026-09-18T23:26:00.000Z",
+        "claimed_at": "2026-09-18T23:26:06.000Z",
+        "finished_at": "2026-09-18T23:26:12.000Z",
+        "attempts": 0,
+        "error": null,
+        "queued_by": "ingest"
+      }
+    ],
+    "app_delivery": {
+      "pushed": true,
+      "at": "2026-09-18T23:26:03.000Z",
+      "devices_reached": 1,
+      "error": null
+    }
+  }
+}
+```
+
+**Actions** exist only because both primitives already did: `reprint` is
+`queueOrderToPrinters()` — the tablet's own Print button — recorded as
+`queued_by: reprint:crm:<actor>` (an order older than `PRINT_MAX_AGE_HOURS`
+prints this once because somebody asked); `resend_app` is the same push a
+new order gets, with the outcome written to the order's one app job row so
+"was the tablet told?" stays one answer. `actor` is the CRM session's email —
+the bridge cannot know it otherwise. Refused with 409 on a completed or
+cancelled order, and `resend_app` with 409 `app_not_expected` when the
+restaurant is not on the tablet. Neither edits or cancels an order; there is
+no such endpoint.
+
+**`GET /api/crm/accounting/orders`** (existed since 2026-09-01, undocumented
+until now): per-order money rows for a `from`–`to` date range (UTC days,
+`to` inclusive), excluding `source=test`, with `totals` (billable only),
+a `cancelled` section (counted separately, `after_print_count` for tickets
+that were already out) and `reconciliation` (`unreconciled_order_ids` where
+`money_variance ≠ 0`). No items, customer, notes or timestamps beyond
+received/printed/cancelled — use `/api/crm/orders` for those. Since
+2026-09-18 its `restaurant_id` goes through the same either-id resolver (it
+used to match the bridge uuid only, so a CRM account id silently returned
+zero rows).
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

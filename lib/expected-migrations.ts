@@ -41,4 +41,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "038_print_job_age_and_provenance.sql",
   "039_orders_updated_at.sql",
   "040_restaurant_prep_minutes.sql",
+  "041_customer_email.sql",
 ];

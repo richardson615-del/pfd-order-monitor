@@ -12,7 +12,7 @@ export interface OrderItem {
  * "which platform was this on?" is the first question asked about a wrong
  * order, and until now the answer was stored and never shown.
  */
-export type OrderSource = "email" | "zuppler" | "test";
+export type OrderSource = "email" | "zuppler" | "test" | "phone";
 
 export interface Order {
   id: string;
@@ -34,6 +34,8 @@ export interface Order {
   tip: number | null;
   /** Promotional discount. Reduces the total; not part of the component sum. */
   discount: number | null;
+  /** Card surcharge on a phone order (migration 042). Absent before it. */
+  surcharge?: number | null;
   customer_total: number | null;
   payment_type: string | null;
   /** Gate codes, allergies, delivery instructions. Printed in the NOTE box. */

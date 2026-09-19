@@ -24,6 +24,13 @@ export interface TicketLine {
 
 export type TextScale = "normal" | "large";
 
+/**
+ * A payment_type that is a whole instruction rather than a tender name:
+ * "PAID - CARD ****1234", "CASH DUE $42.10" (phone orders, lib/phone-order.ts
+ * tenderLine). Such a value prints as itself, bold, with no "Paid" label.
+ */
+export const TENDER_LINE_RE = /^(PAID - |CASH DUE |CARD DUE |HOUSE ACCOUNT)/;
+
 export interface TicketOptions {
   /**
    * "large" doubles the parts a cook reads: quantities, item names,
@@ -294,7 +301,16 @@ export function buildTicket(
     const totalLine = large ? pad("TOTAL", total, bigCols) : pad("TOTAL", total, cols);
     lines.push(L(totalLine, { bold: true, size: large ? "double" : "double-h" }));
   }
-  if (order.payment_type) lines.push(L(pad("Paid", String(order.payment_type), cols)));
+  if (order.payment_type) {
+    const tender = String(order.payment_type);
+    // A phone order's payment_type is a whole instruction - "PAID - CARD
+    // ****1234" or "CASH DUE $42.10" (lib/phone-order.ts) - and the one line
+    // on the ticket that tells the counter whether to collect. It prints as
+    // itself, bold. Every other source stores a tender NAME ("CREDIT"), which
+    // keeps the "Paid" label it always had.
+    if (TENDER_LINE_RE.test(tender)) lines.push(L(tender, { bold: true }));
+    else lines.push(L(pad("Paid", tender, cols)));
+  }
 
   if (order.notes) {
     lines.push(L(rule));

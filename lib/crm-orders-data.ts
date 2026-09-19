@@ -12,7 +12,7 @@ export const ORDER_LIST_SELECT =
  */
 export const ORDER_DETAIL_SELECT =
   ORDER_LIST_SELECT +
-  ", customer_address, notes, external_id, items_total, tax, service_fee, delivery_fee, tip, discount, included_tax, hidden_fee, money_variance, ticket_restaurant_name";
+  ", customer_address, notes, external_id, items_total, tax, service_fee, delivery_fee, tip, discount, surcharge, included_tax, hidden_fee, money_variance, ticket_restaurant_name";
 
 /**
  * The restaurants and print jobs behind a set of orders - two reads,

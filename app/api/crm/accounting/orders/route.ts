@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
 
   const admin = supabaseAdmin();
   const SELECT_COLUMNS =
-    "id, order_number, external_id, source, status, received_at, printed_at, cancelled_at, order_type, channel_id, payment_type, items_total, tax, service_fee, delivery_fee, tip, discount, included_tax, hidden_fee, customer_total, money_variance, restaurant_id, restaurants(name, zuppler_restaurant_id)";
+    "id, order_number, external_id, source, status, received_at, printed_at, cancelled_at, order_type, channel_id, payment_type, items_total, tax, service_fee, delivery_fee, tip, discount, surcharge, included_tax, hidden_fee, customer_total, money_variance, restaurant_id, restaurants(name, zuppler_restaurant_id)";
 
   // Fetch up to `limit` rows starting at `offset`, PLUS one more beyond
   // that -- the extra row is how this route knows whether more data
@@ -183,6 +183,10 @@ export async function GET(req: NextRequest) {
       delivery_fee: num(o.delivery_fee),
       tip: num(o.tip),
       discount: num(o.discount),
+      // Phone orders only (migration 042): the card surcharge is PFD's
+      // revenue, inside `total` but not the restaurant's sales. Null
+      // elsewhere. Payouts must subtract it; the statement must show it.
+      surcharge: num(o.surcharge),
       included_tax: num(o.included_tax),
       hidden_fee: num(o.hidden_fee),
       total: num(o.customer_total),
@@ -223,6 +227,7 @@ export async function GET(req: NextRequest) {
       delivery_fee: sum((r) => r.money.delivery_fee),
       tip: sum((r) => r.money.tip),
       discount: sum((r) => r.money.discount),
+      surcharge: sum((r) => r.money.surcharge),
       total: sum((r) => r.money.total),
     },
     // Excluded from `totals` above. Reported rather than dropped: a

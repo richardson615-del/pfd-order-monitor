@@ -174,7 +174,14 @@ function buildTicket(order, cols) {
     lines.push(L(rule));
     lines.push(L(pad("TOTAL", total, cols), { bold: true, size: "double-h" }));
   }
-  if (order.payment_type) lines.push(L(pad("Paid", String(order.payment_type), cols)));
+  if (order.payment_type) {
+    const tender = String(order.payment_type);
+    // Same rule as lib/ticket.ts: a phone order's payment_type is the whole
+    // instruction ("PAID - CARD ****1234", "CASH DUE $42.10") and prints bold
+    // as itself; every other source stores a tender name and keeps "Paid".
+    if (/^(PAID - |CASH DUE |CARD DUE |HOUSE ACCOUNT)/.test(tender)) lines.push(L(tender, { bold: true }));
+    else lines.push(L(pad("Paid", tender, cols)));
+  }
 
   // --- notes ---
   if (order.notes) {

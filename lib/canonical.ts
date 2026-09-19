@@ -34,6 +34,8 @@ export interface CanonicalOrderInput {
   dueTime?: string | null; // ISO timestamp
   customerName?: string | null;
   customerPhone?: string | null;
+  /** Additive, 2026-09-19: Zuppler's own GraphQL query already requests customer.email (see zuppler-mapper.ts's LOAD_ORDER_QUERY) -- it was arriving on every order, unread, sitting only in raw_payload. This field is the fix; nothing else in the mapping changes. */
+  customerEmail?: string | null;
   customerAddress?: string | null;
   items: { name: string; price: string | null; modifiers: string[] }[];
   itemsTotal?: number | null;
@@ -74,7 +76,7 @@ export interface IngestResult {
 
 /** Fields an upstream source may legitimately revise after an order exists. */
 const MUTABLE_FIELDS = [
-  "order_type", "due_time", "customer_name", "customer_phone",
+  "order_type", "due_time", "customer_name", "customer_phone", "customer_email",
   "customer_address", "items", "items_total", "tax", "service_fee",
   "delivery_fee", "tip", "discount", "surcharge", "included_tax", "hidden_fee",
   "customer_total", "payment_type", "notes",
@@ -170,7 +172,7 @@ export async function ingestOrder(
   const { data: existing } = await admin
     .from("orders")
     // One literal string: concatenation defeats supabase-js's type inference.
-    .select("id, order_type, due_time, customer_name, customer_phone, customer_address, items, items_total, tax, service_fee, delivery_fee, tip, customer_total, payment_type, notes")
+    .select("id, order_type, due_time, customer_name, customer_phone, customer_email, customer_address, items, items_total, tax, service_fee, delivery_fee, tip, customer_total, payment_type, notes")
     .eq("source", input.source)
     .eq("external_id", input.externalId)
     .maybeSingle();
@@ -190,6 +192,7 @@ export async function ingestOrder(
       due_time: input.dueTime ?? null,
       customer_name: input.customerName ?? null,
       customer_phone: input.customerPhone ?? null,
+      customer_email: input.customerEmail ?? null,
       customer_address: input.customerAddress ?? null,
       items: input.items,
       items_total: input.itemsTotal ?? null,
@@ -280,6 +283,7 @@ export async function ingestOrder(
       due_time: input.dueTime ?? null,
       customer_name: input.customerName ?? null,
       customer_phone: input.customerPhone ?? null,
+      customer_email: input.customerEmail ?? null,
       customer_address: input.customerAddress ?? null,
       items: input.items,
       items_total: input.itemsTotal ?? null,

@@ -178,6 +178,10 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       dueTime,
       customerName: str(customer.name),
       customerPhone: str(customer.phone),
+      // Additive, 2026-09-19: already requested by LOAD_ORDER_QUERY above
+      // (`customer { uuid name email phone }`) and already arriving in
+      // every response, unread until now -- it sat only in rawPayload.
+      customerEmail: str(customer.email),
       customerAddress: (() => {
         const a = cart.settings?.service?.address;
         if (!a) return null;

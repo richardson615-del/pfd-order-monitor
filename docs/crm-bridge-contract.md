@@ -813,6 +813,37 @@ correctness of `truncated` itself changed. A consumer that already loops
 on `truncated` (prs-crm's `fetchAccountingOrders`) needs no changes to
 benefit from this fix.
 
+**`GET /api/crm/customers/orders`** (added 2026-09-19, prs-crm's
+Marketing & Pricing pillar Phase 1): a per-order feed of customer
+identity fields (`customer_name`/`customer_phone`/`customer_email`) for
+a `from`–`to` date range, plus `order_type`, `items_total` (as
+`subtotal`), `payment_type` (as `tender`), and the restaurant's
+`zuppler_restaurant_id` for account resolution on prs-crm's side.
+Deliberately a SEPARATE route from `/api/crm/accounting/orders` —
+that endpoint is fetched broadly by money reconciliation/payout code
+with no legitimate need to see customer PII, and adding it there would
+widen every caller's exposure, not just the one that needs it. Also
+distinct from `/api/crm/orders` (the live tablet/dashboard feed, one
+LOCAL DAY at a time, capped, phone redacted on its list view) — this
+route is a bulk date-RANGE export, built for a backfill over months of
+history rather than "what's on the tablet right now." Same pagination
+contract and same internally-chunked, platform-cap-proof `truncated`
+computation as `/api/crm/accounting/orders` (see that entry's own
+"SAME-DAY CORRECTION"). Excludes `source = 'test'` and cancelled
+orders (never a real customer interaction to count in frequency/
+lifetime-spend); includes both `zuppler` and `email` sources (the
+email-leg parser has no email extraction, but does capture name/phone).
+
+**Customer email backfill, one-time (`scripts/backfill-customer-email.ts`,
+2026-09-19).** `customer_email` (migration 041) is populated by the live
+mapper going forward, but every order ingested before that fix has it
+NULL despite the email having been present in Zuppler's response the
+whole time, sitting unread in `raw_payload`. This script re-extracts it
+from stored `raw_payload` for every historical Zuppler order, using the
+same fallback-shape logic the mapper itself uses (`raw_payload` was not
+always captured in one consistent shape). Idempotent (only touches
+`customer_email IS NULL` rows); dry-run by default, `--write` to apply.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

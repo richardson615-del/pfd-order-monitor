@@ -796,6 +796,23 @@ backfill volume together crossed 1000 orders for the first time on
 single request until this was added — see `fetchAccountingOrders` in
 prs-crm, which now loops on `truncated`.
 
+**Same-day correction (2026-09-19):** the first version of `truncated`
+was computed as `rows.length === limit`. That's wrong whenever the
+platform itself silently caps a single `.range()` read below the
+requested `limit` — confirmed live: a request for up to 2000 rows
+returned exactly 1000 with no error, so `rows.length` (1000) never
+equalled `limit` (2000) and `truncated` came back `false` on a response
+that was missing 149 real orders (the true total for that date range was
+1149). The route now pages internally in 500-row chunks (a value
+comfortably under the platform's own undocumented cap, not the exact
+boundary) and computes `truncated` from whether a `(limit + 1)`-th row
+was actually fetched — completely decoupled from whatever that
+platform-level cap is. No change to the request contract (`limit`/
+`offset`/`truncated` mean exactly what they did before); only the
+correctness of `truncated` itself changed. A consumer that already loops
+on `truncated` (prs-crm's `fetchAccountingOrders`) needs no changes to
+benefit from this fix.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

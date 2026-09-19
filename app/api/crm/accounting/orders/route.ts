@@ -12,18 +12,36 @@ export const maxDuration = 30;
  * Per-order money rows for a date range. Every one of the nine money fields
  * Zuppler sends, plus channel, order type and payment type.
  *
- * PAGINATION (2026-09-19): `limit` (default 1000, max 2000) caps a single
- * response; `offset` (default 0) pages through a range larger than that.
- * `truncated: true` means exactly "this page is full, there may be more" --
- * the caller must request `offset + limit` next, not treat the response as
- * complete. A week carrying partner + chain + backfill volume together
- * crossed 1000 orders for the first time on 2026-09-18 and the CRM's own
- * client silently trusted a truncated single request until then (it now
- * loops on `truncated` -- see prs-crm's `fetchAccountingOrders`). Ordering
- * is `received_at, id` -- the `id` tiebreaker is REQUIRED for correct
- * paging: two orders sharing the same `received_at` timestamp would
- * otherwise land on either side of a page boundary nondeterministically
- * across requests, silently duplicating or skipping a row.
+ * PAGINATION (2026-09-19, corrected same day): `limit` (default 1000, max
+ * 2000) caps a single response; `offset` (default 0) pages through a range
+ * larger than that. `truncated: true` means exactly "this page is full,
+ * there may be more" -- the caller must request `offset + limit` next, not
+ * treat the response as complete. A week carrying partner + chain +
+ * backfill volume together crossed 1000 orders for the first time on
+ * 2026-09-18 and the CRM's own client silently trusted a truncated single
+ * request until then (it now loops on `truncated` -- see prs-crm's
+ * `fetchAccountingOrders`). Ordering is `received_at, id` -- the `id`
+ * tiebreaker is REQUIRED for correct paging: two orders sharing the same
+ * `received_at` timestamp would otherwise land on either side of a page
+ * boundary nondeterministically across requests, silently duplicating or
+ * skipping a row.
+ *
+ * SAME-DAY CORRECTION: the first version of this pagination computed
+ * `truncated = rows.length === limit`. That's wrong whenever the platform
+ * itself silently caps a single `.range()` read below the requested
+ * `limit` -- confirmed live, 2026-09-19: a single `.range(0, 1999)` call
+ * (asking for up to 2000 rows) returned only 1000 rows with NO error,
+ * and `rows.length` (1000) never equalled `limit` (2000), so `truncated`
+ * computed to `false` on a response that was very much not complete (the
+ * real total for that date range was 1149, not 1000 -- confirmed by
+ * re-paging in 500-row chunks). The CRM's client trusted that `false` and
+ * silently computed payouts on a data set missing 149 real orders,
+ * including 28 of one restaurant's own orders. `SUPABASE_SAFE_CHUNK`
+ * below is now paged internally, one Postgres round trip per chunk, so
+ * this route's own `truncated` reflects whether the DATA actually ends,
+ * never whether the platform silently capped a single large read --
+ * completely decoupled from whatever that platform-level cap actually is
+ * (it was never documented anywhere in this repo, and may not stay fixed).
  *
  * Two further deliberate properties:
  *
@@ -78,26 +96,62 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(2000, Math.max(1, Number(q.get("limit") || 1000)));
   const offset = Math.max(0, Number(q.get("offset") || 0));
 
-  const admin = supabaseAdmin();
-  let query = admin
-    .from("orders")
-    .select("id, order_number, external_id, source, status, received_at, printed_at, cancelled_at, order_type, channel_id, payment_type, items_total, tax, service_fee, delivery_fee, tip, discount, included_tax, hidden_fee, customer_total, money_variance, restaurant_id, restaurants(name, zuppler_restaurant_id)")
-    .gte("received_at", fromISO)
-    .lte("received_at", toISO)
-    // Test prints are not revenue.
-    .neq("source", "test")
-    // `id` is a REQUIRED secondary sort key, not cosmetic: `received_at`
-    // alone is not unique (multiple orders can share the same timestamp),
-    // and without a stable tiebreaker two orders on a page boundary could
-    // land on either side of it nondeterministically between requests --
-    // silently duplicating one row and skipping another across pages.
-    .order("received_at", { ascending: true })
-    .order("id", { ascending: true })
-    .range(offset, offset + limit - 1);
-  if (restaurantId) query = query.eq("restaurant_id", restaurantId);
+  // The platform itself silently caps a single `.range()` read below
+  // whatever it's asked for -- see this route's own header comment,
+  // "SAME-DAY CORRECTION". Never ask Supabase for more than this many
+  // rows in one call; loop internally instead. 500 is comfortably under
+  // the ~1000-row cap confirmed live on 2026-09-19 -- not the exact
+  // boundary, deliberately, since that boundary is undocumented and
+  // could be a Supabase project setting that changes without this repo
+  // knowing.
+  const SUPABASE_SAFE_CHUNK = 500;
 
-  const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const admin = supabaseAdmin();
+  const SELECT_COLUMNS =
+    "id, order_number, external_id, source, status, received_at, printed_at, cancelled_at, order_type, channel_id, payment_type, items_total, tax, service_fee, delivery_fee, tip, discount, included_tax, hidden_fee, customer_total, money_variance, restaurant_id, restaurants(name, zuppler_restaurant_id)";
+
+  // Fetch up to `limit` rows starting at `offset`, PLUS one more beyond
+  // that -- the extra row is how this route knows whether more data
+  // exists past this page without trusting a length-equals-limit
+  // comparison that the platform's own silent cap can defeat (see header
+  // comment). Internally chunked at SUPABASE_SAFE_CHUNK regardless of
+  // how large `limit` is.
+  const data: any[] = [];
+  let chunkOffset = offset;
+  const targetCount = limit + 1;
+  while (data.length < targetCount) {
+    const chunkLimit = Math.min(SUPABASE_SAFE_CHUNK, targetCount - data.length);
+    let chunkQuery = admin
+      .from("orders")
+      .select(SELECT_COLUMNS)
+      .gte("received_at", fromISO)
+      .lte("received_at", toISO)
+      // Test prints are not revenue.
+      .neq("source", "test")
+      // `id` is a REQUIRED secondary sort key, not cosmetic: `received_at`
+      // alone is not unique (multiple orders can share the same timestamp),
+      // and without a stable tiebreaker two orders on a page boundary could
+      // land on either side of it nondeterministically between requests --
+      // silently duplicating one row and skipping another across pages.
+      .order("received_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(chunkOffset, chunkOffset + chunkLimit - 1);
+    if (restaurantId) chunkQuery = chunkQuery.eq("restaurant_id", restaurantId);
+
+    const { data: chunk, error } = await chunkQuery;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    data.push(...(chunk ?? []));
+    // Fewer rows than asked for in THIS chunk -- and the chunk size was
+    // never large enough to hit the platform's own cap -- means real
+    // end of data, not a silent truncation. Stop looping.
+    if (!chunk || chunk.length < chunkLimit) break;
+    chunkOffset += chunk.length;
+  }
+
+  // The (limit + 1)-th row, if fetched, is proof more data exists past
+  // this page -- drop it from the response, it belongs to the next page.
+  const truncated = data.length > limit;
+  if (truncated) data.length = limit;
 
   const num = (v: unknown) => (v == null ? null : Number(v));
   const rows = (data ?? []).map((o: any) => ({
@@ -151,9 +205,12 @@ export async function GET(req: NextRequest) {
     to: toISO,
     count: rows.length,
     // Page-full signal, not "here's everything" -- see this route's own
-    // pagination comment above. offset/limit echoed back so a paging
-    // client never has to reconstruct what it asked for.
-    truncated: rows.length === limit,
+    // pagination comment above. Computed from whether a (limit+1)-th row
+    // was actually fetched, NOT from `rows.length === limit`, which the
+    // platform's own silent per-request row cap can defeat (see the
+    // "SAME-DAY CORRECTION" header comment). offset/limit echoed back so
+    // a paging client never has to reconstruct what it asked for.
+    truncated,
     offset,
     limit,
     // Named so nobody can mistake what the totals cover.

@@ -58,6 +58,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         delivery_fee: num(row.delivery_fee),
         tip: num(row.tip),
         discount: num(row.discount),
+        // Card surcharge on a phone order (migration 042) - PFD's line, not
+        // the restaurant's; null for every other source.
+        surcharge: num(row.surcharge),
         included_tax: num(row.included_tax),
         hidden_fee: num(row.hidden_fee),
         total: num(row.customer_total),

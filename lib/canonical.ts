@@ -11,9 +11,11 @@ import { resolveFooter } from "./footer-engine";
 export interface CanonicalOrderInput {
   /** "test" is a real source in the database (migration 006) - a CRM-issued
    *  test print. It never reaches ingestOrder today, since test prints insert
-   *  directly, but the type should not claim otherwise. */
-  source: "email" | "zuppler" | "test";
-  /** The source system's own id (Gmail message id, Zuppler order uuid). */
+   *  directly, but the type should not claim otherwise. "phone" (migration
+   *  042) is an order a dispatcher took in the CRM and posted here (O1). */
+  source: "email" | "zuppler" | "test" | "phone";
+  /** The source system's own id (Gmail message id, Zuppler order uuid, the
+   *  CRM's phone_orders id). With `source`, the idempotency key. */
   externalId: string;
   restaurantId: string;
   /** Monitored inbox the order came from - email source only. */
@@ -43,6 +45,10 @@ export interface CanonicalOrderInput {
   tip?: number | null;
   /** Promotional discount. Reduces the total; not part of the component sum. */
   discount?: number | null;
+  /** Card surcharge on a phone order (migration 042). PFD's revenue, not the
+   *  restaurant's sales; part of the total the customer paid, so it counts
+   *  in the component sum. Null for every other source. */
+  surcharge?: number | null;
   /** Tax already inside subtotal. Recorded, never added when reconciling. */
   includedTax?: number | null;
   /** Zuppler's "hidden" total. Zero everywhere so far; captured regardless. */
@@ -70,12 +76,12 @@ export interface IngestResult {
 const MUTABLE_FIELDS = [
   "order_type", "due_time", "customer_name", "customer_phone",
   "customer_address", "items", "items_total", "tax", "service_fee",
-  "delivery_fee", "tip", "discount", "included_tax", "hidden_fee",
+  "delivery_fee", "tip", "discount", "surcharge", "included_tax", "hidden_fee",
   "customer_total", "payment_type", "notes",
 ] as const;
 
 /**
- * total - (subtotal + tax + service + delivery + tip - discount)
+ * total - (subtotal + tax + service + delivery + tip + surcharge - discount)
  *
  * Zero when every money field is captured. Anything else means one is not -
  * and the whole reason this is computed at ingest rather than in a report is
@@ -89,13 +95,13 @@ const MUTABLE_FIELDS = [
 export function moneyVariance(input: {
   itemsTotal?: number | null; tax?: number | null; serviceFee?: number | null;
   deliveryFee?: number | null; tip?: number | null; discount?: number | null;
-  customerTotal?: number | null;
+  surcharge?: number | null; customerTotal?: number | null;
 }): number | null {
   if (input.customerTotal == null) return null;
   const n = (v: unknown) => Number(v ?? 0);
   const components =
     n(input.itemsTotal) + n(input.tax) + n(input.serviceFee) +
-    n(input.deliveryFee) + n(input.tip) - n(input.discount);
+    n(input.deliveryFee) + n(input.tip) + n(input.surcharge) - n(input.discount);
   return Math.round((Number(input.customerTotal) - components) * 100) / 100;
 }
 
@@ -135,7 +141,7 @@ export function orderUpdateFields(
       continue;
     }
     if (["items_total", "tax", "service_fee", "delivery_fee", "tip", "discount",
-         "included_tax", "hidden_fee", "customer_total"].includes(key)) {
+         "surcharge", "included_tax", "hidden_fee", "customer_total"].includes(key)) {
       if (!sameMoney(from, to)) changes[key] = to;
       continue;
     }
@@ -172,6 +178,9 @@ export async function ingestOrder(
   if (existing) {
     // Email is immutable - a message never changes once sent, so a repeat is
     // simply a repeat. API sources amend orders, and those revisions matter.
+    // A phone order is a repeat too: the CRM retries the same phone_orders
+    // id, and the route answers with the row it already has (a changed
+    // payload under the same id is refused there, never merged here).
     if (input.source !== "zuppler") {
       return { status: "duplicate", orderId: existing.id };
     }
@@ -189,6 +198,7 @@ export async function ingestOrder(
       delivery_fee: input.deliveryFee ?? null,
       tip: input.tip ?? null,
       discount: input.discount ?? null,
+      surcharge: input.surcharge ?? null,
       included_tax: input.includedTax ?? null,
       hidden_fee: input.hiddenFee ?? null,
       customer_total: input.customerTotal ?? null,
@@ -278,6 +288,7 @@ export async function ingestOrder(
       delivery_fee: input.deliveryFee ?? null,
       tip: input.tip ?? null,
       discount: input.discount ?? null,
+      surcharge: input.surcharge ?? null,
       included_tax: input.includedTax ?? null,
       hidden_fee: input.hiddenFee ?? null,
       channel_id: input.channelId ?? null,

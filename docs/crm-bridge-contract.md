@@ -507,11 +507,13 @@ the tablet said about itself, never identity. Assigning one = bind.
 | method | path | body / query | returns |
 |---|---|---|---|
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
+| POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
 | POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app", actor }` | `{ ok, action, … }`; 409 `order_settled` / `app_not_expected`; 400 `invalid_action` |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
-**Who this is for:** PFD staff in a browser. So `source` is shown, the
+**Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`
+| `email` | `test` | `phone` since O1), the
 customer's full phone is in the detail (staff need to call), and nothing is
 softened. **What is never returned:** `raw_html` / `raw_payload` — the email
 parser's source can carry card-holder data.
@@ -692,6 +694,7 @@ cancelled, each print attempt named by device and outcome), `print_jobs`
       "delivery_fee": null,
       "tip": 1.33,
       "discount": null,
+      "surcharge": null,
       "included_tax": null,
       "hidden_fee": null,
       "total": 31.92,
@@ -812,6 +815,130 @@ platform-level cap is. No change to the request contract (`limit`/
 correctness of `truncated` itself changed. A consumer that already loops
 on `truncated` (prs-crm's `fetchAccountingOrders`) needs no changes to
 benefit from this fix.
+
+### Phone orders (O1, 2026-09-19) — an order the CRM took on the phone
+
+```
+POST /api/crm/orders
+```
+
+A dispatcher answers the phone, builds the order in the CRM (Workstream O),
+charges the card **there**, and posts the result here. The bridge stores it
+with `source: 'phone'` (migration 042) through the same `ingestOrder()` every
+Zuppler order goes through, so the paper, the tablet and the AEM email are
+decided by `orderDestinations()` exactly as for any other order, the print
+queue and the push behave identically, and `orders.status` means what it
+always meant. The order then shows in `GET /api/crm/orders` with
+`source: "phone"`. The bridge takes no payment and holds no card data.
+
+**Body** (`lib/phone-order.ts` `parsePhoneOrder()`; every rejection is a
+400 whose `code` names the field):
+
+```json
+{
+  "restaurant_id": "45bef1a1-…",
+  "source": "phone",
+  "external_id": "7d1f2c3a-9b8e-4c6d-a5f4-3e2d1c0b9a87",
+  "order_number": "PH-1201",
+  "order_type": "delivery",
+  "due_time": null,
+  "customer": { "name": "Marcus Bell", "phone": "(615) 555-0142", "address": "5432 Highway 76 East, Springfield, TN 37172", "address2": "Apt 4", "notes": "Gate code 4482" },
+  "items": [
+    { "name": "Shrimp Po'Boy", "price": 14, "qty": 2, "modifiers": [ { "name": "Dressed", "price": 0 }, { "name": "Extra shrimp", "price": 3 } ], "notes": "no pickles" },
+    { "name": "Gumbo (cup)", "price": 6, "qty": 1, "modifiers": [] }
+  ],
+  "money": { "subtotal": 40, "tax": 3.9, "delivery_fee": 4.99, "service_fee": 0, "tip": 8, "discount": 0, "surcharge": 1.2, "total": 58.09 },
+  "payment": { "type": "card", "status": "paid", "last4": "8598" },
+  "notes": "Ring the bell",
+  "actor": "dispatcher@pfdworks.com"
+}
+```
+
+- `restaurant_id` — **either id** (Standing rules); `crm_restaurant_id` is
+  accepted as an alias. Unknown to both columns → 422 `restaurant_not_found`.
+- `source` — must be `"phone"`.
+- `external_id` — the CRM's `phone_orders.id`; with `source`, the
+  **idempotency key** (1–128 chars of `[A-Za-z0-9._:-]`).
+- `order_number` — optional, 1–20 letters/digits/dashes, what the ticket
+  prints as `ORDER #`. Default `P-` + the last six characters of
+  `external_id` upper-cased (`P-0B9A87`).
+- `order_type` — `delivery` | `pickup`; a delivery needs `customer.address`.
+- `due_time` — ISO instant, or `null` for ASAP. Nothing else is guessed.
+- `customer.notes` prints as a `>> ` driver instruction under the address
+  (the mapper's `street | instructions` convention); `address2` joins the
+  street line.
+- `items[].price` is the **unit** price in dollars before modifiers;
+  `qty` an integer 1–99 (default 1); `modifiers[].price` per unit (0 or
+  absent for a free choice); `notes` prints as a modifier line. The ticket
+  shows the line total `qty × (price + Σ modifiers)`, like Zuppler's
+  `itemTotal`, with the quantity in its own column.
+- `money` — dollars, non-negative, cents precision; absent parts are 0.
+  **Must reconcile:** `total = subtotal + tax + delivery_fee + service_fee +
+  tip + surcharge − discount` to the cent, or 400 `money_mismatch` naming
+  the difference — the CRM computed these a moment ago and can fix them; a
+  statement months later cannot. `surcharge` is the card surcharge (PFD's
+  revenue, not the restaurant's sales); it lands in its own column and is
+  part of the component sum in `money_variance`. `total` ≤ $5,000.
+- `payment.type` — `cash` | `card` | `house`; `status` — `paid` | `due`;
+  `last4` — **exactly four digits** or absent. A longer value is refused,
+  never truncated, so a card number arriving here is found out.
+- **No card number anywhere.** Every free-text field is checked for a run
+  of 13–19 digits (spaces/dashes allowed) → 400 `card_number_rejected`.
+- `actor` — the CRM session's email; kept with the order's payload, not
+  printed.
+
+**What the ticket says** (`payment_type`, printed bold as its own line, no
+`Paid` label, on paper, on the tablet and in the AEM email; never the word
+Zuppler; ASCII for the Epson):
+
+| payment | ticket line |
+|---|---|
+| card · paid · 8598 | `PAID - CARD ****8598` |
+| card · paid · no last4 | `PAID - CARD` |
+| cash · due | `CASH DUE $58.09` |
+| cash · paid | `PAID - CASH` |
+| card · due | `CARD DUE $58.09 (CARD ****8598)` |
+| house · due | `HOUSE ACCOUNT - DO NOT COLLECT` |
+| house · paid | `PAID - HOUSE ACCOUNT` |
+
+**Responses**
+
+| status | meaning |
+|---|---|
+| `201 { ok: true, created: true, id, order, warning? }` | Stored and delivered per `order.destinations`. `order` is the **list row** `GET /api/crm/orders` returns (so the CRM can show it without a second call); `id` is the bridge's order id. `warning` is present when `destinations` is empty — the order is stored, nobody at the restaurant has been told, say so while the customer is still on the line |
+| `200 { ok: true, created: false, id, order }` | **Retry.** This `external_id` already exists with the same contents; nothing was written or re-sent — the kitchen ticket is already out. Safe to retry a timed-out POST |
+| `409 external_id_conflict { id }` | This `external_id` exists with **different** contents. An id is not allowed to mean two orders; send a new one |
+| `409 order_number_conflict` | A CRM-chosen `order_number` was already used by another order at this restaurant in the last day (the cross-source double-print guard). Nothing was written; pick another |
+| `422 restaurant_not_found` | Neither id column knows this restaurant |
+| `400 <code>` | The parser refused a field: `invalid_body`, `invalid_source`, `restaurant_required`, `external_id_required`, `invalid_order_number`, `invalid_order_type`, `invalid_due_time`, `customer_required`, `customer_name_required`, `address_required`, `items_required`, `too_many_items`, `invalid_item`, `money_required`, `invalid_money`, `money_mismatch`, `payment_required`, `invalid_payment`, `card_number_rejected` |
+| `503` | Bridge misconfigured (`CRM_WRITE_KEY` unset/short/equal to the read key) |
+
+Idempotency is on `(source, external_id)`: the row's `raw_payload` keeps a
+fingerprint of the order (everything but `actor`), and a repeat is compared
+against it. Neither retry nor conflict re-queues a print job or re-pushes
+the tablet; `POST /api/crm/orders/:id/actions` `reprint` / `resend_app`
+exist for that.
+
+**Phone orders elsewhere in this contract:** `GET /api/crm/orders` rows
+carry `source: "phone"` and `payment_type` as the ticket line above; the
+detail's `money` and `GET /api/crm/accounting/orders` rows and `totals`
+carry **`surcharge`** (null for every other source) — payouts must treat it
+as PFD revenue, not restaurant sales. The detail's `zuppler` object is
+`null` for a phone order (nothing to edit in Zuppler); the CRM's Refund and
+edit actions live on its own `phone_orders`, not here. The CRM should
+feature-flag its caller (`PHONE_ORDERS_ENABLED`) and treat a 404 from this
+route as "bridge not deployed yet".
+
+**Menu source: none.** The brief asked for `GET /api/crm/restaurants/:id/menu`
+*if* the bridge's Zuppler client can load a menu. It cannot: the only
+Zuppler query in this repo is `LoadOrder` (`lib/zuppler-mapper.ts`
+`LOAD_ORDER_QUERY`, unauthenticated, against
+`orders-api5.zuppler.com/graphql`), which returns one order by uuid — item
+names, quantities and prices *as ordered*, never a restaurant's menu, and
+the explorer at graphiql.zuppler.com is the only sanctioned way to discover
+more fields (the file's own warning: never guess a GraphQL field). No menu
+route exists, and the CRM's menu snapshot (O3) imports by other means
+(Zuppler channel JSON or manual CSV) until Zuppler answers U1.
 
 ## Email delivery (Automatic Email Manager restaurants)
 

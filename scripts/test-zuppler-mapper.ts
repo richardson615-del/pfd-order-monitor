@@ -72,9 +72,17 @@ console.log("delivery order (cents mode):");
     assert.equal(c.orderType, "delivery"));
   test("dueTime normalized to ISO", () =>
     assert.equal(c.dueTime, "2026-08-10T22:30:00.000Z"));
-  test("customer name + phone mapped", () => {
+  test("customer name + phone + email mapped", () => {
     assert.equal(c.customerName, "Jane Doe");
     assert.equal(c.customerPhone, "615-555-0100");
+    assert.equal(c.customerEmail, "jane@example.com");
+  });
+  test("the query actually selects customer.email (2026-09-19 fix's own regression guard -- it was requested and silently discarded before)", () =>
+    assert.match(LOAD_ORDER_QUERY, /customer\s*\{[^}]*email/));
+  test("a customer with no email maps to null, not a throw", () => {
+    const noEmail = JSON.parse(JSON.stringify(resp));
+    delete noEmail.data.order.carts[0].customer.email;
+    assert.equal(mapZupplerGraphqlOrder(noEmail).canonical.customerEmail, null);
   });
   test("items: qty folded into name, cents->dollars, comments->modifiers", () =>
     assert.deepEqual(c.items, [

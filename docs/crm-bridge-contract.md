@@ -42,6 +42,7 @@ hardware fault.
 | GET | `/api/crm/restaurants/:id` | — | `{ latest_shell_version, restaurant }` — one row in exactly the roster's shape; 404 if unknown |
 | POST | `/api/crm/restaurants` | `{ crm_restaurant_id, name, zuppler_restaurant_id?, zuppler_ids?, timezone?, app_expected?, display_mode? }` | `{ ok, restaurant_created, warning?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/provision` | `{ actor? }` | `{ ok, restaurant, login, printers, destinations, changed }` |
+| POST | `/api/crm/restaurants/:id/relink` | `{ crm_restaurant_id, actor? }` | `{ ok, changed, previous_crm_restaurant_id, crm_restaurant_id, warning?, restaurant }` |
 | POST | `/api/crm/restaurants/:id` | any subset below | `{ ok, conversions?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/ticket-preview` | any subset below | **`image/png`** |
 
@@ -55,6 +56,25 @@ owned by a different restaurant refuses the whole request with `409` naming
 that restaurant; a non-numeric id is `400`. The roster (`GET`) carries
 `zuppler_ids: string[]`, primary first, so the console can show which of an
 account's listings will route and which will be dropped on arrival.
+
+`POST /api/crm/restaurants/:id/relink` (R1, 2026-09-24) moves this
+restaurant's link to **another CRM account** — the bridge half of a CRM
+account merge ("Move the bridge link to the survivor"). `:id` is either id;
+`crm_restaurant_id` is the new CRM account uuid. It changes **only**
+`restaurants.crm_restaurant_id`: the restaurant's own `id`, printers,
+tablets, logins, orders, Zuppler ids and settings stay put, because all of
+them hang off `restaurants.id`. No table stores a CRM account id per order,
+so `GET /api/crm/accounting/orders?restaurant_id=<new id>` returns the
+restaurant's orders from before the relink too; the old account id is a
+`404` from the next call (nothing is cached by it). **Idempotent** — already
+linked to that account → `200 { ok, changed: false }`, no audit row.
+Errors carry a `code`: `crm_account_taken` (409 — another restaurant here
+already answers to that id, as its CRM account or its own id; the message
+names it; two restaurants are never merged), `invalid_crm_restaurant_id`
+(400, not a uuid), `restaurant_not_found` (404). Every change writes a
+`restaurant_link_audit` row (migration 043: actor, old and new account id,
+time); if that write fails the relink stands and the response carries
+`warning`. `restaurant` is the roster row shape.
 
 `POST /api/crm/restaurants/:id/provision` is the bridge half of **"Go
 live on tablet"** as one call: makes the restaurant active, sets

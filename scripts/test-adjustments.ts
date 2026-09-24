@@ -45,6 +45,13 @@ test("a tip added after the fact is detected", () => {
 test("an unchanged re-delivery is a no-op", () =>
   assert.equal(orderUpdateFields(EXISTING, { ...EXISTING }), null));
 
+test("line_items (row 66): filled in on a re-delivery when the stored row predates them; never erased by a null", () => {
+  const li = [{ name: "Fries", quantity: 1, item_total: 4, category: null, menu_id: null, item_id: "2" }];
+  assert.deepEqual(orderUpdateFields({ ...EXISTING, line_items: null }, { ...EXISTING, line_items: li }), { line_items: li });
+  assert.equal(orderUpdateFields({ ...EXISTING, line_items: li }, { ...EXISTING, line_items: null }), null);
+  assert.equal(orderUpdateFields({ ...EXISTING, line_items: li }, { ...EXISTING, line_items: JSON.parse(JSON.stringify(li)) }), null);
+});
+
 test("numeric-as-string vs number does not create a false change", () => {
   // Postgres returns numeric as a string; the mapper produces numbers.
   const c = orderUpdateFields(EXISTING, { ...EXISTING, items_total: 50.25, tax: 4.9 });

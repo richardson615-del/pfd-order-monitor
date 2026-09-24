@@ -89,6 +89,27 @@ console.log("delivery order (cents mode):");
       { name: "2x Cheeseburger", price: "$23.00", modifiers: ["No onions, add bacon"] },
       { name: "Fries", price: "$4.00", modifiers: [] },
     ]));
+  test("lineItems (row 66): structured lines beside the printed ones - quantity a number, total in dollars, ids as strings", () =>
+    assert.deepEqual(c.lineItems, [
+      { name: "Cheeseburger", quantity: 2, item_total: 23, category: null, menu_id: null, item_id: "1" },
+      { name: "Fries", quantity: 1, item_total: 4, category: null, menu_id: null, item_id: "2" },
+    ]));
+  test("lineItems carry category and menuId when Zuppler sends them", () => {
+    const withMenu = JSON.parse(JSON.stringify(resp));
+    Object.assign(withMenu.data.order.carts[0].items[0], { category: "Burgers", menuId: 77, menu: "Lunch" });
+    const li = mapZupplerGraphqlOrder(withMenu).canonical.lineItems!;
+    assert.equal(li[0]!.category, "Burgers");
+    assert.equal(li[0]!.menu_id, "77");
+  });
+  test("an order with no cart items has lineItems null, not []", () => {
+    const empty = JSON.parse(JSON.stringify(resp));
+    empty.data.order.carts[0].items = [];
+    assert.equal(mapZupplerGraphqlOrder(empty).canonical.lineItems, null);
+  });
+  test("lineItems read the same response shapes as the mapper (bare order object too - the backfill depends on it)", () =>
+    assert.deepEqual(mapZupplerGraphqlOrder(resp.data.order).canonical.lineItems, c.lineItems));
+  test("every field lineItems reads is already selected by LOAD_ORDER_QUERY", () =>
+    assert.match(LOAD_ORDER_QUERY, /items\s*\{[^}]*\bid\b[^}]*category[^}]*name[^}]*menuId[^}]*quantity[^}]*itemTotal/));
   test("totals converted cents->dollars", () => {
     assert.equal(c.itemsTotal, 27);
     assert.equal(c.tax, 2.57);

@@ -19,6 +19,13 @@ import { collectRestaurantVolumes, volumeIssues, type RestaurantVolume } from "@
 export type IssueSeverity = "critical" | "warning";
 
 export interface IssueOrder {
+  /**
+   * The bridge's orders.id (2026-09-25): what POST /api/crm/orders/:id/actions
+   * takes, so the CRM's ticket agent can reprint the order a failed job was
+   * for without matching on order_number. Additive; null only if the join
+   * came back without one.
+   */
+  id: string | null;
   order_number: string | null;
   received_at: string | null;
   /** Whole minutes since received_at at evaluation time; null when received_at is unknown. */
@@ -642,7 +649,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
       // waiting for a person, and after jobPendingMinutes that person is
       // the office. expired is deliberately NOT here - an order too old to
       // print is not a fault and never becomes a ticket.
-      .select("id, status, attempts, queued_at, error, delivery, queued_by, orders(order_number, restaurant_id, received_at, customer_name, customer_total)")
+      .select("id, status, attempts, queued_at, error, delivery, queued_by, orders(id, order_number, restaurant_id, received_at, customer_name, customer_total)")
       .in("status", ["queued", "claimed", "held", "failed"]),
   ]);
 
@@ -905,6 +912,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     restaurant_name: nameOf(j.orders?.restaurant_id ?? null),
     order: j.orders
       ? {
+          id: j.orders.id ?? null,
           order_number: j.orders.order_number ?? null,
           received_at: j.orders.received_at ?? null,
           customer_name: j.orders.customer_name ?? null,

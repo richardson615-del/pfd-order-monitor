@@ -281,9 +281,12 @@ are `null` on a fleet-wide issue (webhook, cron), never on a restaurant
 one.
 Ticket issues — `job_stuck:<job id>` (queued, claimed **or held** past ten
 minutes) and `job_failed:<job id>` — carry an **`order`** object since
-2026-09-16: `{ order_number, received_at, age_minutes, customer_name,
+2026-09-16: `{ id, order_number, received_at, age_minutes, customer_name,
 total, queued_by }` (`queued_by` = `ingest | test | login_print |
-reprint:<actor>`, null for rows older than bridge migration 038). Every
+reprint:<actor>`, null for rows older than bridge migration 038). `id`
+(added 2026-09-25) is the bridge's order id — the one
+`POST /api/crm/orders/:id/actions` takes — so the CRM can reprint the
+order a failed job was for; additive, a pre-2026-09-25 bridge omits it. Every
 other issue carries `order: null`. Their titles lead with the printer's
 reason in plain English — **"Printer is out of paper: order 1196"**,
 "Printer cover is open", "Printer offline" — never an ePOS code; the code

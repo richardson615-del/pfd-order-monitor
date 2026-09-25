@@ -126,6 +126,20 @@ test("a ticket that gave up after retries is reported with its error", () => {
   assert.match(i.detail, /SchemaError/);
 });
 
+test("a failed ticket carries its order's id, so the CRM can reprint that order", () => {
+  const order = { id: "ord-1196", order_number: "1196", received_at: minsAgo(12), customer_name: "Ann", total: 23.5, queued_by: "ingest" };
+  const s = { ...healthy, failedJobs: [{ id: "j2", order_number: "1196", restaurant_id: "r1", restaurant_name: "China One", error: "Printer offline", order }] };
+  const [i] = evaluateHealth(s, NOW);
+  assert.equal(i.order?.id, "ord-1196");
+  assert.equal(i.order?.age_minutes, 12);
+});
+
+test("the print-job query selects the order's id", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const src = readFileSync(new URL("../lib/health.ts", import.meta.url), "utf8");
+  assert.match(src, /orders\(id, order_number, restaurant_id, received_at/);
+});
+
 console.log("issue identity and ordering:");
 
 test("keys are stable across runs, so a repeat is not re-alerted", () => {

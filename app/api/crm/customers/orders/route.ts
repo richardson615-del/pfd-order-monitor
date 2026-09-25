@@ -37,6 +37,11 @@ export const maxDuration = 30;
  * counting in frequency/lifetime-spend). Includes both `zuppler` and
  * `email` sources -- the email-leg (AEM) parser captures name/phone (no
  * email extraction there yet), still real identity signal.
+ *
+ * `line_items` (2026-09-24, prs-crm QUEUE row 66): the structured cart
+ * lines from migration 044 - name, quantity, extended total, category,
+ * Zuppler ids. Null for email orders and for any Zuppler order the
+ * backfill has not reached yet.
  */
 export async function GET(req: NextRequest) {
   const denied = authorizeCrmWrite(req);
@@ -62,7 +67,7 @@ export async function GET(req: NextRequest) {
 
   const admin = supabaseAdmin();
   const SELECT_COLUMNS =
-    "id, source, order_type, received_at, items_total, payment_type, customer_name, customer_phone, customer_email, restaurant_id, restaurants(zuppler_restaurant_id)";
+    "id, source, order_type, received_at, items_total, payment_type, customer_name, customer_phone, customer_email, line_items, restaurant_id, restaurants(zuppler_restaurant_id)";
 
   const data: any[] = [];
   let chunkOffset = offset;
@@ -99,6 +104,7 @@ export async function GET(req: NextRequest) {
     customer_name: o.customer_name,
     customer_phone: o.customer_phone,
     customer_email: o.customer_email,
+    line_items: o.line_items ?? null,
     restaurant: {
       id: o.restaurant_id,
       zuppler_restaurant_id: o.restaurants?.zuppler_restaurant_id ?? null,

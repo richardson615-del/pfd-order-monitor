@@ -991,6 +991,33 @@ same fallback-shape logic the mapper itself uses (`raw_payload` was not
 always captured in one consistent shape). Idempotent (only touches
 `customer_email IS NULL` rows); dry-run by default, `--write` to apply.
 
+**`line_items` on the customer-orders feed (added 2026-09-24, prs-crm
+QUEUE row 66).** Each order now also carries `line_items`: the cart lines
+structured for reporting, next to the print-shaped `items` the tablet and
+ticket use (which folds quantity into the name and money into a string).
+
+```json
+"line_items": [
+  { "name": "Cheeseburger", "quantity": 2, "item_total": 23.00, "category": "Burgers", "menu_id": "77", "item_id": "1" },
+  { "name": "Fries", "quantity": 1, "item_total": 4.00, "category": null, "menu_id": null, "item_id": "2" }
+]
+```
+
+- `item_total` is the line's extended total in dollars (quantity × unit,
+  paid options included), exactly as Zuppler computes `itemTotal`.
+- `menu_id` / `item_id` are Zuppler's own ids as sent (strings), for
+  grouping when a name changes; either may be null.
+- `line_items` is `null` for email and phone orders, and for a Zuppler
+  order the one-time backfill has not reached. Column: `orders.line_items`
+  (migration 044). Only this feed returns it; `/api/crm/accounting/orders`
+  and `/api/crm/orders` are unchanged.
+
+**Line-item backfill, one-time (`scripts/backfill-line-items.ts`,
+2026-09-24).** Fills `line_items` for historical Zuppler orders from stored
+`raw_payload` by running `mapZupplerGraphqlOrder()` itself, so it cannot
+disagree with the live mapper. Only `line_items IS NULL` rows; dry run by
+default, `--write` to apply, `--production` for the production database.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

@@ -45,6 +45,11 @@ test("no single Supabase read exceeds the safe chunk size", () => {
   assert.match(route, /const SUPABASE_SAFE_CHUNK = 500/);
 });
 
+test("line_items (row 66) are selected and returned, null when absent", () => {
+  assert.match(route, /SELECT_COLUMNS =\s*"[^"]*\bline_items\b/);
+  assert.match(route, /line_items: o\.line_items \?\? null/);
+});
+
 test("response echoes the zuppler_restaurant_id needed to resolve a CRM account", () => {
   assert.match(route, /zuppler_restaurant_id/);
 });

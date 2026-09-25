@@ -1,4 +1,4 @@
-import type { CanonicalOrderInput } from "./canonical";
+import type { CanonicalOrderInput, LineItem } from "./canonical";
 
 /**
  * Zuppler integration - real flow per Zuppler's spec (Jerry Dani, Feb 2026):
@@ -144,6 +144,18 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
     };
   });
 
+  // Additive, 2026-09-24 (prs-crm QUEUE row 66): the same lines, structured
+  // for reporting. Every field was already in LOAD_ORDER_QUERY and in
+  // rawPayload; nothing about `items` above changes.
+  const lineItems: LineItem[] = rawItems.map((it) => ({
+    name: str(it.name) ?? str(it.menu) ?? "Item",
+    quantity: typeof it.quantity === "number" ? it.quantity : 1,
+    item_total: money(it.itemTotal),
+    category: str(it.category),
+    menu_id: it.menuId != null && it.menuId !== "" ? String(it.menuId) : null,
+    item_id: it.id != null && it.id !== "" ? String(it.id) : null,
+  }));
+
   // Notes: cart-level comments + instructions, both free text from customer
   const notes =
     [str(cart.comments), str(cart.instructions)].filter(Boolean).join(" | ") ||
@@ -198,6 +210,7 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
         return base ? [base, ...extra].join(" | ") : (extra.join(" | ") || null);
       })(),
       items,
+      lineItems: lineItems.length ? lineItems : null,
       itemsTotal: money(totals.subtotal),
       tax: money(totals.tax),
       serviceFee: money(totals.service),

@@ -107,7 +107,7 @@ async function main() {
     const code = lib.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     assert.doesNotMatch(code, /fetch\(|https:\/\/|process\.env|ingestOrder\(|supabase/i);
     // Its only import is the canonical TYPE: it cannot reach the database or ingest.
-    assert.deepEqual(code.split("\n").filter((l) => l.startsWith("import ")), ['import type { CanonicalOrderInput } from "./canonical";']);
+    assert.deepEqual(code.split(/\r?\n/).filter((l) => l.startsWith("import ")), ['import type { CanonicalOrderInput } from "./canonical";']);
     // The canonical source list is unchanged until a migration adds 'ezcater'.
     assert.doesNotMatch(src("lib/canonical.ts"), /"ezcater"/);
   });

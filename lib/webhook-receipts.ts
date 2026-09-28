@@ -24,7 +24,12 @@ export type ReceiptStatus =
   | "created"
   | "duplicate"
   | "updated"
-  | "cancelled";
+  | "cancelled"
+  // ezCater (migration 045): a notification we do not act on (not an order
+  // event, or an event key we do not handle), and one for a location that is
+  // linked but switched off.
+  | "ignored"
+  | "inactive";
 
 /** Statuses that mean a real order made it into the system. */
 export const ACCEPTED_STATUSES: ReceiptStatus[] = [

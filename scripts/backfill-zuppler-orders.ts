@@ -78,6 +78,8 @@ async function main() {
   const { data: receipts, error } = await db
     .from("webhook_receipts")
     .select("id, order_uuid, detail, received_at")
+    // ezCater receipts share the table (migration 045); only Zuppler's are Zuppler order uuids.
+    .eq("source", "zuppler")
     .eq("status", "unmapped")
     .gte("received_at", SINCE)
     .order("received_at", { ascending: true })

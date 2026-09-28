@@ -667,13 +667,20 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
   // not keep firing today.
   const RECENT_WINDOW_HOURS = 6;
   const recentSince = new Date(Date.now() - RECENT_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+  // Zuppler's receipts only: this finding is about Zuppler's webhook, and
+  // ezCater's notifications (migration 045) share the table under their own
+  // source - an inactive ezCater location must not read as Zuppler turning
+  // orders away.
   const [lastReceiptRes, lastAcceptedRes, recentRes] = await Promise.all([
     admin.from("webhook_receipts").select("received_at")
+      .eq("source", "zuppler")
       .order("received_at", { ascending: false }).limit(1),
     admin.from("webhook_receipts").select("received_at")
+      .eq("source", "zuppler")
       .in("status", ACCEPTED_STATUSES)
       .order("received_at", { ascending: false }).limit(1),
     admin.from("webhook_receipts").select("status, detail")
+      .eq("source", "zuppler")
       .gte("received_at", recentSince),
   ]);
   const recent = recentRes.data ?? [];

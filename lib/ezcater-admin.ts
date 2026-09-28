@@ -28,34 +28,44 @@ import {
 export const EZCATER_SUBSCRIBED_EVENTS = ["accepted", "cancelled"] as const;
 
 /**
- * Matt, 2026-09-28: the six PFD locations on ezCater, by the first 8
- * characters of their caterer uuid, and the restaurant each belongs to. Only
- * the prefix was given, so a seed applies only when exactly one synced
- * caterer starts with it AND exactly one bridge restaurant matches the name.
- * Anything else is reported, never guessed. The seed links; it never
- * activates - Willie Mae's is switched on by hand, the rest stay off "until
- * I say".
+ * Matt, 2026-09-28: the six PFD locations on ezCater - their full caterer
+ * uuids, as ezCater shows them - and the restaurant each belongs to. The uuid
+ * is matched exactly. The restaurant is the one bridge restaurant whose name
+ * equals the seed's name, else the one whose name contains its `match` word
+ * - exactly one either way, or it is reported, never guessed. The seed
+ * creates a location row it does not have yet (so linking does not wait on
+ * the Caterers sync) and links it; it never activates - Willie Mae's is
+ * switched on by hand, the rest stay off "until I say".
  */
-export const EZCATER_SEED: ReadonlyArray<{ prefix: string; label: string; match: string }> = [
-  { prefix: "7f2a4942", label: "Willie Mae's", match: "willie mae" },
-  { prefix: "0996f96f", label: "Larry's", match: "larry" },
-  { prefix: "7a0e1f7d", label: "Sylfoni's", match: "sylfoni" },
-  { prefix: "f72aee20", label: "El Molcajete", match: "molcajete" },
-  { prefix: "e818e720", label: "All Seasons Sports Grill", match: "all seasons" },
-  { prefix: "43a61b77", label: "Torino's", match: "torino" },
+export const EZCATER_SEED: ReadonlyArray<{ uuid: string; label: string; match: string }> = [
+  { uuid: "7f2a4942-1cc8-48ad-94d7-3dd09b241fb1", label: "Willie Mae's Barbeque", match: "willie mae" },
+  { uuid: "0996f96f-fd68-44f6-9db1-da4d54cd876b", label: "Larry's", match: "larry" },
+  { uuid: "7a0e1f7d-af97-43a4-9bda-d6f757407f9f", label: "Sylfoni's Pizza", match: "sylfoni" },
+  { uuid: "f72aee20-8e5d-49ed-bb77-114209078e19", label: "El Molcajete", match: "molcajete" },
+  { uuid: "e818e720-1594-4a4f-868d-ff012fc1e29a", label: "All Seasons Sports Grill", match: "all seasons" },
+  { uuid: "43a61b77-a508-4adc-b8a7-be3b24563820", label: "Torino's Greek & Italian", match: "torino" },
 ];
 
 const norm = (s: string | null | undefined) => String(s ?? "").toLowerCase().replace(/[’'`]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
 export interface SeedOutcome {
-  prefix: string;
+  uuid: string;
   label: string;
   catererUuid: string | null;
   catererName: string | null;
   restaurantId: string | null;
   restaurantName: string | null;
-  result: "linked" | "already_linked" | "caterer_missing" | "caterer_ambiguous" | "restaurant_missing" | "restaurant_ambiguous" | "linked_elsewhere";
+  result: "linked" | "already_linked" | "caterer_missing" | "restaurant_missing" | "restaurant_ambiguous" | "linked_elsewhere";
   detail?: string;
+}
+
+/** Pure: the one restaurant a seed row names - exact name first, then the one containing its match word. */
+export function seedRestaurant(s: { label: string; match: string }, restaurants: Array<{ id: string; name: string | null }>): { pick: { id: string; name: string | null } | null; ambiguous: string[] } {
+  const exact = restaurants.filter((r) => norm(r.name) === norm(s.label));
+  if (exact.length === 1) return { pick: exact[0], ambiguous: [] };
+  const byWord = restaurants.filter((r) => ` ${norm(r.name)} `.includes(` ${s.match}`));
+  if (byWord.length === 1) return { pick: byWord[0], ambiguous: [] };
+  return { pick: null, ambiguous: (exact.length > 1 ? exact : byWord).map((r) => r.name ?? r.id) };
 }
 
 /** Pure: which caterer and which restaurant a seed row points at. */
@@ -64,16 +74,14 @@ export function planSeed(
   restaurants: Array<{ id: string; name: string | null }>
 ): SeedOutcome[] {
   return EZCATER_SEED.map((s) => {
-    const base = { prefix: s.prefix, label: s.label, catererUuid: null, catererName: null, restaurantId: null, restaurantName: null };
-    const cs = caterers.filter((c) => c.caterer_uuid.toLowerCase().startsWith(s.prefix));
-    if (cs.length === 0) return { ...base, result: "caterer_missing" as const };
-    if (cs.length > 1) return { ...base, result: "caterer_ambiguous" as const, detail: cs.map((c) => c.caterer_uuid).join(", ") };
-    const c = cs[0];
-    const rs = restaurants.filter((r) => ` ${norm(r.name)} `.includes(` ${s.match}`));
+    const base = { uuid: s.uuid, label: s.label, catererUuid: null, catererName: null, restaurantId: null, restaurantName: null };
+    const c = caterers.find((x) => x.caterer_uuid.toLowerCase() === s.uuid);
+    if (!c) return { ...base, result: "caterer_missing" as const };
     const withCaterer = { ...base, catererUuid: c.caterer_uuid, catererName: c.name };
-    if (rs.length === 0) return { ...withCaterer, result: "restaurant_missing" as const };
-    if (rs.length > 1) return { ...withCaterer, result: "restaurant_ambiguous" as const, detail: rs.map((r) => r.name).join(", ") };
-    const r = rs[0];
+    const { pick, ambiguous } = seedRestaurant(s, restaurants);
+    if (!pick && ambiguous.length === 0) return { ...withCaterer, result: "restaurant_missing" as const };
+    if (!pick) return { ...withCaterer, result: "restaurant_ambiguous" as const, detail: ambiguous.join(", ") };
+    const r = pick;
     const out = { ...withCaterer, restaurantId: r.id, restaurantName: r.name };
     if (c.restaurant_id === r.id) return { ...out, result: "already_linked" as const };
     // A location someone already linked to a different restaurant is never overwritten by the seed.
@@ -84,8 +92,8 @@ export function planSeed(
 
 export interface SyncResult {
   caterers: EzCaterCaterer[];
-  /** Matt: "Confirm the Caterers query returns all six." One line per seed row. */
-  seedCheck: Array<{ prefix: string; label: string; found: string[] }>;
+  /** Matt: "Confirm the Caterers query returns all six." One line per seed row: ezCater's name for that uuid, or null when the query did not return it. */
+  seedCheck: Array<{ uuid: string; label: string; found: string | null }>;
 }
 
 /** Runs the Caterers query and upserts every location. Never touches a link or the active flag. */
@@ -102,12 +110,19 @@ export async function syncCaterers(): Promise<SyncResult> {
   }
   return {
     caterers,
-    seedCheck: EZCATER_SEED.map((s) => ({ prefix: s.prefix, label: s.label, found: caterers.filter((c) => c.uuid.toLowerCase().startsWith(s.prefix)).map((c) => `${c.uuid} ${c.name}`) })),
+    seedCheck: EZCATER_SEED.map((s) => ({ uuid: s.uuid, label: s.label, found: caterers.find((c) => c.uuid.toLowerCase() === s.uuid)?.name ?? null })),
   };
 }
 
 export async function applySeed(actor: string): Promise<SeedOutcome[]> {
   const admin = supabaseAdmin();
+  // The six are known by full uuid, so their rows can exist before the first
+  // Caterers sync (which then fills store number, address and ezCater's own
+  // name). ignoreDuplicates: a row the sync already wrote is left as it is.
+  const { error: seedError } = await admin
+    .from("ezcater_locations")
+    .upsert(EZCATER_SEED.map((s) => ({ caterer_uuid: s.uuid, name: s.label })), { onConflict: "caterer_uuid", ignoreDuplicates: true });
+  if (seedError) throw new EzCaterAdminError(`seed rows: ${seedError.message}`);
   const [{ data: caterers }, { data: restaurants }] = await Promise.all([
     admin.from("ezcater_locations").select("caterer_uuid, name, restaurant_id"),
     admin.from("restaurants").select("id, name"),

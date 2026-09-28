@@ -77,10 +77,10 @@ export default function EzCaterAdmin() {
           <div>
             <p className="success-text">Caterers query returned {notice.data.caterers.length} location(s).</p>
             <table className="admin-table">
-              <thead><tr><th>Seed</th><th>Prefix</th><th>Found</th></tr></thead>
+              <thead><tr><th>Seed</th><th>ezCater uuid</th><th>Returned as</th></tr></thead>
               <tbody>
                 {notice.data.seedCheck.map((s: any) => (
-                  <tr key={s.prefix}><td>{s.label}</td><td><code>{s.prefix}</code></td><td>{s.found.length === 1 ? <span className="success-text">{s.found[0]}</span> : <span className="error-text">{s.found.length === 0 ? "not returned" : `${s.found.length} match: ${s.found.join("; ")}`}</span>}</td></tr>
+                  <tr key={s.uuid}><td>{s.label}</td><td><code>{s.uuid}</code></td><td>{s.found ? <span className="success-text">{s.found}</span> : <span className="error-text">not returned</span>}</td></tr>
                 ))}
               </tbody>
             </table>
@@ -91,7 +91,7 @@ export default function EzCaterAdmin() {
             <thead><tr><th>Seed</th><th>Caterer</th><th>Restaurant</th><th>Result</th></tr></thead>
             <tbody>
               {notice.data.outcomes.map((o: any) => (
-                <tr key={o.prefix}><td>{o.label}</td><td>{o.catererName ?? "—"}</td><td>{o.restaurantName ?? "—"}</td><td className={o.result === "linked" || o.result === "already_linked" ? "success-text" : "error-text"}>{o.result}{o.detail ? ` (${o.detail})` : ""}</td></tr>
+                <tr key={o.uuid}><td>{o.label}</td><td>{o.catererName ?? "—"}</td><td>{o.restaurantName ?? "—"}</td><td className={o.result === "linked" || o.result === "already_linked" ? "success-text" : "error-text"}>{o.result}{o.detail ? ` (${o.detail})` : ""}</td></tr>
               ))}
             </tbody>
           </table>

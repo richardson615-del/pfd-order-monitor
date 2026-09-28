@@ -173,33 +173,44 @@ test("there is no 'modified' event to subscribe to: accepted (which re-fires on 
 // ---- the seed ----------------------------------------------------------------------
 
 console.log("\nthe six locations (Matt, 2026-09-28):");
-test("six seed rows, by uuid prefix", () => {
-  assert.deepEqual(EZCATER_SEED.map((s) => s.prefix), ["7f2a4942", "0996f96f", "7a0e1f7d", "f72aee20", "e818e720", "43a61b77"]);
+test("six seed rows, by Matt's full uuids", () => {
+  assert.deepEqual(EZCATER_SEED.map((s) => s.uuid), [
+    "7f2a4942-1cc8-48ad-94d7-3dd09b241fb1",
+    "0996f96f-fd68-44f6-9db1-da4d54cd876b",
+    "7a0e1f7d-af97-43a4-9bda-d6f757407f9f",
+    "f72aee20-8e5d-49ed-bb77-114209078e19",
+    "e818e720-1594-4a4f-868d-ff012fc1e29a",
+    "43a61b77-a508-4adc-b8a7-be3b24563820",
+  ]);
 });
 
-test("a seed links only on exactly one caterer and exactly one restaurant, never overwrites a link, and never activates", () => {
+test("a seed matches the uuid exactly and exactly one restaurant (exact name first), never overwrites a link, and never activates", () => {
   const caterers = [
-    { caterer_uuid: "7f2a4942-aaaa", name: "Willie Mae's BBQ", restaurant_id: null },
-    { caterer_uuid: "0996f96f-bbbb", name: "Larry's", restaurant_id: "r-other" },
-    { caterer_uuid: "7a0e1f7d-cccc", name: "Sylfoni's", restaurant_id: null },
-    { caterer_uuid: "7a0e1f7d-dddd", name: "Sylfoni's 2", restaurant_id: null },
-    { caterer_uuid: "e818e720-eeee", name: "All Seasons Sports Grill", restaurant_id: null },
-    { caterer_uuid: "43a61b77-ffff", name: "Torino's", restaurant_id: null },
+    { caterer_uuid: "7f2a4942-1cc8-48ad-94d7-3dd09b241fb1", name: "Willie Mae's Barbeque", restaurant_id: null },
+    { caterer_uuid: "0996f96f-fd68-44f6-9db1-da4d54cd876b", name: "Larry's", restaurant_id: "r-other" },
+    { caterer_uuid: "7a0e1f7d-af97-43a4-9bda-000000000000", name: "a lookalike prefix only", restaurant_id: null },
+    { caterer_uuid: "e818e720-1594-4a4f-868d-ff012fc1e29a", name: "All Seasons Sports Grill", restaurant_id: null },
+    { caterer_uuid: "43a61b77-a508-4adc-b8a7-be3b24563820", name: "Torino's Greek & Italian", restaurant_id: null },
+    { caterer_uuid: "f72aee20-8e5d-49ed-bb77-114209078e19", name: "El Molcajete", restaurant_id: null },
   ];
   const restaurants = [
-    { id: "r-wm", name: "Willie Mae’s BBQ" },
+    { id: "r-wm", name: "Willie Mae’s Barbeque" },
+    { id: "r-wm2", name: "Willie Mae's Catering" },
     { id: "r-larry", name: "Larry's Burgers" },
     { id: "r-t1", name: "Torino's Pizza" },
     { id: "r-t2", name: "Torino's Catering" },
+    { id: "r-el", name: "El Molcajete Mexican Restaurant" },
   ];
   const plan = Object.fromEntries(planSeed(caterers, restaurants).map((p) => [p.label, p]));
-  assert.equal(plan["Willie Mae's"].result, "linked");
-  assert.equal(plan["Willie Mae's"].restaurantId, "r-wm");
+  // Two "willie mae" restaurants, but one equals the seed name exactly.
+  assert.equal(plan["Willie Mae's Barbeque"].result, "linked");
+  assert.equal(plan["Willie Mae's Barbeque"].restaurantId, "r-wm");
   assert.equal(plan["Larry's"].result, "linked_elsewhere");
-  assert.equal(plan["Sylfoni's"].result, "caterer_ambiguous");
-  assert.equal(plan["El Molcajete"].result, "caterer_missing");
+  // A shared 8-character prefix is not the location: the uuid must match in full.
+  assert.equal(plan["Sylfoni's Pizza"].result, "caterer_missing");
+  assert.equal(plan["El Molcajete"].result, "linked");
   assert.equal(plan["All Seasons Sports Grill"].result, "restaurant_missing");
-  assert.equal(plan["Torino's"].result, "restaurant_ambiguous");
+  assert.equal(plan["Torino's Greek & Italian"].result, "restaurant_ambiguous");
   assert.doesNotMatch(src("lib/ezcater-admin.ts").split("export async function applySeed")[1].split("export class")[0], /active/);
 });
 

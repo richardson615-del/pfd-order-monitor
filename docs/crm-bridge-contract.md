@@ -610,6 +610,7 @@ Limit 2000 rows (`truncated: true` beyond).
         "job_id": null,
         "failed_reason": null
       },
+      "email": null,
       "flags": {
         "unaccepted_over_3m": true,
         "late": false,
@@ -626,6 +627,7 @@ Limit 2000 rows (`truncated: true` beyond).
 - `prep_minutes` — the restaurant's target; `accepted_at + prep_minutes` is the countdown the tablet shows.
 - `destinations` — `orderDestinations()`, same as the roster.
 - `print.state` — `printed` \| `queued` \| `held` (printer waiting for paper/cover) \| `stuck` (pending past ten minutes) \| `failed` \| `expired` (too old to print, never printed) \| `none`; `failed_reason` is the printer's sentence (E2). Paper jobs only — the tablet push is `app_delivery` on the detail.
+- `email` (ET5) — the email leg's own `print_jobs` row (`delivery = 'email'`), `null` when there is none: `{ state, job_id, sent_at, error }`. `state` is `sent` only when the job has `sent_at`; `failed` when it has `send_error` (or status `failed`); `pending` when it was owed and never confirmed. An email restaurant's order with `email: null` was never emailed - do not call it EMAILED from `destinations`, which is the restaurant's *current* config, not what happened to this order.
 - `flags` — computed with the tablet's own helpers: `unaccepted_over_3m` (health's `order_unaccepted` line), `late` (ten minutes, `isLate`), `overtime` (countdown past zero).
 
 **The detail** adds the full customer, the items with modifiers and prices
@@ -677,6 +679,7 @@ cancelled, each print attempt named by device and outcome), `print_jobs`
       "job_id": "5c1d…",
       "failed_reason": null
     },
+    "email": null,
     "flags": {
       "unaccepted_over_3m": false,
       "late": false,
@@ -1058,6 +1061,24 @@ restaurant's own modifiers and totals survive the trip.
 Response includes **`sent_to_restaurant`**. Surface it: without `to`, this
 sends a real email to a real kitchen, and that should never be ambiguous in
 the UI.
+
+`order_id` must be one of this restaurant's orders (404 `order not found for
+this restaurant` otherwise). A re-sent real order is marked (ET3): the body
+starts `*** TEST RESEND — DO NOT MAKE ***` and the subject gains `[TEST]`
+after the order number (`PFD ORDER #1183 [TEST] - PICKUP …`), so it still
+matches the AEM rule and the kitchen does not cook it twice. The sample is
+not marked.
+
+```
+GET /api/crm/restaurants/:id/test-email
+-> { "from": "info@pfdworks.com", "print_method": "email",
+     "ticket_email_to": "kitchen@example.com" | null,
+     "latest_order": { "order_id": "<uuid>", "order_number": "1183",
+                       "received_at": "2026-09-29T18:02:11Z" } | null }
+```
+
+What a "Send test ticket" picker needs before sending: the configured inbox
+and the restaurant's latest real order (test orders excluded).
 
 ### Device test print
 

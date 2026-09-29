@@ -208,6 +208,32 @@ export function composeCancellationEmail(order: TicketOrder): TicketEmail {
   return { subject, text, html: wrapTicketHtml(text) };
 }
 
+export const TEST_RESEND_BANNER = "*** TEST RESEND — DO NOT MAKE ***";
+
+/**
+ * Marks a REAL order re-sent as a test (ET3), so the kitchen that prints it
+ * does not cook it a second time.
+ *
+ * The subject keeps its "PFD ORDER #…" start - that is what the AEM rule
+ * matches, and a test that the rule skips proves nothing - with [TEST]
+ * straight after the order number. The banner leads both parts, above the
+ * ticket, where a cook reads first.
+ */
+export function markTestResend(email: TicketEmail): TicketEmail {
+  const subject = /^PFD ORDER #\S+/.test(email.subject)
+    ? email.subject.replace(/^(PFD ORDER #\S+)/, "$1 [TEST]")
+    : `PFD ORDER [TEST] ${email.subject}`;
+  const text = `${TEST_RESEND_BANNER}\n\n${email.text}`;
+  const banner =
+    `<div style="font-family:'Courier New',Courier,monospace;border:3px solid #000;` +
+    `font-weight:bold;font-size:17px;text-align:center;padding:4px 0;margin:0 0 6px;` +
+    `max-width:34ch;color:#000">` + escapeHtml(TEST_RESEND_BANNER) + `</div>`;
+  const html = /<body[^>]*>/i.test(email.html)
+    ? email.html.replace(/<body[^>]*>/i, (tag) => tag + banner)
+    : banner + email.html;
+  return { subject, text, html };
+}
+
 /** Multipart/alternative RFC822 message. */
 export function buildRawMessage(to: string, from: string, email: TicketEmail): string {
   const boundary = `pfd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;

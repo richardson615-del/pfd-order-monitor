@@ -16,6 +16,7 @@ import {
   UNACCEPTED_FLAG_MS,
   appDelivery,
   changedSince,
+  emailSummary,
   isOrderAction,
   localDayWindow,
   orderCounts,
@@ -212,6 +213,21 @@ test("the timeline is the order's life in order, print attempts named by device 
     devices_reached: 0,
     error: "no device has notifications enabled for this restaurant",
   });
+});
+
+test("EMAILED means the email left: sent only with sent_at, failed with send_error, pending otherwise (ET5)", () => {
+  assert.equal(emailSummary([]), null, "no email job -> null (the CRM says NOT SENT)");
+  assert.equal(emailSummary([{ id: "p", status: "printed", delivery: "epson" }]), null, "paper jobs are not email");
+  assert.deepEqual(emailSummary([{ id: "e", status: "printed", delivery: "email", sent_at: at(NOW - M) }]), {
+    state: "sent", job_id: "e", sent_at: at(NOW - M), error: null,
+  });
+  assert.deepEqual(emailSummary([{ id: "e", status: "failed", delivery: "email", send_error: "print_method is 'email' but ticket_email_to is empty" }]), {
+    state: "failed", job_id: "e", sent_at: null, error: "print_method is 'email' but ticket_email_to is empty",
+  });
+  assert.equal(emailSummary([{ id: "e", status: "queued", delivery: "email" }])?.state, "pending", "owed, never confirmed");
+  const row = shapeOrderRow(order("a"), R1, [{ id: "e", status: "printed", delivery: "email", sent_at: at(NOW) }], NOW);
+  assert.equal(row.email?.state, "sent");
+  assert.equal(shapeOrderRow(order("b"), R1, [], NOW).email, null);
 });
 
 console.log("\nthe routes:");

@@ -393,6 +393,36 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app"];
+export type OrderAction = "reprint" | "resend_app" | "resend";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend"];
+
+/**
+ * Whether an order may be RESENT (Nick, 2026-09-29): any order the
+ * restaurant received today - the restaurant's local day, which ends at
+ * midnight - except a cancelled one, whose food is not to be made.
+ * A completed order can be resent; the kitchen may have lost the ticket.
+ * Null = allowed; otherwise the refusal to return.
+ */
+export function resendRefusal(
+  o: { status: string | null; received_at: string | null },
+  now: number,
+  tz: string = DEFAULT_ORDERS_TZ
+): { code: "order_cancelled" | "not_today"; error: string } | null {
+  if (o.status === "cancelled") {
+    return { code: "order_cancelled", error: "this order is cancelled; nothing is sent for it again" };
+  }
+  const at = o.received_at ? Date.parse(o.received_at) : NaN;
+  const day = Number.isNaN(at) ? null : localDayKey(at, tz);
+  const today = localDayKey(now, tz);
+  if (day !== today) {
+    return {
+      code: "not_today",
+      error: `only today's orders can be resent (resend turns off at midnight); this one was received ${day ?? "on an unknown day"}`,
+    };
+  }
+  return null;
+}
+
+/** The line a resent ticket leads with - printed, emailed and pushed alike. ASCII, for the Epson. */
+export const resentBanner = (orderNumber: string | null | undefined) => `*** RESENT - ORDER #${orderNumber ?? "?"} ***`;
 export const isOrderAction = (v: unknown): v is OrderAction => ORDER_ACTIONS.includes(v as OrderAction);

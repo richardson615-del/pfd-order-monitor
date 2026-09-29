@@ -159,3 +159,9 @@ export function holdReleased(heldAt: string | null | undefined, now: number): bo
 /** Who put a job in the queue - the vocabulary of print_jobs.queued_by. */
 export type QueuedBy = "ingest" | "test" | "login_print" | `reprint:${string}`;
 export const reprintBy = (actor: string): QueuedBy => `reprint:${actor.trim() || "unknown"}`;
+/**
+ * A RESEND from the CRM (2026-09-29) is a reprint - same manual-reprint
+ * rules - that the ticket marks RESENT, so its own prefix under reprint:.
+ */
+export const resendBy = (actor: string): QueuedBy => reprintBy(`resend:${actor.trim() || "unknown"}`);
+export const isResendJob = (queuedBy: string | null | undefined): boolean => /^reprint:resend:/.test(queuedBy ?? "");

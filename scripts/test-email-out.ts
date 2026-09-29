@@ -6,7 +6,7 @@
  * their kitchen printing, which is why it is asserted rather than assumed.
  */
 import assert from "node:assert/strict";
-import { composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, TEST_RESEND_BANNER } from "@/lib/email-out";
+import { composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, markResent, TEST_RESEND_BANNER } from "@/lib/email-out";
 import { readFileSync } from "node:fs";
 import { toPlainText, buildTicket } from "@/lib/ticket";
 
@@ -146,6 +146,14 @@ test("a re-sent real order says TEST RESEND first, and its subject still starts 
   assert.equal(TEST_RESEND_BANNER, "*** TEST RESEND — DO NOT MAKE ***");
   assert.match(m.html, /<body[^>]*><div[^>]*>\*\*\* TEST RESEND — DO NOT MAKE \*\*\*<\/div>/, "banner leads the HTML body");
   assert.match(m.html, /#134d542b/, "the ticket itself is intact");
+});
+
+test("a real resend says RESENT and keeps the PFD ORDER subject (2026-09-29)", () => {
+  const m = markResent(composeTicketEmail(ORDER), "*** RESENT - ORDER #134d542b ***");
+  assert.ok(m.subject.startsWith("PFD ORDER #134d542b [RESENT]"), `got: ${m.subject}`);
+  assert.ok(m.text.startsWith("*** RESENT - ORDER #134d542b ***"));
+  assert.doesNotMatch(m.text, /DO NOT MAKE/, "a resend is meant to be made");
+  assert.match(m.html, /<body[^>]*><div[^>]*>\*\*\* RESENT - ORDER #134d542b \*\*\*<\/div>/);
 });
 
 test("test-email marks only real orders, and only this restaurant's (ET3)", () => {

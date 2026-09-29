@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { buildTicket, toEposPrintXml } from "@/lib/ticket";
 import { renderHeader, renderFooter, toEposImageXml, DEFAULT_FOOTER_TEXT_MARK } from "@/lib/ticket-raster";
-import { claimDecision, expiredReason, failureTransition, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
+import { claimDecision, expiredReason, failureTransition, isResendJob, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
+import { resentBanner } from "@/lib/crm-orders";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -109,7 +110,7 @@ async function handleGetRequest(deviceKey: string) {
   const { data: queued } = await admin
     .from("print_jobs")
     .select(
-      `id, order_id, kind, document, manual_reprint_at,
+      `id, order_id, kind, document, manual_reprint_at, queued_by,
        orders ( order_number, source, ticket_restaurant_name, order_type, due_time,
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
@@ -203,6 +204,17 @@ async function handleGetRequest(deviceKey: string) {
         // The raster blocks own the header and footer, so the text renderer's
         // versions are dropped rather than printed twice.
         const bodyLines = sliceBody(lines);
+
+        // A resend from the CRM's Orders area leads with RESENT (2026-09-29),
+        // on the raster layout and the text-only fallback alike.
+        if (isResendJob(job.queued_by)) {
+          const banner = [
+            { text: resentBanner(job.orders?.order_number), align: "center" as const, bold: true, reverse: true },
+            { text: "" },
+          ];
+          bodyLines.unshift(...banner);
+          lines.unshift(...banner);
+        }
 
         let head = "";
         let foot = "";

@@ -220,16 +220,29 @@ export const TEST_RESEND_BANNER = "*** TEST RESEND — DO NOT MAKE ***";
  * ticket, where a cook reads first.
  */
 export function markTestResend(email: TicketEmail): TicketEmail {
+  return withBanner(email, TEST_RESEND_BANNER, "TEST");
+}
+
+/**
+ * Marks a REAL resend from the CRM's Orders area (2026-09-29): the kitchen
+ * never got it, or lost it, and is meant to make it. Same placement as
+ * the test banner; [RESENT] after the order number keeps the AEM match.
+ */
+export function markResent(email: TicketEmail, banner: string): TicketEmail {
+  return withBanner(email, banner, "RESENT");
+}
+
+function withBanner(email: TicketEmail, bannerText: string, tag: string): TicketEmail {
   const subject = /^PFD ORDER #\S+/.test(email.subject)
-    ? email.subject.replace(/^(PFD ORDER #\S+)/, "$1 [TEST]")
-    : `PFD ORDER [TEST] ${email.subject}`;
-  const text = `${TEST_RESEND_BANNER}\n\n${email.text}`;
+    ? email.subject.replace(/^(PFD ORDER #\S+)/, `$1 [${tag}]`)
+    : `PFD ORDER [${tag}] ${email.subject}`;
+  const text = `${bannerText}\n\n${email.text}`;
   const banner =
     `<div style="font-family:'Courier New',Courier,monospace;border:3px solid #000;` +
     `font-weight:bold;font-size:17px;text-align:center;padding:4px 0;margin:0 0 6px;` +
-    `max-width:34ch;color:#000">` + escapeHtml(TEST_RESEND_BANNER) + `</div>`;
+    `max-width:34ch;color:#000">` + escapeHtml(bannerText) + `</div>`;
   const html = /<body[^>]*>/i.test(email.html)
-    ? email.html.replace(/<body[^>]*>/i, (tag) => tag + banner)
+    ? email.html.replace(/<body[^>]*>/i, (t) => t + banner)
     : banner + email.html;
   return { subject, text, html };
 }

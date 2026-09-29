@@ -532,7 +532,7 @@ the tablet said about itself, never identity. Assigning one = bind.
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
-| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app", actor }` | `{ ok, action, … }`; 409 `order_settled` / `app_not_expected`; 400 `invalid_action` |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend", actor, tz? }` | `{ ok, action, … }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination`; 400 `invalid_action` |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`
@@ -799,6 +799,38 @@ the bridge cannot know it otherwise. Refused with 409 on a completed or
 cancelled order, and `resend_app` with 409 `app_not_expected` when the
 restaurant is not on the tablet. Neither edits or cancels an order; there is
 no such endpoint.
+
+**`resend`** (2026-09-29, Nick: "resend any order that restaurant received
+in the past day ... turn off at new day's start at midnight"): sends the
+order again to **every place the restaurant receives orders now** —
+`orderDestinations()` of its current setup — each marked RESENT and meant to
+be made:
+
+- printer: `queueOrderToPrinters()` with `queued_by: reprint:resend:crm:<actor>`;
+  the Epson ticket leads with `*** RESENT - ORDER #1183 ***`;
+- email: the ticket to `ticket_email_to` with that banner and subject
+  `PFD ORDER #1183 [RESENT] - …`; the order's email job gets `sent_at`
+  (created when there was none), so the orders feed's `email.state` reads
+  `sent`; a failed resend never overwrites an earlier success;
+- tablet: the new-order push titled `Resent Order #1183`, recorded on the
+  app job like `resend_app`.
+
+Allowed for any order received **today in `tz`** (default
+`America/Chicago`) that is not cancelled — completed orders included. After
+midnight: 409 `not_today`. Cancelled: 409 `order_cancelled`. A restaurant with
+no destination: 409 `no_destination`. Response:
+
+```json
+{ "ok": false, "action": "resend",
+  "channels": [
+    { "channel": "email", "ok": true, "detail": "Emailed to kitchen@example.com - subject 'PFD ORDER #1183 [RESENT] - PICKUP'." },
+    { "channel": "app", "ok": false, "detail": "Nothing reached a tablet: no device has notifications enabled for this restaurant" }
+  ],
+  "note": "email: … app: …" }
+```
+
+`ok` is true only when every channel succeeded. The on-site print agent
+(`/api/print/jobs`) renders its own ticket and does not show the banner.
 
 **`GET /api/crm/accounting/orders`** (existed since 2026-09-01, undocumented
 until now): per-order money rows for a `from`–`to` date range (UTC days,

@@ -24,6 +24,8 @@ import {
   orderTimeline,
   phoneLast4,
   printSummary,
+  resendRefusal,
+  resentBanner,
   shapeOrderRow,
   sortOrderRows,
   type OrderRowInput,
@@ -228,6 +230,36 @@ test("EMAILED means the email left: sent only with sent_at, failed with send_err
   const row = shapeOrderRow(order("a"), R1, [{ id: "e", status: "printed", delivery: "email", sent_at: at(NOW) }], NOW);
   assert.equal(row.email?.state, "sent");
   assert.equal(shapeOrderRow(order("b"), R1, [], NOW).email, null);
+});
+
+test("resend: any order received today (Central) until midnight, completed included, never a cancelled one", () => {
+  const got = { status: "completed", received_at: "2026-09-29T15:00:00Z" }; // 10:00 AM CT
+  assert.equal(resendRefusal(got, Date.parse("2026-09-30T04:59:00Z")), null, "11:59 PM the same day - still resendable");
+  assert.deepEqual(resendRefusal(got, Date.parse("2026-09-30T05:00:00Z"))?.code, "not_today", "midnight Central turns it off");
+  assert.match(resendRefusal(got, Date.parse("2026-09-30T05:00:00Z"))!.error, /received 2026-09-29/);
+  assert.equal(resendRefusal({ ...got, status: "new" }, Date.parse("2026-09-29T15:05:00Z")), null);
+  assert.equal(resendRefusal({ ...got, status: "cancelled" }, Date.parse("2026-09-29T15:05:00Z"))?.code, "order_cancelled");
+  assert.equal(resendRefusal({ status: "new", received_at: null }, NOW)?.code, "not_today", "no arrival time is not today");
+  // The zone decides the day: 11 PM Central is already tomorrow in UTC.
+  assert.equal(resendRefusal({ status: "new", received_at: "2026-09-30T04:00:00Z" }, Date.parse("2026-09-30T04:30:00Z")), null);
+  assert.equal(resentBanner("1183"), "*** RESENT - ORDER #1183 ***");
+  assert.ok(isOrderAction("resend"));
+});
+
+test("the resend route: today rule first, then every current destination, each marked RESENT", () => {
+  const a = src("app/api/crm/orders/[id]/actions/route.ts");
+  assert.match(a, /if \(action === "resend"\) \{[\s\S]*?resendRefusal\(order, Date\.now\(\), tz\)[\s\S]*?status: 409/);
+  assert.ok(a.indexOf('action === "resend"') < a.indexOf('order.status === "completed"'), "a completed order may be resent");
+  assert.match(a, /code: "no_destination"/);
+  const r = src("lib/order-resend.ts");
+  assert.match(r, /orderDestinations\(\{/, "where the restaurant receives orders NOW");
+  assert.match(r, /queueOrderToPrinters\(order\.id, order\.restaurant_id, \{ queuedBy: by/);
+  assert.match(r, /markResent\(composed, resentBanner\(order\.order_number\)\)/);
+  assert.match(r, /title: `Resent Order #\$\{order\.order_number\}`/);
+  assert.match(r, /if \(result\.ok \|\| !job\.sent_at\)/, "a failed resend never overwrites an earlier success");
+  const epson = src("app/api/print/epson/route.ts");
+  assert.match(epson, /queued_by,/);
+  assert.match(epson, /if \(isResendJob\(job\.queued_by\)\)[\s\S]*?bodyLines\.unshift\(\.\.\.banner\);\s*lines\.unshift\(\.\.\.banner\);/);
 });
 
 console.log("\nthe routes:");

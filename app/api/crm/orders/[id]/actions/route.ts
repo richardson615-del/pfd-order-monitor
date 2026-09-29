@@ -5,7 +5,9 @@ import { queueOrderToPrinters } from "@/lib/print-queue";
 import { reprintBy } from "@/lib/print-policy";
 import { appDeliveryOutcome } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { isOrderAction, ORDER_ACTIONS } from "@/lib/crm-orders";
+import { DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, resendRefusal } from "@/lib/crm-orders";
+import { resendOrder } from "@/lib/order-resend";
+import { isValidTimeZone } from "@/lib/clock";
 import { UUID_RE } from "@/lib/restaurant-ref";
 
 export const dynamic = "force-dynamic";
@@ -28,9 +30,16 @@ export const dynamic = "force-dynamic";
  *               records the first push, so "was the tablet told?" stays
  *               one row.
  *
- * 409 on a cancelled or completed order: the food is not to be made, or
- * already was. The actor is the CRM session's email, passed through -
- * the bridge cannot know it otherwise.
+ *   resend      (2026-09-29) the order again to EVERY place the restaurant
+ *               receives orders now - printers, PC inbox, tablet - marked
+ *               RESENT (lib/order-resend.ts). Allowed for any order
+ *               received today in `tz` (default America/Chicago) that is
+ *               not cancelled, completed ones included; 409 not_today
+ *               after midnight. Body may carry `tz`.
+ *
+ * reprint / resend_app: 409 on a cancelled or completed order: the food is
+ * not to be made, or already was. The actor is the CRM session's email,
+ * passed through - the bridge cannot know it otherwise.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const denied = authorizeCrmWrite(req);
@@ -51,6 +60,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .eq("id", params.id)
     .maybeSingle();
   if (!order) return NextResponse.json({ error: "order not found", code: "order_not_found" }, { status: 404 });
+
+  if (action === "resend") {
+    const tz = typeof body?.tz === "string" && isValidTimeZone(body.tz) ? body.tz : DEFAULT_ORDERS_TZ;
+    const refusal = resendRefusal(order, Date.now(), tz);
+    if (refusal) return NextResponse.json(refusal, { status: 409 });
+    const { data: full } = await admin.from("orders").select("*").eq("id", order.id).maybeSingle();
+    const result = await resendOrder(full ?? order, actor);
+    if (!result.destinations.length) {
+      return NextResponse.json(
+        { error: "this restaurant has nowhere to receive orders - no printer, no email, no tablet", code: "no_destination" },
+        { status: 409 }
+      );
+    }
+    const ok = result.channels.every((c) => c.ok);
+    return NextResponse.json({
+      ok,
+      action,
+      channels: result.channels,
+      note: result.channels.map((c) => `${c.channel}: ${c.detail}`).join(" "),
+    });
+  }
+
   if (order.status === "cancelled" || order.status === "completed") {
     return NextResponse.json(
       { error: `this order is ${order.status}; nothing is sent for it again`, code: "order_settled" },

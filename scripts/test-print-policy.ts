@@ -16,6 +16,8 @@ import {
   printMaxAgeMs,
   reprintResetsAttempts,
   reprintBy,
+  resendBy,
+  isResendJob,
   DEFAULT_PRINT_MAX_AGE_HOURS,
   HOLD_MAX_MS,
   HOLD_RETRY_MS,
@@ -197,6 +199,13 @@ test("the contract tells the CRM about order, the titles, expiry and holds", () 
   assert.match(doc, /Printer is out of paper: order 1196/);
   assert.match(doc, /PRINT_MAX_AGE_HOURS/);
   assert.match(src("app/api/crm/issues/route.ts"), /order: i\.order \?\? null/);
+});
+
+test("a CRM resend is a reprint the ticket marks RESENT", () => {
+  assert.equal(resendBy("crm:nick@pfdworks.com"), "reprint:resend:crm:nick@pfdworks.com");
+  assert.ok(isResendJob(resendBy("crm:x")));
+  assert.ok(!isResendJob(reprintBy("crm:x")));
+  assert.ok(!isResendJob("ingest") && !isResendJob(null));
 });
 
 console.log(`\n${passed} assertions passed.`);

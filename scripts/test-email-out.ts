@@ -6,7 +6,8 @@
  * their kitchen printing, which is why it is asserted rather than assumed.
  */
 import assert from "node:assert/strict";
-import { composeTicketEmail, composeCancellationEmail, buildRawMessage } from "@/lib/email-out";
+import { composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, TEST_RESEND_BANNER } from "@/lib/email-out";
+import { readFileSync } from "node:fs";
 import { toPlainText, buildTicket } from "@/lib/ticket";
 
 let passed = 0;
@@ -135,6 +136,25 @@ test("headers use CRLF, as RFC822 requires", () => {
 test("a QR footer degrades to its URL rather than vanishing", () => {
   const { text } = composeTicketEmail(ORDER, { footer: { text: "Thanks!", url: "https://example.com" } });
   assert.match(text, /https:\/\/example\.com/);
+});
+
+test("a re-sent real order says TEST RESEND first, and its subject still starts PFD ORDER (ET3)", () => {
+  const m = markTestResend(composeTicketEmail(ORDER));
+  assert.ok(m.subject.startsWith("PFD ORDER #134d542b [TEST]"), `got: ${m.subject}`);
+  assert.match(m.subject, /PICKUP/, "the rest of the subject is kept");
+  assert.ok(m.text.startsWith(TEST_RESEND_BANNER), "banner leads the text part");
+  assert.equal(TEST_RESEND_BANNER, "*** TEST RESEND — DO NOT MAKE ***");
+  assert.match(m.html, /<body[^>]*><div[^>]*>\*\*\* TEST RESEND — DO NOT MAKE \*\*\*<\/div>/, "banner leads the HTML body");
+  assert.match(m.html, /#134d542b/, "the ticket itself is intact");
+});
+
+test("test-email marks only real orders, and only this restaurant's (ET3)", () => {
+  const route = readFileSync("app/api/crm/restaurants/[id]/test-email/route.ts", "utf8");
+  assert.match(route, /renderedOrder === null \? composed : markTestResend\(composed\)/, "the sample is not marked; a real order is");
+  assert.match(route, /\.eq\("id", body\.order_id\.trim\(\)\)\.eq\("restaurant_id", r\.id\)/, "another restaurant's order never reaches this kitchen");
+  assert.match(route, /export async function GET\(/, "the picker's read");
+  assert.match(route, /source\.is\.null,source\.neq\.test/, "latest_order is a real order");
+  assert.equal((route.match(/authorizeCrmWrite\(req\)/g) ?? []).length, 2, "both verbs gated");
 });
 
 console.log(process.exitCode ? "\nSOME TESTS FAILED" : `\nAll assertions passed (${passed} checks).`);

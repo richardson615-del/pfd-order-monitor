@@ -139,6 +139,27 @@ export function printSummary(jobs: PrintJobRow[], now: number): PrintSummary {
   return { state: "none", job_id: null, failed_reason: null };
 }
 
+export interface EmailSummary {
+  /** `sent` only when the job has sent_at - an email that left, not one that was owed. */
+  state: "sent" | "failed" | "pending";
+  job_id: string;
+  sent_at: string | null;
+  error: string | null;
+}
+
+/**
+ * What the email leg did for an order, from its print_jobs row
+ * (`delivery = 'email'`, one per order by the partial unique index). The row
+ * is written before the send, so a job with neither sent_at nor send_error
+ * is an email that was owed and never confirmed - `pending`, not `sent`.
+ */
+export function emailSummary(jobs: PrintJobRow[]): EmailSummary | null {
+  const j = jobs.find((x) => x.delivery === "email");
+  if (!j) return null;
+  const state = j.sent_at ? "sent" : j.send_error || j.status === "failed" ? "failed" : "pending";
+  return { state, job_id: j.id, sent_at: j.sent_at ?? null, error: j.send_error ?? j.error ?? null };
+}
+
 export interface OrderFlags {
   unaccepted_over_3m: boolean;
   late: boolean;
@@ -204,6 +225,8 @@ export interface OrderListRow {
   prep_minutes: number;
   destinations: string[];
   print: PrintSummary;
+  /** The email leg's own record (ET5): null when no email job exists. */
+  email: EmailSummary | null;
   flags: OrderFlags;
 }
 
@@ -251,6 +274,7 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
       hasActivePrinter: r.has_active_printer ?? false,
     }),
     print: printSummary(jobs, now),
+    email: emailSummary(jobs),
     flags: orderFlags(o, prep, now),
   };
 }

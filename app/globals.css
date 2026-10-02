@@ -1,44 +1,82 @@
 /* ==========================================================================
-   ONE PALETTE                                                  (2026-09-14)
+   THE CRM'S PALETTE                                            (2026-10-02)
    ==========================================================================
 
-   There used to be two. A legacy `:root` set (navy --bg, blue --accent) used
-   by /login, /order and /admin, and an `.app` set (warmer, darker, sky
-   --app-accent) added with the tablet dashboard. Walking from the dashboard
-   into a ticket changed the background and the accent colour mid-task, which
-   reads as two applications stitched together - on a screen a cook uses
-   without thinking about it.
+   Nick, 2026-10-02: "make the app's design more similar to the CRM -
+   visually more clean." The tablet was dark (2026-09-14, "ONE PALETTE"); it
+   is now the CRM's light set: white cards on a soft grey ground, one indigo
+   accent, and the CRM's own red, amber and green for status - so a late
+   order on a tablet and a critical ticket in the CRM are the same red.
 
-   The dashboard's palette won: it is the considered one, and it is the screen
-   that matters most. The legacy names are kept as aliases onto it rather than
-   rewritten at every call site. Same colour, both names, one place to change.
+   Still one palette, and the rule from the dark era stands: the status
+   colours are the only saturated things on the screen, and a red thing is
+   always a late thing.
+
+   The old names (--bg, --panel, --brand, --age-*, --st-*, ...) are kept and
+   pointed at the CRM tokens, so no call site changed.
    ========================================================================== */
 
 :root {
-  /* Ground and panels. Warm and dark, so the status colours are the only
-     saturated things on any screen. */
-  --bg: #0b0d10;
-  --panel: #14181d;
-  --panel-2: #1b2026;
-  --border: #262c34;
-  --text: #f2f4f7;
-  --text-dim: #98a2b3;
+  /* Copied from prs-crm src/app/globals.css on 2026-10-02 - keep in step
+     with the CRM. */
+  --background: oklch(0.99 0.002 264);
+  --foreground: oklch(0.18 0.014 264);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.014 264);
+  --primary: oklch(0.511 0.262 276.966);
+  --primary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.96 0.005 264);
+  --muted-foreground: oklch(0.5 0.014 264);
+  --accent: oklch(0.94 0.03 277);
+  --accent-foreground: oklch(0.32 0.16 277);
+  --border: oklch(0.9 0.006 264);
+  --surface-sunken: oklch(0.976 0.004 264);
+  --status-online: oklch(0.58 0.14 152);
+  --status-online-foreground: oklch(0.99 0.01 152);
+  --status-offline: oklch(0.7 0.01 264);
+  --status-offline-foreground: oklch(0.99 0 0);
+  --status-warning: oklch(0.72 0.16 70);
+  --status-warning-foreground: oklch(0.26 0.07 70);
+  --status-critical: oklch(0.577 0.245 27.325);
+  --status-critical-foreground: oklch(0.99 0.005 27);
+  --radius: 0.75rem;
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Amber as TEXT. The CRM's amber is a fill colour: as a word on a white
+     card it is about 2:1 and unreadable across a kitchen. Same hue, dark
+     enough to pass 4.5:1. Fills keep --age-warn. */
+  --status-warning-text: oklch(0.55 0.15 60);
+
+  /* Subtle depth, the CRM's cards: a breath of shadow under the 1px
+     border every card already has (so no extra ring - it would read as a
+     2px edge). */
+  --shadow-card: 0 1px 2px oklch(0.18 0.014 264 / 0.06);
+
+  /* Ground and panels: white cards on the CRM's sunken grey. */
+  --bg: var(--surface-sunken);
+  --panel: var(--card);
+  --panel-2: var(--muted);
+  --text: var(--foreground);
+  --text-dim: var(--muted-foreground);
 
   /* The brand, and the gradient the mark is filled with. One accent, for
-     "this system is alive" and for the mark - nothing else. */
-  --brand: #38bdf8;
-  --brand-2: #7dd3fc;
-  --accent: var(--brand);
+     "this system is alive", primary actions and the mark - nothing else.
+     (--accent is the CRM's pale indigo tint above, not the old alias;
+     every old call site that used --accent as a colour reads --brand.) */
+  --brand: var(--primary);
+  --brand-2: oklch(0.62 0.2 277);
 
   /* Age of an unaccepted order. The only reds on the screen, so a red thing
      is always a late thing. */
-  --age-calm: #8a94a6;
-  --age-warn: #fbbf24;
-  --age-late: #ff4d3d;
+  --age-calm: var(--muted-foreground);
+  --age-warn: var(--status-warning);
+  --age-late: var(--status-critical);
 
-  --st-waiting: #ff4d3d;
-  --st-done: #34d399;
-  --st-printed: #8a94a6;
+  --st-waiting: var(--status-critical);
+  --st-done: var(--status-online);
+  --st-printed: var(--muted-foreground);
 
   /* Legacy status names, kept because the demo page and /admin still use
      them. Mapped onto the set above rather than given their own values, so
@@ -48,9 +86,9 @@
   --completed: var(--st-done);
   --printed: var(--st-printed);
 
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
+  --radius-sm: calc(var(--radius) * 0.8);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.4);
 
   /* Four steps. Anything outside them is a one-off that has to justify
      itself in place. */
@@ -59,16 +97,46 @@
   --text-md: 17px;
   --text-lg: 24px;
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* The wordmark and older rules ask for --font-brand; it is the heading
+     face now. */
+  --font-brand: var(--font-heading, system-ui);
+
+  font-family: var(--font-sans, system-ui), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-/* The brand face, applied only where somebody reads across a room. */
+/* The CRM's dark set, copied in but applied nowhere yet (Nick's default,
+   2026-10-02: light only; a per-tablet toggle is a later brief). */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.65 0.2 277);
+  --primary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.3 0.08 277);
+  --accent-foreground: oklch(0.9 0.05 277);
+  --border: oklch(1 0 0 / 10%);
+  --surface-sunken: oklch(0.19 0.004 264);
+  --status-online: oklch(0.7 0.15 152);
+  --status-online-foreground: oklch(0.145 0.02 152);
+  --status-offline: oklch(0.5 0.01 264);
+  --status-offline-foreground: oklch(0.985 0 0);
+  --status-warning: oklch(0.78 0.15 70);
+  --status-warning-foreground: oklch(0.2 0.05 70);
+  --status-warning-text: oklch(0.78 0.15 70);
+  --status-critical: oklch(0.704 0.191 22.216);
+  --status-critical-foreground: oklch(0.145 0 0);
+}
+
+/* The heading face, applied only where somebody reads across a room. */
 .brand,
 h1, h2,
 .app-hero,
 .ticket-no,
 .app .num {
-  font-family: var(--font-brand), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-heading, system-ui), var(--font-sans, system-ui), system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -78,10 +146,12 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
+  font-family: var(--font-sans, system-ui), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--brand); text-decoration: none; }
 
 button {
   font-family: inherit;
@@ -103,7 +173,7 @@ button {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  background: rgba(15, 20, 32, 0.92);
+  background: color-mix(in oklch, var(--panel) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -127,9 +197,9 @@ button {
 }
 
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--primary-foreground);
 }
 
 .btn.small {
@@ -156,9 +226,9 @@ button {
 }
 
 .tab.active {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
+  background: var(--brand);
+  color: var(--primary-foreground);
+  border-color: var(--brand);
 }
 
 .order-list {
@@ -172,6 +242,7 @@ button {
   display: block;
   background: var(--panel);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   border-radius: 14px;
   padding: 14px 16px;
   position: relative;
@@ -243,10 +314,10 @@ button {
   margin-left: 8px;
 }
 
-.badge.status-new { background: rgba(255,90,95,0.18); color: var(--new); }
-.badge.status-opened { background: rgba(245,165,36,0.18); color: var(--opened); }
-.badge.status-completed { background: rgba(46,204,113,0.18); color: var(--completed); }
-.badge.status-printed { background: rgba(108,122,148,0.18); color: var(--printed); }
+.badge.status-new { background: color-mix(in oklch, var(--new) 14%, transparent); color: var(--new); }
+.badge.status-opened { background: color-mix(in oklch, var(--opened) 18%, transparent); color: var(--status-warning-text); }
+.badge.status-completed { background: color-mix(in oklch, var(--completed) 14%, transparent); color: var(--completed); }
+.badge.status-printed { background: color-mix(in oklch, var(--printed) 14%, transparent); color: var(--printed); }
 
 /* The kiosk status strip.
    Appears only when something is wrong, because a permanent banner becomes
@@ -259,10 +330,10 @@ button {
   font-weight: 700;
   line-height: 1.35;
 }
-.kiosk-critical { background: var(--new); color: #fff; }
-.kiosk-warning { background: var(--opened); color: #1a1200; }
+.kiosk-critical { background: var(--new); color: var(--status-critical-foreground); }
+.kiosk-warning { background: var(--opened); color: var(--status-warning-foreground); }
 
-.badge.status-cancelled { background: rgba(255,90,95,0.18); color: var(--new); }
+.badge.status-cancelled { background: color-mix(in oklch, var(--new) 14%, transparent); color: var(--new); }
 .order-card.status-cancelled::before { background: var(--new); }
 
 /* A button that reads as a link. Used where the action is a change of mind
@@ -271,12 +342,12 @@ button {
   background: none;
   border: 0;
   padding: 0;
-  color: var(--accent);
+  color: var(--brand);
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.link-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.link-button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 .empty-state {
   text-align: center;
@@ -311,7 +382,7 @@ button {
   width: min(calc(48ch + 36px), 100%);
   padding: 22px 18px 28px;
   border-radius: 4px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 3px oklch(0.18 0.014 264 / 0.12), 0 0 0 1px var(--border);
   /* Double-height lines are laid out at 200% and squeezed back with a
      transform, which is visual only - their layout box stays twice as wide.
      Without this the paper gets dragged off the side of the screen by lines
@@ -439,6 +510,7 @@ button {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   border-radius: 14px;
   padding: 16px;
   margin-bottom: 16px;
@@ -676,8 +748,8 @@ table.admin-table th, table.admin-table td {
   background: var(--panel-2);
   color: var(--text-dim);
 }
-.ready-check.ok .ready-mark { background: var(--st-done); color: #06251a; }
-.ready-check.todo .ready-mark { background: var(--age-warn); color: #2a1c00; }
+.ready-check.ok .ready-mark { background: var(--st-done); color: var(--status-online-foreground); }
+.ready-check.todo .ready-mark { background: var(--age-warn); color: var(--status-warning-foreground); }
 
 .ready-label {
   flex: 1 1 auto;
@@ -736,7 +808,7 @@ table.admin-table th, table.admin-table td {
   flex-wrap: wrap;
   padding: 14px 20px;
   background: var(--age-late);
-  color: #fff;
+  color: var(--status-critical-foreground);
   font-weight: 800;
   font-size: 19px;
   line-height: 1.3;
@@ -797,7 +869,7 @@ table.admin-table th, table.admin-table td {
    connected but unable to chime, or with no push subscription, or which the
    office cannot see. All three used to show the same green Live as a
    perfectly healthy screen. */
-.app-live.degraded { color: var(--age-warn); }
+.app-live.degraded { color: var(--status-warning-text); }
 .app-live.offline { color: var(--age-late); }
 
 [data-display="kitchen"] .app-head-restaurant { font-size: 22px; }
@@ -838,6 +910,7 @@ table.admin-table th, table.admin-table td {
   display: block;
   background: var(--panel);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   color: inherit;
   overflow: hidden;
 }
@@ -885,7 +958,7 @@ table.admin-table th, table.admin-table td {
   color: var(--age-calm);
 }
 
-.card.age-warn .card-age { color: var(--age-warn); }
+.card.age-warn .card-age { color: var(--status-warning-text); }
 .card.age-late .card-age { color: var(--age-late); }
 .card.age-stale .card-age { color: var(--age-calm); }
 .card.settled .card-age { color: var(--st-done); }
@@ -915,7 +988,7 @@ table.admin-table th, table.admin-table td {
   border-radius: 999px;
 }
 
-.card-flag.done { background: var(--st-done); color: #06251a; }
+.card-flag.done { background: var(--st-done); color: var(--status-online-foreground); }
 .card-flag.cancelled {
   background: transparent;
   color: var(--age-late);
@@ -951,14 +1024,14 @@ table.admin-table th, table.admin-table td {
   height: 1.2em;
   border-radius: 50%;
   background: var(--st-done);
-  color: #06251a;
+  color: var(--status-online-foreground);
   font-size: 0.8em;
   margin-right: 0.2em;
 }
 
 /* NEW until somebody accepts it (I3). The one pill on a kitchen card
    before Accept; the countdown takes its place after. */
-.card-flag.new { background: var(--st-waiting); color: #fff; }
+.card-flag.new { background: var(--st-waiting); color: var(--status-critical-foreground); }
 
 /* --- Accept + countdown (I3, Nick 2026-09-17) --------------------------- */
 /* The card is a block with the link filling it and the Accept button laid
@@ -975,7 +1048,7 @@ table.admin-table th, table.admin-table td {
   text-transform: uppercase;
   background: var(--st-done);
   border-color: var(--st-done);
-  color: #06251a;
+  color: var(--status-online-foreground);
   border-radius: 10px;
   justify-content: center;
 }
@@ -985,12 +1058,12 @@ table.admin-table th, table.admin-table td {
    is quiet; amber under five minutes; over is red and reads "+3:12 over". */
 .card-flag.countdown { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; text-transform: none; }
 .card-flag.countdown.calm { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
-.card-flag.countdown.amber { background: var(--age-warn); color: #2a1d00; }
-.card-flag.countdown.over { background: var(--age-late); color: #fff; }
+.card-flag.countdown.amber { background: var(--age-warn); color: var(--status-warning-foreground); }
+.card-flag.countdown.over { background: var(--age-late); color: var(--status-critical-foreground); }
 [data-display="kitchen"] .card-flag.countdown { font-size: 22px; padding: 6px 16px; }
 /* An over countdown carries age-late (OrderCard maps the phase to the
    tone), so it breathes through the same rule as a late unaccepted order. */
-.app-hero .hero-count.amber { color: var(--age-warn); }
+.app-hero .hero-count.amber { color: var(--status-warning-text); }
 .app-hero .hero-count.over { color: var(--age-late); }
 
 /* One line of what they ordered. The ticket has the rest. */
@@ -1011,6 +1084,7 @@ table.admin-table th, table.admin-table td {
   gap: 14px;
   background: var(--panel);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   color: inherit;
   text-decoration: none;
 }
@@ -1025,7 +1099,7 @@ table.admin-table th, table.admin-table td {
 .done-when { color: var(--text-dim); font-weight: 700; white-space: nowrap; }
 .done-row.cancelled .done-name,
 .done-row.cancelled .done-no { text-decoration: line-through; opacity: 0.75; }
-.done-row.open .done-when { color: var(--age-warn); }
+.done-row.open .done-when { color: var(--status-warning-text); }
 
 /* --- past week ------------------------------------------------------------- */
 
@@ -1084,7 +1158,7 @@ table.admin-table th, table.admin-table td {
 }
 .ticket-no { font-size: 48px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 .ticket-timer { font-size: 44px; font-weight: 900; line-height: 1; color: var(--age-calm); }
-.ticket-timer.age-warn { color: var(--age-warn); }
+.ticket-timer.age-warn { color: var(--status-warning-text); }
 .ticket-timer.age-late { color: var(--age-late); }
 .ticket-timer.settled { color: var(--st-done); }
 
@@ -1092,7 +1166,7 @@ table.admin-table th, table.admin-table td {
    time since arrival under it in small type - the promise and the truth. */
 .ticket-countdown { display: inline-flex; flex-direction: column; align-items: flex-end; font-size: 56px; font-variant-numeric: tabular-nums; }
 .ticket-countdown.calm { color: var(--text); }
-.ticket-countdown.amber { color: var(--age-warn); }
+.ticket-countdown.amber { color: var(--status-warning-text); }
 .ticket-countdown.over { color: var(--age-late); }
 .ticket-countdown-age { font-size: 16px; font-weight: 700; color: var(--text-dim); margin-top: 6px; letter-spacing: 0.02em; }
 .ticket-accept { text-transform: uppercase; letter-spacing: 0.03em; }
@@ -1125,7 +1199,7 @@ table.admin-table th, table.admin-table td {
 .tk-name { font-size: 24px; font-weight: 800; line-height: 1.2; }
 .tk-price { color: var(--text-dim); font-weight: 700; font-size: var(--text-md); white-space: nowrap; }
 .tk-mods { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 4px; }
-.tk-mods li { color: var(--age-warn); font-weight: 700; font-size: 19px; }
+.tk-mods li { color: var(--status-warning-text); font-weight: 700; font-size: 19px; }
 .tk-mods li::before { content: "– "; }
 .tk-empty { color: var(--text-dim); font-weight: 700; }
 
@@ -1167,7 +1241,7 @@ table.admin-table th, table.admin-table td {
   font-size: 30px;
   font-weight: 900;
   background: var(--st-done);
-  color: #06251a;
+  color: var(--status-online-foreground);
   border-color: var(--st-done);
 }
 .ticket-settled {
@@ -1274,7 +1348,7 @@ table.admin-table th, table.admin-table td {
    low-contrast on purpose: a flashing screen in a kitchen gets turned off. */
 @keyframes card-breathe {
   0%, 100% { border-color: var(--age-late); }
-  50% { border-color: #7a1d14; }
+  50% { border-color: color-mix(in oklch, var(--age-late) 30%, var(--panel)); }
 }
 
 [data-display="kitchen"] .card.age-late:not(.settled) {
@@ -1353,4 +1427,15 @@ table.admin-table th, table.admin-table td {
   [data-display="standard"] .app-list,
   [data-display="standard"] .app-tabs,
   [data-display="standard"] .app-head { padding-left: 16px; padding-right: 16px; }
+}
+
+/* The CRM's reduced-motion rule (prs-crm globals.css, 2026-10-02): every
+   transition and animation, not only the breathing card above. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

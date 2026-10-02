@@ -650,7 +650,7 @@ export default function OrderDashboard({
 
       <div className="app-head">
         <div className="app-head-id">
-          <Brand size="sm" />
+          <Brand size="sm" onLight />
           {/* The restaurant's own name, large. A tablet signed into the
               wrong restaurant is obvious at a glance rather than after
               somebody wonders why the orders look unfamiliar. */}

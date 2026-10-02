@@ -31,8 +31,8 @@ const MONOGRAM_SIZE: Record<BrandSize, number> = { sm: 26, md: 40, lg: 96 };
 function gradient(id: string, onLight: boolean) {
   return (
     <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stopColor={onLight ? "#0284c7" : "var(--brand)"} />
-      <stop offset="100%" stopColor={onLight ? "#0ea5e9" : "var(--brand-2)"} />
+      <stop offset="0%" stopColor={onLight ? "var(--primary)" : "var(--brand)"} />
+      <stop offset="100%" stopColor="var(--brand-2)" />
     </linearGradient>
   );
 }
@@ -90,7 +90,7 @@ export function Brand({
             fontWeight: 700,
             letterSpacing: "0.34em",
             textTransform: "uppercase",
-            color: onLight ? "#475569" : "var(--text-dim)",
+            color: onLight ? "var(--muted-foreground)" : "var(--text-dim)",
             paddingLeft: 2,
           }}
         >

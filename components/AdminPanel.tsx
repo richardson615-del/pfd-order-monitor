@@ -554,7 +554,7 @@ export default function AdminPanel({
           </form>
 
           {newKey && (
-            <div className="card" style={{ marginTop: 16, borderColor: "#d9531e" }}>
+            <div className="card" style={{ marginTop: 16, borderColor: "var(--age-late)" }}>
               <h3 style={{ marginTop: 0 }}>Device key for {newKey.name}</h3>
               <p className="error-text">
                 Copy this now - it is shown once and cannot be retrieved again.
@@ -566,7 +566,7 @@ export default function AdminPanel({
                   fontSize: "18px",
                   letterSpacing: "1px",
                   wordBreak: "break-all",
-                  background: "rgba(0,0,0,0.25)",
+                  background: "var(--panel-2)",
                   borderRadius: 6,
                 }}
               >

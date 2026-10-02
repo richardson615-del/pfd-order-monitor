@@ -116,7 +116,7 @@ function LoginForm() {
           ever sees, and it used to say "PFD Order Monitor" - internal
           shorthand for a company they know as Premium. */}
       <div className="login-brand">
-        <Brand size="lg" withSubtitle />
+        <Brand size="lg" onLight withSubtitle />
         {/* Staff only, since 2026-09-16. A kitchen tablet with no session
             lands on /link and shows a code for the office; nothing sends a
             restaurant here and nothing on the tablet links to it. */}

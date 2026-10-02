@@ -205,7 +205,7 @@ function LinkScreen() {
   return (
     <div className="alert-gate pairing" role="main">
       <div className="alert-gate-inner pairing-inner">
-        <Brand size="md" />
+        <Brand size="md" onLight />
         {known && <p className="alert-gate-restaurant">{known}</p>}
 
         {phase === "offline" && (

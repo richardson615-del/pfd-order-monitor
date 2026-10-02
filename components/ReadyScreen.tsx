@@ -103,7 +103,7 @@ export default function ReadyScreen({
   return (
     <div className="alert-gate ready" role="dialog" aria-modal="true" aria-labelledby="ready-title">
       <div className="alert-gate-inner ready-inner">
-        <Brand size="md" />
+        <Brand size="md" onLight />
         <h1 id="ready-title">You&apos;re all set, {restaurantName}</h1>
         <p>Orders will show on this screen and ring until they&apos;re opened.</p>
 

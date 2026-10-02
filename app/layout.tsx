@@ -1,25 +1,37 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Sora } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 /**
- * The brand face, and only the brand face.
+ * The CRM's two faces (Nick, 2026-10-02: the tablet gets the CRM look).
  *
- * Body text stays on the system stack: it is already installed, it renders
- * instantly on a cheap tablet over a restaurant's wifi, and nobody reads an
- * order faster because of a typeface. This is loaded for the wordmark, the
- * headings, the waiting count and the order numbers - the things somebody
- * reads across a room.
+ * Geist for body text, Sora for headings, counts, order numbers and the
+ * wordmark - the things somebody reads across a room. Same pair as
+ * prs-crm src/app/layout.tsx.
  *
- * Plus Jakarta Sans of the three candidates: its P has the closed, circular
- * bowl the mark needs at 512px, and its m stays open at 40px where Outfit's
- * closes up.
+ * Geist is self-hosted (app/fonts, OFL - licence beside it) rather than
+ * loaded from next/font/google: Next 14.2's Google font list predates it,
+ * and the `geist` npm package would mean a package change in a clone whose
+ * node_modules the lanes share. Both are subset and served from our own
+ * origin by next/font, so a cheap tablet on restaurant wifi never waits on
+ * a third-party font host.
+ *
+ * --font-brand is kept as an alias of --font-heading (globals.css) so the
+ * mark and every existing rule keep working.
  */
-const brand = Plus_Jakarta_Sans({
+const sans = localFont({
+  src: "./fonts/Geist-Variable.woff2",
+  weight: "100 900",
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const heading = Sora({
   subsets: ["latin"],
-  weight: ["600", "700", "800"],
-  variable: "--font-brand",
+  weight: ["600", "700"],
+  variable: "--font-heading",
   display: "swap",
 });
 
@@ -29,7 +41,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
     title: "Premium",
   },
   icons: {
@@ -39,7 +51,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b0d10",
+  themeColor: "#f6f7fa",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -52,7 +64,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={brand.variable}>
+    <html lang="en" className={`${sans.variable} ${heading.variable}`}>
       <body>
         <ServiceWorkerRegister />
         {children}

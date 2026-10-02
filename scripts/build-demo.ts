@@ -104,20 +104,20 @@ ${css}
 <style>
   /* Demo harness. Prefixed dx- throughout so nothing can collide with the app
      stylesheet above, which is inlined unmodified. */
-  body { background: #090c12; }
+  body { background: var(--bg); }
   .dx-wrap { max-width: 1140px; margin: 0 auto; padding: 32px 20px 72px; }
   .dx-head { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 26px; }
   .dx-head h1 { font-size: clamp(24px, 5vw, 34px); margin: 0 0 8px; letter-spacing: -0.02em; color: var(--text); }
   .dx-head p { margin: 0 0 10px; color: var(--text-dim); font-size: 15px; line-height: 1.55; max-width: 64ch; }
   .dx-note {
     margin-top: 14px; padding: 10px 13px; border-radius: 8px;
-    background: rgba(79,140,255,0.1); border: 1px solid rgba(79,140,255,0.35);
+    background: var(--accent); border: 1px solid color-mix(in oklch, var(--brand) 30%, transparent);
     color: var(--text-dim); font-size: 13.5px; line-height: 1.5;
   }
   .dx-note b { color: var(--text); }
   .dx-stage { display: grid; gap: 26px; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); align-items: start; }
   @media (max-width: 860px) { .dx-stage { grid-template-columns: 1fr; } }
-  .dx-device { border: 11px solid #222839; border-radius: 24px; background: var(--bg); overflow: hidden; box-shadow: 0 22px 60px rgba(0,0,0,0.6); }
+  .dx-device { border: 11px solid var(--foreground); border-radius: 24px; background: var(--bg); overflow: hidden; box-shadow: 0 22px 60px oklch(0.18 0.014 264 / 0.25); }
   .dx-screen { height: 640px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   /* The app fixes the Done bar to the viewport; in this frame the screen is
      the scrolling element, so it sticks to the frame instead. Harness-only. */
@@ -134,10 +134,10 @@ ${css}
     color: var(--text); font-size: 14px; font-weight: 600; font-family: inherit;
   }
   .dx-btn:last-child { margin-bottom: 0; }
-  .dx-btn:hover { border-color: var(--accent); }
-  .dx-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dx-btn:hover { border-color: var(--brand); }
+  .dx-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   .dx-btn small { display: block; font-weight: 400; color: var(--text-dim); font-size: 12px; margin-top: 2px; }
-  .dx-btn[aria-pressed="true"] { border-color: var(--new); background: rgba(255,90,95,0.12); }
+  .dx-btn[aria-pressed="true"] { border-color: var(--new); background: color-mix(in oklch, var(--new) 12%, transparent); }
   .dx-steps { margin: 0; padding-left: 1.1em; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
   .dx-steps li { margin-bottom: 7px; }
   .dx-steps b { color: var(--text); }
@@ -252,7 +252,7 @@ function banner() {
 
 function head() {
   return '<div class="app-head"><div class="app-head-id"><span class="brand" style="color:var(--brand);font-weight:800">Premium</span>' +
-    '<span class="app-head-restaurant">Swezey\'s Pub</span></div>' +
+    '<span class="app-head-restaurant">Swezey&#39;s Pub</span></div>' +
     '<div class="app-head-right"><span class="app-live ' + (state.offline ? "offline" : "live") + '">' + (state.offline ? "Offline" : "Live") + "</span>" +
     '<span class="app-clock num">' + esc(now()) + "</span></div></div>";
 }
@@ -286,7 +286,7 @@ function listView() {
   }).join("");
   return banner() + head() + tabs() +
     '<div class="app-hero ' + (k.length ? "busy" : "idle") + '">' + (k.length ? '<b class="num">' + k.length + "</b> " + (k.length === 1 ? "order" : "orders") + " in the kitchen" : '<span class="app-hero-check">&#10003;</span> All clear') + "</div>" +
-    '<div class="app-list' + (state.offline ? " offline" : "") + '">' + (cards || '<div class="app-empty">Nothing in the kitchen. New orders show here and ring until they\'re opened.</div>') + "</div>";
+    '<div class="app-list' + (state.offline ? " offline" : "") + '">' + (cards || '<div class="app-empty">Nothing in the kitchen. New orders show here and ring until they&#39;re opened.</div>') + "</div>";
 }
 
 function ticketView() {

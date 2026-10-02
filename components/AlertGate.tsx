@@ -34,7 +34,7 @@ export default function AlertGate({
   return (
     <div className="alert-gate" role="dialog" aria-modal="true" aria-labelledby="alert-gate-title">
       <div className="alert-gate-inner">
-        <Brand size="md" />
+        <Brand size="md" onLight />
         <p className="alert-gate-restaurant">{restaurantName}</p>
 
         {state === "ask" && (

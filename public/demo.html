@@ -56,7 +56,11 @@
   /* Amber as TEXT. The CRM's amber is a fill colour: as a word on a white
      card it is about 2:1 and unreadable across a kitchen. Same hue, dark
      enough to pass 4.5:1. Fills keep --age-warn. */
-  --status-warning-text: oklch(0.55 0.15 60);
+  --status-warning-text: oklch(0.53 0.14 60);
+  /* The same idea for red and green: the colour as words on its own 14%
+     tint (the CRM Badge look), dark enough for 4.5:1. */
+  --status-critical-text: oklch(0.5 0.21 27);
+  --status-online-text: oklch(0.45 0.12 152);
 
   /* Subtle depth, the CRM's cards: a breath of shadow under the 1px
      border every card already has (so no extra ring - it would read as a
@@ -98,6 +102,7 @@
   --radius-sm: calc(var(--radius) * 0.8);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) * 1.4);
+  --radius-xl: calc(var(--radius) * 1.8);
 
   /* Four steps. Anything outside them is a one-off that has to justify
      itself in place. */
@@ -135,6 +140,8 @@
   --status-warning: oklch(0.78 0.15 70);
   --status-warning-foreground: oklch(0.2 0.05 70);
   --status-warning-text: oklch(0.78 0.15 70);
+  --status-critical-text: oklch(0.704 0.191 22.216);
+  --status-online-text: oklch(0.7 0.15 152);
   --status-critical: oklch(0.704 0.191 22.216);
   --status-critical-foreground: oklch(0.145 0 0);
 }
@@ -144,7 +151,10 @@
 h1, h2,
 .app-hero,
 .ticket-no,
-.app .num {
+.app .num,
+.app-head-restaurant,
+.alert-gate-restaurant,
+.link-code {
   font-family: var(--font-heading, system-ui), var(--font-sans, system-ui), system-ui, sans-serif;
 }
 
@@ -323,9 +333,9 @@ button {
   margin-left: 8px;
 }
 
-.badge.status-new { background: color-mix(in oklch, var(--new) 14%, transparent); color: var(--new); }
+.badge.status-new { background: color-mix(in oklch, var(--new) 14%, transparent); color: var(--status-critical-text); }
 .badge.status-opened { background: color-mix(in oklch, var(--opened) 18%, transparent); color: var(--status-warning-text); }
-.badge.status-completed { background: color-mix(in oklch, var(--completed) 14%, transparent); color: var(--completed); }
+.badge.status-completed { background: color-mix(in oklch, var(--completed) 14%, transparent); color: var(--status-online-text); }
 .badge.status-printed { background: color-mix(in oklch, var(--printed) 14%, transparent); color: var(--printed); }
 
 /* The kiosk status strip.
@@ -342,7 +352,7 @@ button {
 .kiosk-critical { background: var(--new); color: var(--status-critical-foreground); }
 .kiosk-warning { background: var(--opened); color: var(--status-warning-foreground); }
 
-.badge.status-cancelled { background: color-mix(in oklch, var(--new) 14%, transparent); color: var(--new); }
+.badge.status-cancelled { background: color-mix(in oklch, var(--new) 14%, transparent); color: var(--status-critical-text); }
 .order-card.status-cancelled::before { background: var(--new); }
 
 /* A button that reads as a link. Used where the action is a change of mind
@@ -556,6 +566,20 @@ table.admin-table th, table.admin-table td {
   padding: 48px 16px 32px;
 }
 
+/* The sign-in form on a centred white card, the CRM's sign-in look. */
+.login-card {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+}
+.login-card .form { max-width: none; }
+.login-card .form .btn { justify-content: center; min-height: 48px; font-size: 15px; }
+.login-card .card { box-shadow: none; background: var(--bg); }
+
 .muted { color: var(--text-dim); }
 .error-text { color: var(--new); font-size: 13px; }
 .success-text { color: var(--completed); font-size: 13px; }
@@ -591,6 +615,12 @@ table.admin-table th, table.admin-table td {
 /* Digits that line up in a column, for money and for timers. Without this a
    timer jitters sideways as it counts and reads as a glitch. */
 .app .num { font-variant-numeric: tabular-nums; }
+/* Order number, timer, waiting count: Sora 700, tight, tabular. */
+.card-no, .ticket-no, .ticket-timer, .card-age, .app-hero b, .done-no, .week-count, .link-code {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
 
 /* --- header ------------------------------------------------------------- */
 
@@ -601,7 +631,7 @@ table.admin-table th, table.admin-table td {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: var(--bg);
+  background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
@@ -616,7 +646,7 @@ table.admin-table th, table.admin-table td {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-dim);
@@ -633,7 +663,7 @@ table.admin-table th, table.admin-table td {
 .app-live.live::before { background: var(--st-done); }
 .app-live.connecting::before { background: var(--age-warn); }
 
-.app-clock { color: var(--text-dim); font-weight: 700; }
+.app-clock { color: var(--text-dim); font-weight: 500; font-variant-numeric: tabular-nums; }
 
 /* --- the alert gate ------------------------------------------------------ */
 
@@ -659,10 +689,18 @@ table.admin-table th, table.admin-table td {
   flex-direction: column;
   align-items: center;
   gap: 14px;
+  padding: 36px 32px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  max-height: 100%;
+  overflow-y: auto;
 }
 
 .alert-gate-inner h1 {
   margin: 4px 0 0;
+  font-weight: 600;
   font-size: 30px;
   line-height: 1.15;
   letter-spacing: -0.02em;
@@ -676,7 +714,7 @@ table.admin-table th, table.admin-table td {
 }
 
 .alert-gate-restaurant {
-  font-weight: 800;
+  font-weight: 600;
   color: var(--text) !important;
   font-size: var(--text-lg) !important;
 }
@@ -740,7 +778,7 @@ table.admin-table th, table.admin-table td {
   padding: 16px 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--panel);
+  background: var(--bg);
   min-height: 72px;
 }
 
@@ -752,7 +790,7 @@ table.admin-table th, table.admin-table td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 900;
+  font-weight: 700;
   font-size: 22px;
   background: var(--panel-2);
   color: var(--text-dim);
@@ -762,7 +800,7 @@ table.admin-table th, table.admin-table td {
 
 .ready-label {
   flex: 1 1 auto;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 20px;
   display: flex;
   flex-direction: column;
@@ -795,14 +833,14 @@ table.admin-table th, table.admin-table td {
 .link-code {
   margin: 10px 0 0;
   font-size: 72px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
   color: var(--text);
   padding: 22px 28px;
-  border: 2px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--panel);
+  background: var(--bg);
 }
 
 /* --- offline ------------------------------------------------------------- */
@@ -818,7 +856,7 @@ table.admin-table th, table.admin-table td {
   padding: 14px 20px;
   background: var(--age-late);
   color: var(--status-critical-foreground);
-  font-weight: 800;
+  font-weight: 600;
   font-size: 19px;
   line-height: 1.3;
 }
@@ -854,7 +892,7 @@ table.admin-table th, table.admin-table td {
 }
 
 .app-head-restaurant {
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
   white-space: nowrap;
@@ -891,8 +929,8 @@ table.admin-table th, table.admin-table td {
 
 /* The order detail's status badge, keyed on the flag's tone now rather than
    on the raw database status. */
-.badge.status-waiting { background: color-mix(in srgb, var(--st-waiting) 18%, transparent); color: var(--st-waiting); }
-.badge.status-done { background: color-mix(in srgb, var(--st-done) 18%, transparent); color: var(--st-done); }
+.badge.status-waiting { background: color-mix(in oklch, var(--st-waiting) 14%, transparent); color: var(--status-critical-text); }
+.badge.status-done { background: color-mix(in oklch, var(--st-done) 14%, transparent); color: var(--status-online-text); }
 .badge.status-cancelled { background: color-mix(in srgb, var(--text-dim) 20%, transparent); color: var(--text-dim); text-decoration: line-through; }
 .badge.status-printed { background: color-mix(in srgb, var(--st-printed) 20%, transparent); color: var(--st-printed); }
 
@@ -919,9 +957,11 @@ table.admin-table th, table.admin-table td {
   display: block;
   background: var(--panel);
   border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   color: inherit;
   overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
 }
 
 /* The urgency rail. Colour comes from AGE, not status: a cook does not care
@@ -952,18 +992,18 @@ table.admin-table th, table.admin-table td {
   gap: 12px;
 }
 
-.card-no { font-weight: 800; letter-spacing: -0.02em; }
+.card-no { font-weight: 600; letter-spacing: -0.02em; }
 
 .card-type {
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
 }
 
 .card-age {
   margin-left: auto;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--age-calm);
 }
 
@@ -979,7 +1019,7 @@ table.admin-table th, table.admin-table td {
 }
 
 .card-name { font-weight: 700; }
-.card-total { margin-left: auto; font-weight: 800; }
+.card-total { margin-left: auto; font-weight: 600; }
 
 /* The one thing besides the flag allowed on that line: a test order says so,
    quietly, so nobody cooks it. Muted on purpose - it is not a status. */
@@ -991,16 +1031,16 @@ table.admin-table th, table.admin-table td {
 
 .card-flag {
   display: inline-block;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0;
   border-radius: 999px;
+  line-height: 1.3;
 }
 
-.card-flag.done { background: var(--st-done); color: var(--status-online-foreground); }
+.card-flag.done { background: color-mix(in oklch, var(--st-done) 14%, transparent); color: var(--status-online-text); }
 .card-flag.cancelled {
   background: transparent;
-  color: var(--age-late);
+  color: var(--status-critical-text);
   border: 1px solid var(--age-late);
 }
 
@@ -1014,14 +1054,15 @@ table.admin-table th, table.admin-table td {
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.1;
   color: var(--text-dim);
 }
-.app-hero b { font-weight: 900; color: var(--text); }
-.app-hero.late,
-.app-hero.late b { color: var(--age-late); }
+.app-hero b { font-weight: 700; color: var(--text); }
+/* Late: only the late part is red ("1 not accepted", "+5:16 over"); the
+   count stays ink, so red on this line still means exactly one thing. */
+.app-hero .hero-late { color: var(--age-late); font-weight: 700; }
 .app-hero.busy b { color: var(--text); }
 .app-hero.idle { color: var(--st-done); }
 .app-hero.done b { color: var(--st-done); }
@@ -1040,34 +1081,33 @@ table.admin-table th, table.admin-table td {
 
 /* NEW until somebody accepts it (I3). The one pill on a kitchen card
    before Accept; the countdown takes its place after. */
-.card-flag.new { background: var(--st-waiting); color: var(--status-critical-foreground); }
+.card-flag.new { background: color-mix(in oklch, var(--st-waiting) 14%, transparent); color: var(--status-critical-text); }
 
 /* --- Accept + countdown (I3, Nick 2026-09-17) --------------------------- */
 /* The card is a block with the link filling it and the Accept button laid
    over the bottom-right, so a tap anywhere else still opens the ticket. */
 .card .card-body { display: block; color: inherit; text-decoration: none; }
 .card-accept {
-  display: block;
+  display: flex;
   width: 100%;
-  margin-top: 14px;
+  margin-top: 16px;
   min-height: 64px;
   font-size: 22px;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   background: var(--st-done);
   border-color: var(--st-done);
   color: var(--status-online-foreground);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   justify-content: center;
 }
-[data-display="kitchen"] .card-accept { min-height: 76px; font-size: 26px; margin-left: -34px; margin-right: -24px; margin-bottom: -20px; width: calc(100% + 58px); border-radius: 0 0 10px 10px; }
+[data-display="kitchen"] .card-accept { min-height: 76px; font-size: 26px; }
 
 /* The countdown pill: the promise, in the colour of how it is going. Calm
    is quiet; amber under five minutes; over is red and reads "+3:12 over". */
-.card-flag.countdown { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; text-transform: none; }
-.card-flag.countdown.calm { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
-.card-flag.countdown.amber { background: var(--age-warn); color: var(--status-warning-foreground); }
+.card-flag.countdown { font-variant-numeric: tabular-nums; }
+.card-flag.countdown.calm { background: var(--panel-2); color: var(--text); }
+.card-flag.countdown.amber { background: color-mix(in oklch, var(--age-warn) 14%, transparent); color: var(--status-warning-text); }
 .card-flag.countdown.over { background: var(--age-late); color: var(--status-critical-foreground); }
 [data-display="kitchen"] .card-flag.countdown { font-size: 22px; padding: 6px 16px; }
 /* An over countdown carries age-late (OrderCard maps the phase to the
@@ -1100,11 +1140,11 @@ table.admin-table th, table.admin-table td {
 .done-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--st-done); }
 .done-row.cancelled .done-dot { background: var(--age-late); }
 .done-row.open .done-dot { background: var(--age-calm); }
-.done-no { font-weight: 800; letter-spacing: -0.02em; }
+.done-no { font-weight: 600; letter-spacing: -0.02em; }
 .done-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .done-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.done-kind { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-.done-total { font-weight: 800; }
+.done-kind { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.done-total { font-weight: 600; }
 .done-when { color: var(--text-dim); font-weight: 700; white-space: nowrap; }
 .done-row.cancelled .done-name,
 .done-row.cancelled .done-no { text-decoration: line-through; opacity: 0.75; }
@@ -1130,8 +1170,8 @@ table.admin-table th, table.admin-table td {
   padding: 10px 4px;
 }
 .week-tile.active { border-color: var(--text); background: var(--panel-2); color: var(--text); }
-.week-day { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--text-xs); }
-.week-count { font-weight: 900; font-size: 24px; color: var(--text); line-height: 1; }
+.week-day { font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--text-xs); }
+.week-count { font-weight: 700; font-size: 24px; color: var(--text); line-height: 1; }
 .week-total { font-weight: 700; font-size: var(--text-xs); }
 .week-foot { text-align: center; color: var(--text-dim); font-size: var(--text-sm); padding: 20px; margin: 0; }
 
@@ -1139,18 +1179,23 @@ table.admin-table th, table.admin-table td {
 /* One order, one action. The header carries the rail colour the card had. */
 
 .ticket-page { padding-bottom: 140px; }
+.ticket-page .ticket-head,
+.ticket-page .ticket-who,
+.ticket-page .tk { background: var(--panel); }
+.ticket-page .tk { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 
 .ticket-top {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 14px 20px;
+  background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.ticket-back { min-height: 56px; padding: 0 20px; font-size: var(--text-md); }
+.ticket-back { min-height: 56px; padding: 0 20px; font-size: var(--text-md); background: var(--panel); border-radius: var(--radius-md); }
 .ticket-kind {
   color: var(--text-dim);
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: var(--text-sm);
@@ -1165,8 +1210,8 @@ table.admin-table th, table.admin-table td {
   gap: 16px;
   padding: 22px 20px 0;
 }
-.ticket-no { font-size: 48px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
-.ticket-timer { font-size: 44px; font-weight: 900; line-height: 1; color: var(--age-calm); }
+.ticket-no { font-size: 48px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.ticket-timer { font-size: 44px; font-weight: 700; line-height: 1; color: var(--age-calm); }
 .ticket-timer.age-warn { color: var(--status-warning-text); }
 .ticket-timer.age-late { color: var(--age-late); }
 .ticket-timer.settled { color: var(--st-done); }
@@ -1178,7 +1223,7 @@ table.admin-table th, table.admin-table td {
 .ticket-countdown.amber { color: var(--status-warning-text); }
 .ticket-countdown.over { color: var(--age-late); }
 .ticket-countdown-age { font-size: 16px; font-weight: 700; color: var(--text-dim); margin-top: 6px; letter-spacing: 0.02em; }
-.ticket-accept { text-transform: uppercase; letter-spacing: 0.03em; }
+.ticket-accept { letter-spacing: -0.01em; }
 
 .ticket-who {
   display: flex;
@@ -1189,7 +1234,7 @@ table.admin-table th, table.admin-table td {
   padding: 10px 20px 18px;
   border-bottom: 1px solid var(--border);
 }
-.ticket-name { font-size: 26px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
+.ticket-name { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
 .ticket-due { color: var(--text-dim); font-weight: 700; font-size: var(--text-md); }
 
 .ticket-test {
@@ -1205,24 +1250,24 @@ table.admin-table th, table.admin-table td {
 .tk-items { list-style: none; margin: 0; padding: 0; }
 .tk-item { padding: 16px 0; border-bottom: 1px solid var(--border); }
 .tk-line { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
-.tk-name { font-size: 24px; font-weight: 800; line-height: 1.2; }
-.tk-price { color: var(--text-dim); font-weight: 700; font-size: var(--text-md); white-space: nowrap; }
+.tk-name { font-size: 24px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+.tk-price { color: var(--text-dim); font-weight: 500; font-variant-numeric: tabular-nums; font-size: var(--text-md); white-space: nowrap; }
 .tk-mods { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 4px; }
-.tk-mods li { color: var(--status-warning-text); font-weight: 700; font-size: 19px; }
+.tk-mods li { color: var(--status-warning-text); font-weight: 600; font-size: 19px; }
 .tk-mods li::before { content: "– "; }
 .tk-empty { color: var(--text-dim); font-weight: 700; }
 
 .tk-money { padding: 14px 0 6px; border-bottom: 1px solid var(--border); }
-.tk-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; color: var(--text-dim); font-weight: 700; font-size: var(--text-md); }
-.tk-row.tk-total { color: var(--text); font-size: 26px; font-weight: 900; padding-top: 10px; }
+.tk-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; color: var(--text-dim); font-weight: 500; font-size: var(--text-md); }
+.tk-row.tk-total { color: var(--text); font-size: 26px; font-weight: 700; padding-top: 10px; }
 .tk-pay { color: var(--text-dim); font-size: var(--text-sm); padding-top: 6px; }
 
 .tk-note { padding: 16px 0; border-bottom: 1px solid var(--border); }
-.tk-label { display: block; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--text-xs); margin-bottom: 6px; }
-.tk-note p { margin: 0; font-size: 21px; font-weight: 700; line-height: 1.35; }
+.tk-label { display: block; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--text-xs); margin-bottom: 6px; }
+.tk-note p { margin: 0; font-size: 21px; font-weight: 600; line-height: 1.35; }
 
 .tk-contact { display: flex; flex-direction: column; gap: 6px; padding: 16px 0; }
-.tk-phone { color: var(--brand); font-weight: 800; font-size: 22px; text-decoration: none; }
+.tk-phone { color: var(--brand); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 22px; text-decoration: none; }
 .tk-address { color: var(--text-dim); font-size: var(--text-md); font-weight: 600; }
 
 .ticket-original { padding: 12px 20px 0; }
@@ -1240,15 +1285,17 @@ table.admin-table th, table.admin-table td {
   display: flex;
   gap: 12px;
   padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
-  background: var(--bg);
+  background: var(--panel);
   border-top: 1px solid var(--border);
 }
-.ticket-print { flex: 0 0 200px; min-height: 96px; font-size: 20px; }
+.ticket-print { flex: 0 0 200px; min-height: 96px; font-size: 20px; justify-content: center; background: var(--panel); border-color: var(--border); box-shadow: var(--shadow-card); border-radius: var(--radius-md); }
 .ticket-done {
   flex: 1 1 auto;
   min-height: 96px;
   font-size: 30px;
-  font-weight: 900;
+  font-weight: 600;
+  justify-content: center;
+  border-radius: var(--radius-md);
   background: var(--st-done);
   color: var(--status-online-foreground);
   border-color: var(--st-done);
@@ -1260,7 +1307,7 @@ table.admin-table th, table.admin-table td {
   align-items: center;
   justify-content: center;
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--st-done);
   border: 2px solid var(--border);
   border-radius: var(--radius-md);
@@ -1277,21 +1324,33 @@ table.admin-table th, table.admin-table td {
 }
 .app-tabs::-webkit-scrollbar { display: none; }
 
+/* The CRM's segmented control: a muted track, the active tab a raised white
+   card. */
+.app-tabs-track {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--panel-2);
+  border-radius: var(--radius-md);
+}
+
 .app-tab {
   flex: 0 0 auto;
-  background: var(--panel);
+  background: transparent;
   color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-weight: 700;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
   white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
 
 .app-tab.active {
-  background: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px oklch(0.18 0.014 264 / 0.08), 0 0 0 1px var(--border);
 }
+.app-tab-n { color: var(--text-dim); font-weight: 500; }
 
 .app-empty {
   text-align: center;
@@ -1310,9 +1369,9 @@ table.admin-table th, table.admin-table td {
 [data-display="kitchen"] .app-head { padding: 18px 20px; }
 [data-display="kitchen"] .app-hero { font-size: 30px; padding: 6px 20px 2px; }
 [data-display="kitchen"] .app-hero b { font-size: 44px; }
-[data-display="kitchen"] .app-tab-n { margin-left: 8px; opacity: 0.8; }
+[data-display="kitchen"] .app-tab-n { margin-left: 8px; }
 [data-display="kitchen"] .card-items { font-size: 18px; margin-top: 8px; }
-[data-display="kitchen"] .done-row { padding: 18px 22px; border-radius: 12px; font-size: 18px; }
+[data-display="kitchen"] .done-row { padding: 18px 22px; border-radius: var(--radius-lg); font-size: 18px; }
 [data-display="kitchen"] .done-no { font-size: 26px; }
 [data-display="kitchen"] .done-name { font-size: 20px; }
 [data-display="kitchen"] .done-kind { font-size: 13px; }
@@ -1325,16 +1384,14 @@ table.admin-table th, table.admin-table td {
 
 [data-display="kitchen"] .app-tabs { padding: 14px 20px; gap: 10px; }
 [data-display="kitchen"] .app-tab {
-  padding: 16px 26px;
+  padding: 14px 26px;
   font-size: 17px;
-  min-height: 64px;
+  min-height: 56px;
 }
 
 [data-display="kitchen"] .app-list { gap: 14px; padding: 0 20px; }
 
 [data-display="kitchen"] .card {
-  border-radius: 12px;
-  border-width: 2px;
   padding: 20px 24px 20px 34px;
 }
 [data-display="kitchen"] .card::before { width: 12px; }
@@ -1343,11 +1400,7 @@ table.admin-table th, table.admin-table td {
 [data-display="kitchen"] .card-type { font-size: 16px; }
 [data-display="kitchen"] .card-age { font-size: 32px; }
 [data-display="kitchen"] .card-who { margin-top: 10px; }
-[data-display="kitchen"] .card-name {
-  font-size: 24px;
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-}
+[data-display="kitchen"] .card-name { font-size: 24px; }
 [data-display="kitchen"] .card-total { font-size: 26px; }
 [data-display="kitchen"] .card-flag { font-size: 14px; padding: 6px 14px; }
 [data-display="kitchen"] .app-empty { padding: 70px 20px; font-size: 20px; }
@@ -1362,6 +1415,7 @@ table.admin-table th, table.admin-table td {
 
 [data-display="kitchen"] .card.age-late:not(.settled) {
   border-color: var(--age-late);
+  box-shadow: 0 0 0 1px var(--age-late), var(--shadow-card);
   animation: card-breathe 2.4s ease-in-out infinite;
 }
 
@@ -1381,9 +1435,9 @@ table.admin-table th, table.admin-table td {
 [data-display="standard"] .app-head { padding: 20px 24px; }
 [data-display="standard"] .app-hero { font-size: 18px; padding: 4px 24px 0; }
 [data-display="standard"] .app-hero b { font-size: 26px; }
-[data-display="standard"] .app-tab-n { margin-left: 6px; opacity: 0.8; }
+[data-display="standard"] .app-tab-n { margin-left: 6px; }
 [data-display="standard"] .card-items { font-size: 14px; margin-top: 6px; }
-[data-display="standard"] .done-row { padding: 14px 18px; border-radius: 14px; font-size: 14px; }
+[data-display="standard"] .done-row { padding: 14px 18px; border-radius: var(--radius-lg); font-size: 14px; }
 [data-display="standard"] .done-no { font-size: 18px; }
 [data-display="standard"] .done-name { font-size: 16px; }
 [data-display="standard"] .done-kind { font-size: 11px; }
@@ -1396,16 +1450,15 @@ table.admin-table th, table.admin-table td {
 
 [data-display="standard"] .app-tabs { padding: 16px 24px; }
 [data-display="standard"] .app-tab {
-  padding: 11px 20px;
+  padding: 9px 20px;
   font-size: 14px;
-  min-height: 48px;
+  min-height: 40px;
 }
 
 [data-display="standard"] .app-list { gap: 14px; padding: 4px 24px; }
 
 [data-display="standard"] .card {
-  border-radius: 16px;
-  padding: 20px 22px 20px 26px;
+  padding: 18px 20px 18px 24px;
 }
 [data-display="standard"] .card::before { width: 4px; }
 

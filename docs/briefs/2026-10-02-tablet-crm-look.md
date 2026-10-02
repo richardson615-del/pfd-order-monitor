@@ -1,5 +1,7 @@
 # Claude Code instruction package — Workstream Z: tablet app gets the CRM look
 
+> **Status (2026-10-02):** Z1 shipped as PR #99 (merged). Z2 + Z3 shipped together as the follow-up PR — see QUEUE row 12.
+
 Repo: `pfd-order-monitor` (C:\Users\richa\dev\pfd-order-monitor). Single repo — no CRM change.
 Requested by Nick, 2026-10-02: "make the app's design more similar to the CRM — visually more clean."
 Repo rules (README.md, docs/crm-bridge-contract.md, QUEUE.md header) win over this brief. On conflict, stop and say so.

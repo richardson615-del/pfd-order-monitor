@@ -155,7 +155,7 @@ test("the dashboard's lists and counts all come from bucketOf", () => {
   assert.match(dash, /kitchenSort\(orders\.filter\(\(o\) => bucketOf\(o, now, timezone\) === "orders"\), prepMinutes, now\)/);
   assert.match(dash, /const hero = useMemo\(\(\) => heroSummary\(kitchen, prepMinutes, now, AGE_LATE_MS\)/);
   // The tabs are the three Nick named.
-  for (const t of ["Orders", "Completed", "Past week"]) assert.ok(dash.includes(`\n          ${t}`) || dash.includes(`>${t}`) || dash.includes(` ${t} `), `tab ${t}`);
+  for (const t of ["Orders", "Completed", "Past week"]) assert.ok(new RegExp(`\\n\\s+${t}\\b`).test(dash) || dash.includes(`>${t}`) || dash.includes(` ${t} `), `tab ${t}`);
 });
 
 console.log("\nthe NEW pill and the chime agree:");

@@ -684,16 +684,18 @@ export default function OrderDashboard({
         </p>
       )}
 
-      <div className="app-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "orders"} className={`app-tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>
-          Orders <span className="app-tab-n num">{kitchen.length}</span>
-        </button>
-        <button role="tab" aria-selected={tab === "completed"} className={`app-tab ${tab === "completed" ? "active" : ""}`} onClick={() => setTab("completed")}>
-          Completed <span className="app-tab-n num">{completedCounted.length}</span>
-        </button>
-        <button role="tab" aria-selected={tab === "past"} className={`app-tab ${tab === "past" ? "active" : ""}`} onClick={() => setTab("past")}>
-          Past week
-        </button>
+      <div className="app-tabs">
+        <div className="app-tabs-track" role="tablist">
+          <button role="tab" aria-selected={tab === "orders"} className={`app-tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>
+            Orders <span className="app-tab-n num">{kitchen.length}</span>
+          </button>
+          <button role="tab" aria-selected={tab === "completed"} className={`app-tab ${tab === "completed" ? "active" : ""}`} onClick={() => setTab("completed")}>
+            Completed <span className="app-tab-n num">{completedCounted.length}</span>
+          </button>
+          <button role="tab" aria-selected={tab === "past"} className={`app-tab ${tab === "past" ? "active" : ""}`} onClick={() => setTab("past")}>
+            Past week
+          </button>
+        </div>
       </div>
 
       {tab === "orders" && (
@@ -707,7 +709,7 @@ export default function OrderDashboard({
                 <b className="num">{hero.count}</b> {hero.count === 1 ? "order" : "orders"}
                 {hero.unaccepted > 0 && (
                   <>
-                    {" "}· <span className="num">{hero.unaccepted}</span> not accepted
+                    {" "}· <span className="hero-late"><span className="num">{hero.unaccepted}</span> not accepted</span>
                   </>
                 )}
                 {hero.next && (

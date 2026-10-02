@@ -126,7 +126,7 @@ function LoginForm() {
         </p>
       </div>
 
-      <div style={{ padding: 16 }}>
+      <div className="login-card">
         {error && (
           <div className="error-text" style={{ marginBottom: 12 }}>
             {error}

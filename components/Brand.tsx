@@ -76,7 +76,7 @@ export function Brand({
           fill={`url(#${id})`}
           fontFamily="var(--font-brand), system-ui, sans-serif"
           fontSize="48"
-          fontWeight="800"
+          fontWeight="700"
           letterSpacing="-1.6"
         >
           Premium

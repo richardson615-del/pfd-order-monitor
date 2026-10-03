@@ -37,6 +37,12 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { exitUnlessBuildDbStepAllowed } from "./lib/build-db-gate.mjs";
+
+// Only a production Vercel build touches the database: a preview build would
+// otherwise migrate production from an unmerged PR (lib/build-db-gate.mjs).
+// Off Vercel (laptop, CI) this does nothing.
+exitUnlessBuildDbStepAllowed("migrations");
 
 const MIGRATIONS_DIR = fileURLToPath(new URL("../db/migrations/", import.meta.url));
 

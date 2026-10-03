@@ -9,6 +9,8 @@
  * `null` always meaning "no data", never a guess.
  */
 
+import { ALERT_REASONS, type AlertReason } from "./alert-gate";
+
 /**
  * How recently a heartbeat has to have landed for the tablet to count as
  * online. The beat is every two minutes (HEARTBEAT_EVERY_MS); five minutes
@@ -28,6 +30,7 @@ export function tabletOnline(lastSeenAt: string | null | undefined, now: number)
 /** The alert gate's own states, as the dashboard reports them (lib/alert-gate.ts). */
 export type TabletAlertState = "hidden" | "ask" | "blocked" | "unsupported";
 const ALERT_STATES: ReadonlySet<unknown> = new Set<TabletAlertState>(["hidden", "ask", "blocked", "unsupported"]);
+const REASONS: ReadonlySet<unknown> = new Set<AlertReason>(ALERT_REASONS);
 
 export interface HeartbeatRow {
   last_seen_at: string | null;
@@ -35,6 +38,9 @@ export interface HeartbeatRow {
   push_subscribed?: boolean | null;
   shell_version?: number | null;
   alert_state?: string | null;
+  alert_reason?: string | null;
+  alert_raised_at?: string | null;
+  alert_raised_reason?: string | null;
 }
 
 /** A kiosk_devices row (migration 036) bound to the restaurant. */
@@ -61,6 +67,16 @@ export interface TabletStatus {
    * in the console, nobody at the store can. null = it has not said.
    */
   alert_state: TabletAlertState | null;
+  /**
+   * Why it cannot ring - or why it is unconfirmed while still showing orders
+   * - at the last beat (migration 047): perm_default, perm_denied,
+   * sub_absent, sub_read_failed, record_failed, unsupported. null = nothing
+   * wrong, or it has not said.
+   */
+  alert_reason: AlertReason | null;
+  /** When the alert gate last went up on that screen, and why; null = never reported. */
+  alert_raised_at: string | null;
+  alert_raised_reason: AlertReason | null;
   /** Live rows in push_subscriptions for this restaurant. */
   push_subscriptions: number;
   /** appVersionCode of the Android shell the last beat came from; null when it has not said. */
@@ -104,6 +120,9 @@ export function tabletStatus(args: {
     online: tabletOnline(hb?.last_seen_at, args.now),
     push_subscribed: typeof hb?.push_subscribed === "boolean" ? hb.push_subscribed : null,
     alert_state: ALERT_STATES.has(hb?.alert_state) ? (hb!.alert_state as TabletAlertState) : null,
+    alert_reason: REASONS.has(hb?.alert_reason) ? (hb!.alert_reason as AlertReason) : null,
+    alert_raised_at: hb?.alert_raised_at ?? null,
+    alert_raised_reason: REASONS.has(hb?.alert_raised_reason) ? (hb!.alert_raised_reason as AlertReason) : null,
     push_subscriptions: Number.isInteger(args.pushSubscriptions) && args.pushSubscriptions > 0 ? args.pushSubscriptions : 0,
     shell_version: typeof hb?.shell_version === "number" && Number.isInteger(hb.shell_version) ? hb.shell_version : null,
     display_mode: args.displayMode === "standard" ? "standard" : "kitchen",

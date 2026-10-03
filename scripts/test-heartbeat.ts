@@ -204,7 +204,12 @@ test("the restaurant comes from the session, never the request body", () => {
   // beating at all.
   const body = route.slice(route.indexOf("req.json()"));
   const readsFromBody = [...body.matchAll(/body\?\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(readsFromBody)], ["pushSubscribed", "shellVersion", "alertState"]);
+  // Migration 047 (Workstream AG) adds why the gate went up and when -
+  // still only this screen's own story.
+  assert.deepEqual(
+    [...new Set(readsFromBody)],
+    ["pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason"]
+  );
   assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
 });
 
@@ -222,6 +227,30 @@ test("the alert state is one of the gate's four words or nothing - never free te
   // comment that explains why.
   const sql = m037.split(/\r?\n/).filter((l) => !l.trimStart().startsWith("--")).join("\n");
   assert.doesNotMatch(sql, /not null|default/i);
+});
+
+test("the reason is one of the gate's codes or nothing, and a missing raise never erases the last one (047)", () => {
+  assert.match(route, /REASONS\.has\(body\?\.alertReason\)/);
+  assert.match(route, /new Set\(ALERT_REASONS\)/);
+  assert.match(route, /alert_reason: alertReason/);
+  // Spread in only when the beat carries a sane time: an omitted key leaves
+  // the column as it was, an explicit null would wipe it.
+  assert.match(route, /\.\.\.alertRaised,/);
+  assert.match(route, /: \{\};/);
+  assert.match(route, /RAISED_AT_PAST_MS = 7 \* 24 \* 60 \* 60_000/);
+  const m047 = readFileSync(new URL("../db/migrations/047_heartbeat_alert_reason.sql", import.meta.url), "utf8");
+  for (const col of ["alert_reason", "alert_raised_reason"]) {
+    assert.ok(
+      m047.includes(
+        `check (${col} in ('perm_default', 'perm_denied', 'sub_absent', 'sub_read_failed', 'record_failed', 'unsupported'))`
+      ),
+      col
+    );
+  }
+  assert.match(m047, /add column if not exists alert_raised_at timestamptz/);
+  const sql = m047.split(/\r?\n/).filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  // \s-bounded: the reason code perm_default is not a DEFAULT clause.
+  assert.doesNotMatch(sql, /not null|\sdefault\s/i);
 });
 
 test("it refuses an unauthenticated caller", () =>

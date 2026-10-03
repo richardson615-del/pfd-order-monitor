@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { alertGateState, type AlertGateState } from "@/lib/alert-gate";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  readGate,
+  settleGate,
+  type AlertGateState,
+  type AlertReason,
+  type GateMemory,
+  type GateVerdict,
+  type SubscriptionRead,
+} from "@/lib/alert-gate";
 import { armAudio } from "@/lib/sound";
 
 /**
@@ -29,29 +37,26 @@ export const pushSupported = () =>
   "PushManager" in window &&
   "Notification" in window;
 
+/** serviceWorker.ready never rejects - with no worker it just waits. On wake, waiting is a read that failed. */
+const SW_READY_TIMEOUT_MS = 10_000;
+
+function serviceWorkerReady(): Promise<ServiceWorkerRegistration> {
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("The alert service did not start in time.")), SW_READY_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 /**
- * Subscribes this browser and records the endpoint against the restaurant.
+ * Records the endpoint against the restaurant.
  *
- * Idempotent by design - the route upserts on endpoint - so it is safe to run
- * on every mount and every return to the foreground. That repetition is the
- * point: it re-binds an endpoint to the current session after a sign-out and
- * back in, which the old button could not do because it only ever ran when
- * somebody pressed it.
+ * Cookies, not a bearer token: /api/push/subscribe reads the session with
+ * supabaseServer(), which is cookie-based. The old button sent an
+ * Authorization header the route never looked at.
  */
-export async function subscribeAndRecord(): Promise<void> {
-  const reg = await navigator.serviceWorker.ready;
-
-  const existing = await reg.pushManager.getSubscription();
-  const sub =
-    existing ??
-    (await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
-    }));
-
-  // Cookies, not a bearer token: /api/push/subscribe reads the session with
-  // supabaseServer(), which is cookie-based. The old button sent an
-  // Authorization header the route never looked at.
+async function recordSubscription(sub: PushSubscription): Promise<void> {
   const res = await fetch("/api/push/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -61,6 +66,55 @@ export async function subscribeAndRecord(): Promise<void> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error ?? `The server refused the subscription (${res.status}).`);
+  }
+}
+
+/**
+ * Subscribes this browser (if it is not already) and records the endpoint,
+ * reporting each half separately - because "the read failed", "there is no
+ * subscription" and "the record failed" mean three different things for
+ * whether this tablet will ring, and the gate used to treat all three as the
+ * worst one (lib/alert-gate.ts readGate, Workstream AG).
+ *
+ * Idempotent by design - the route upserts on endpoint - so it is safe to run
+ * on every mount and every return to the foreground. That repetition is the
+ * point: it re-binds an endpoint to the current session after a sign-out and
+ * back in, and retries a record that failed last time.
+ */
+export async function subscribeAndRecord(): Promise<{
+  subscription: SubscriptionRead;
+  recorded: boolean;
+  error: string | null;
+}> {
+  const message = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
+
+  let reg: ServiceWorkerRegistration;
+  let existing: PushSubscription | null;
+  try {
+    reg = await serviceWorkerReady();
+    existing = await reg.pushManager.getSubscription();
+  } catch (err) {
+    return { subscription: "unknown", recorded: false, error: message(err, "Could not read the alert setting.") };
+  }
+
+  let sub = existing;
+  if (!sub) {
+    try {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      });
+    } catch (err) {
+      // Known absent: the read worked and said none, and making one failed.
+      return { subscription: "absent", recorded: false, error: message(err, "Could not turn alerts on.") };
+    }
+  }
+
+  try {
+    await recordSubscription(sub);
+    return { subscription: "present", recorded: true, error: null };
+  } catch (err) {
+    return { subscription: "present", recorded: false, error: message(err, "Could not record the alert setting.") };
   }
 }
 
@@ -80,9 +134,11 @@ export interface AlertGateController {
  * ring, and which gate state it landed on. The dashboard puts both on the
  * heartbeat - `blocked` on a managed kiosk means the Hexnode notification
  * policy is missing, and that is the office's to fix, so the office has to
- * be able to see it (migration 037).
+ * be able to see it (migration 037). `reason` says why, and is reported even
+ * while the orders stay showing (record_failed, sub_read_failed), so the
+ * office sees a tablet the gate decided not to interrupt (migration 047).
  */
-export type OnAlertStateChange = (subscribed: boolean, state: AlertGateState) => void;
+export type OnAlertStateChange = (subscribed: boolean, state: AlertGateState, reason: AlertReason | null) => void;
 
 /** How often a blocked screen re-reads the permission with nobody tapping. A kiosk never fires visibilitychange. */
 export const BLOCKED_RECHECK_MS = 60_000;
@@ -92,6 +148,33 @@ export function useAlertGate(onSubscribedChange?: OnAlertStateChange): AlertGate
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** What the screen showed after the last read, and since when reads have been failing (settleGate). */
+  const memory = useRef<GateMemory>({ shown: null, failingSince: null });
+  const recheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // land() schedules a re-read, and check() calls land(): the ref breaks the cycle.
+  const checkRef = useRef<() => Promise<void>>(async () => {});
+
+  /** Show `verdict` - through the debounce unless somebody just tapped - and tell the owner. */
+  const land = useCallback(
+    (verdict: GateVerdict, settle: boolean) => {
+      if (recheckTimer.current) {
+        clearTimeout(recheckTimer.current);
+        recheckTimer.current = null;
+      }
+      const next = settle
+        ? settleGate(memory.current, verdict, Date.now())
+        : { shown: verdict.state, failingSince: null, recheckInMs: null };
+      memory.current = { shown: next.shown, failingSince: next.failingSince };
+      // The confirming read. A kiosk is always visible, so nothing else would ask.
+      if (next.recheckInMs !== null) {
+        recheckTimer.current = setTimeout(() => void checkRef.current(), next.recheckInMs);
+      }
+      setState(next.shown);
+      onSubscribedChange?.(verdict.subscribed, next.shown, verdict.reason);
+    },
+    [onSubscribedChange]
+  );
+
   /**
    * Read the truth, and repair it silently where that is possible.
    *
@@ -99,65 +182,40 @@ export function useAlertGate(onSubscribedChange?: OnAlertStateChange): AlertGate
    * needs no gesture, so it is fixed without showing anybody anything. That
    * covers a cleared cache, a reinstalled app and an expired endpoint - three
    * things that used to leave a tablet permanently silent with a green screen.
+   *
+   * What it must NOT do is put the gate up over a working screen because one
+   * read on wake failed (Workstream AG): readGate keeps an unreadable or
+   * unrecorded subscription hidden, and settleGate wants two failing reads
+   * GATE_CONFIRM_MS apart before a screen showing orders stops showing them.
    */
   const check = useCallback(async () => {
     if (!pushSupported()) {
-      setState("unsupported");
-      onSubscribedChange?.(false, "unsupported");
+      land(readGate({ supported: false, permission: null, subscription: "unknown", recorded: false }), true);
       return;
     }
 
     const permission = Notification.permission;
-    let hasSubscription: boolean | null = null;
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      hasSubscription = Boolean(await reg.pushManager.getSubscription());
-    } catch {
-      hasSubscription = null;
-    }
-
+    let subscription: SubscriptionRead = "unknown";
+    let recorded = false;
     if (permission === "granted") {
-      try {
-        await subscribeAndRecord();
-        setState("hidden");
-        setError(null);
-        onSubscribedChange?.(true, "hidden");
-        return;
-      } catch (err) {
-        /**
-         * Granted, but recording it failed.
-         *
-         * This used to block, on the reasoning that an unrecorded endpoint is
-         * as silent as no endpoint. That was wrong for the case it actually
-         * hit: when the BROWSER already holds a subscription, the server very
-         * likely holds it too from a previous run, and today's refresh
-         * failing says nothing about whether a push will arrive. Blocking
-         * there locks a kitchen out of its live orders over a write that did
-         * not need to succeed.
-         *
-         * So it blocks only when there is no browser subscription at all -
-         * which is genuinely silent - and otherwise lets them through with
-         * the error showing and the status pill amber. Found the hard way: an
-         * RLS refusal on every re-record put the gate up on a working tablet.
-         */
-        setError(err instanceof Error ? err.message : "Could not turn alerts on.");
-        if (hasSubscription) {
-          setState("hidden");
-          // Still false: the office should see this tablet as not confirmed,
-          // and the pill should say so, even though the orders are reachable.
-          onSubscribedChange?.(false, "hidden");
-          return;
-        }
-        setState("ask");
-        onSubscribedChange?.(false, "ask");
-        return;
-      }
+      const result = await subscribeAndRecord();
+      subscription = result.subscription;
+      recorded = result.recorded;
+      // The real message stays on screen for whoever is standing there; the
+      // reason code goes to the office on the heartbeat.
+      setError(result.error);
     }
 
-    const next = alertGateState({ permission, hasSubscription, supported: true });
-    setState(next);
-    onSubscribedChange?.(next === "hidden", next);
-  }, [onSubscribedChange]);
+    land(readGate({ supported: true, permission, subscription, recorded }), true);
+  }, [land]);
+  checkRef.current = check;
+
+  useEffect(
+    () => () => {
+      if (recheckTimer.current) clearTimeout(recheckTimer.current);
+    },
+    []
+  );
 
   useEffect(() => {
     void check();
@@ -193,25 +251,28 @@ export function useAlertGate(onSubscribedChange?: OnAlertStateChange): AlertGate
     setError(null);
     try {
       const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        const next = permission === "denied" ? "blocked" : "ask";
-        setState(next);
-        onSubscribedChange?.(false, next);
-        return;
+      let subscription: SubscriptionRead = "unknown";
+      let recorded = false;
+      if (permission === "granted") {
+        const result = await subscribeAndRecord();
+        subscription = result.subscription;
+        recorded = result.recorded;
+        // The real message, not a shrug. The old button swallowed this into
+        // a console nobody on a tablet can open.
+        setError(result.error);
+        armAudio();
       }
-      await subscribeAndRecord();
-      armAudio();
-      setState("hidden");
-      onSubscribedChange?.(true, "hidden");
+      // Somebody just tapped: show the answer now, no debounce. An unreadable
+      // subscription keeps the gate up here - the person is standing there
+      // and can tap again, which a wake-up read has nobody to do.
+      const verdict = readGate({ supported: true, permission, subscription, recorded });
+      land(subscription === "unknown" && permission === "granted" ? { ...verdict, state: "ask" } : verdict, false);
     } catch (err) {
-      // The real message, not a shrug. The old button swallowed this into a
-      // console nobody on a tablet can open.
       setError(err instanceof Error ? err.message : "Could not turn alerts on.");
-      onSubscribedChange?.(false, "ask");
     } finally {
       setBusy(false);
     }
-  }, [onSubscribedChange]);
+  }, [land]);
 
   return { state, busy, error, check, turnOn };
 }

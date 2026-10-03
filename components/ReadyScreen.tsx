@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Brand } from "./Brand";
 import { useAlertGate, type OnAlertStateChange } from "./useAlertGate";
+import { browserHostHint } from "@/lib/alert-gate";
 import { READY_AUTO_ADVANCE_MS, SUPPORT_PHONE, allReady, readyChecks } from "@/lib/first-run";
 
 /**
@@ -36,6 +37,7 @@ export default function ReadyScreen({
 }) {
   const gate = useAlertGate(onSubscribedChange);
   const alertsOn = gate.state === null ? null : gate.state === "hidden";
+  const hostHint = browserHostHint(typeof navigator === "undefined" ? null : navigator.userAgent);
 
   const [printer, setPrinter] = useState<{ online: boolean | null } | null | undefined>(undefined);
 
@@ -148,6 +150,10 @@ export default function ReadyScreen({
             This browser cannot receive order alerts. Orders should be watched in the Premium app on
             the tablet Premium set up for you. Call <strong>{SUPPORT_PHONE}</strong> and we&apos;ll sort it out.
           </p>
+        )}
+        {/* AG3: same line as the gate - Premium outside Chrome loops the alert step. */}
+        {gate.state !== null && gate.state !== "hidden" && hostHint && (
+          <p className="alert-gate-help alert-gate-host">{hostHint}</p>
         )}
         {gate.error && <p className="alert-gate-error">{gate.error}</p>}
 

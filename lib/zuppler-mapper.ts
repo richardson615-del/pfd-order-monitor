@@ -1,4 +1,4 @@
-import type { CanonicalOrderInput, LineItem } from "./canonical";
+import type { CanonicalOrderInput, LineItem, OrderDiscount } from "./canonical";
 
 /**
  * Zuppler integration - real flow per Zuppler's spec (Jerry Dani, Feb 2026):
@@ -156,6 +156,12 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
     item_id: it.id != null && it.id !== "" ? String(it.id) : null,
   }));
 
+  // Additive, 2026-10-02 (migration 046): the discounts and their promo
+  // codes. Already in LOAD_ORDER_QUERY (carts { discounts { id title
+  // promocode } }) and in rawPayload; only the dollar total was mapped.
+  // Every cart is read, not just the first, so a code on any cart counts.
+  const discounts = mapZupplerDiscounts(carts, money(totals.discount));
+
   // Notes: cart-level comments + instructions, both free text from customer
   const notes =
     [str(cart.comments), str(cart.instructions)].filter(Boolean).join(" | ") ||
@@ -211,6 +217,7 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       })(),
       items,
       lineItems: lineItems.length ? lineItems : null,
+      discounts,
       itemsTotal: money(totals.subtotal),
       tax: money(totals.tax),
       serviceFee: money(totals.service),
@@ -234,6 +241,33 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       rawPayload: resp,
     },
   };
+}
+
+/**
+ * The order's discounts (migration 046). `amount` is the order's own
+ * totals.discount, as a positive number of dollars, ONLY when there is
+ * exactly one discount: LoadOrder selects no per-discount amount (adding one
+ * would be a guessed field - see LOAD_ORDER_QUERY's warning), and splitting a
+ * total across several discounts would be a guess too. [] when no cart has a
+ * discount.
+ */
+export function mapZupplerDiscounts(carts: any[], orderDiscount: number | null): OrderDiscount[] {
+  const out: OrderDiscount[] = [];
+  for (const cart of carts) {
+    for (const d of Array.isArray(cart?.discounts) ? cart.discounts : []) {
+      if (!d || typeof d !== "object") continue;
+      out.push({
+        discount_id: d.id != null && d.id !== "" ? String(d.id) : null,
+        title: str(d.title),
+        promocode: str(d.promocode),
+        amount: null,
+      });
+    }
+  }
+  if (out.length === 1 && orderDiscount != null && orderDiscount !== 0) {
+    out[0]!.amount = Math.abs(orderDiscount);
+  }
+  return out;
 }
 
 /** Fetches the full order from Zuppler's GraphQL API by uuid. */

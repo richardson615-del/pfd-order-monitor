@@ -42,6 +42,14 @@ export const maxDuration = 30;
  * lines from migration 044 - name, quantity, extended total, category,
  * Zuppler ids. Null for email orders and for any Zuppler order the
  * backfill has not reached yet.
+ *
+ * `discount` + `discounts` (2026-10-02, migration 046, prs-crm marketing
+ * engine): the order's discount total in dollars, and each discount with
+ * its promo code - [{discount_id, title, promocode, amount}], amount only
+ * when the order has exactly one discount. `discounts` is [] for a Zuppler
+ * order with none and null for any other source or any Zuppler order
+ * scripts/backfill-discounts.ts has not reached yet. Read-only reporting:
+ * the CRM links a campaign's code to its orders by exact promocode.
  */
 export async function GET(req: NextRequest) {
   const denied = authorizeCrmWrite(req);
@@ -67,7 +75,7 @@ export async function GET(req: NextRequest) {
 
   const admin = supabaseAdmin();
   const SELECT_COLUMNS =
-    "id, source, order_type, received_at, items_total, payment_type, customer_name, customer_phone, customer_email, line_items, restaurant_id, restaurants(zuppler_restaurant_id)";
+    "id, source, order_type, received_at, items_total, payment_type, customer_name, customer_phone, customer_email, line_items, discount, discounts, restaurant_id, restaurants(zuppler_restaurant_id)";
 
   const data: any[] = [];
   let chunkOffset = offset;
@@ -105,6 +113,8 @@ export async function GET(req: NextRequest) {
     customer_phone: o.customer_phone,
     customer_email: o.customer_email,
     line_items: o.line_items ?? null,
+    discount: num(o.discount),
+    discounts: o.discounts ?? null,
     restaurant: {
       id: o.restaurant_id,
       zuppler_restaurant_id: o.restaurants?.zuppler_restaurant_id ?? null,

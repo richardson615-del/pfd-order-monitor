@@ -34,6 +34,8 @@ export interface Order {
   tip: number | null;
   /** Promotional discount. Reduces the total; not part of the component sum. */
   discount: number | null;
+  /** Discounts with promo codes (migration 046): [{discount_id, title, promocode, amount}]. Zuppler only; absent before 046. */
+  discounts?: { discount_id: string | null; title: string | null; promocode: string | null; amount: number | null }[] | null;
   /** Card surcharge on a phone order (migration 042). Absent before it. */
   surcharge?: number | null;
   customer_total: number | null;

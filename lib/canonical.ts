@@ -47,6 +47,12 @@ export interface CanonicalOrderInput {
    * Zuppler only; null for every other source.
    */
   lineItems?: LineItem[] | null;
+  /**
+   * Additive, 2026-10-02 (migration 046, prs-crm marketing engine): the
+   * order's discounts with their promo codes, from carts[].discounts. Zuppler
+   * only; [] = no discount, null for every other source.
+   */
+  discounts?: OrderDiscount[] | null;
   itemsTotal?: number | null;
   tax?: number | null;
   serviceFee?: number | null;
@@ -89,6 +95,17 @@ export interface LineItem {
   item_id: string | null;
 }
 
+/** One discount on an order (orders.discounts, migration 046). Stored snake_case. */
+export interface OrderDiscount {
+  /** Zuppler's discount id, as sent. */
+  discount_id: string | null;
+  title: string | null;
+  /** The code the customer entered, as Zuppler sends it (e.g. "SHS26"). */
+  promocode: string | null;
+  /** Dollars, positive: the order's totals.discount when the order has exactly one discount, else null (LoadOrder selects no per-discount amount). */
+  amount: number | null;
+}
+
 export interface IngestResult {
   status: "created" | "duplicate" | "updated" | "error";
   orderId?: string;
@@ -98,7 +115,7 @@ export interface IngestResult {
 /** Fields an upstream source may legitimately revise after an order exists. */
 const MUTABLE_FIELDS = [
   "order_type", "due_time", "customer_name", "customer_phone", "customer_email",
-  "customer_address", "items", "line_items", "items_total", "tax", "service_fee",
+  "customer_address", "items", "line_items", "discounts", "items_total", "tax", "service_fee",
   "delivery_fee", "tip", "discount", "surcharge", "included_tax", "hidden_fee",
   "customer_total", "payment_type", "notes",
 ] as const;
@@ -159,7 +176,7 @@ export function orderUpdateFields(
     if (to == null || to === "") continue;
     const from = existing[key];
 
-    if (key === "items" || key === "line_items") {
+    if (key === "items" || key === "line_items" || key === "discounts") {
       if (JSON.stringify(from ?? []) !== JSON.stringify(to)) changes[key] = to;
       continue;
     }
@@ -193,7 +210,7 @@ export async function ingestOrder(
   const { data: existing } = await admin
     .from("orders")
     // One literal string: concatenation defeats supabase-js's type inference.
-    .select("id, order_type, due_time, customer_name, customer_phone, customer_email, customer_address, items, line_items, items_total, tax, service_fee, delivery_fee, tip, customer_total, payment_type, notes")
+    .select("id, order_type, due_time, customer_name, customer_phone, customer_email, customer_address, items, line_items, discounts, items_total, tax, service_fee, delivery_fee, tip, customer_total, payment_type, notes")
     .eq("source", input.source)
     .eq("external_id", input.externalId)
     .maybeSingle();
@@ -217,6 +234,7 @@ export async function ingestOrder(
       customer_address: input.customerAddress ?? null,
       items: input.items,
       line_items: input.lineItems ?? null,
+      discounts: input.discounts ?? null,
       items_total: input.itemsTotal ?? null,
       tax: input.tax ?? null,
       service_fee: input.serviceFee ?? null,
@@ -309,6 +327,7 @@ export async function ingestOrder(
       customer_address: input.customerAddress ?? null,
       items: input.items,
       line_items: input.lineItems ?? null,
+      discounts: input.discounts ?? null,
       items_total: input.itemsTotal ?? null,
       tax: input.tax ?? null,
       service_fee: input.serviceFee ?? null,

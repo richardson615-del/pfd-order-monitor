@@ -172,6 +172,52 @@ console.log("discount handling:");
     assert.ok(/Discount applied: \$5\.00/.test(c.notes ?? "")));
 }
 
+// --- Discounts with promo codes (migration 046) ------------------------------
+console.log("discounts and promo codes:");
+{
+  test("no discounts on any cart -> [] (mapped, none)", () =>
+    assert.deepEqual(mapZupplerGraphqlOrder(resp).canonical.discounts, []));
+
+  // The shape Matt sampled from production raw_payload, 2026-10-02.
+  const one = JSON.parse(JSON.stringify(resp));
+  one.data.order.totals.discount = 399; // a waived delivery fee, in cents
+  one.data.order.carts[0].discounts = [{ id: 2057530, title: "off your order", promocode: "SHS26" }];
+  test("one discount: id, title, promocode, and the order's discount as its amount", () =>
+    assert.deepEqual(mapZupplerGraphqlOrder(one).canonical.discounts, [
+      { discount_id: "2057530", title: "off your order", promocode: "SHS26", amount: 3.99 },
+    ]));
+
+  test("the amount is positive even when Zuppler sends the total negative", () => {
+    const neg = JSON.parse(JSON.stringify(one));
+    neg.data.order.totals.discount = -399;
+    assert.equal(mapZupplerGraphqlOrder(neg).canonical.discounts?.[0]?.amount, 3.99);
+  });
+
+  test("two discounts: both kept, amount null on each - a total is never split by guess", () => {
+    const two = JSON.parse(JSON.stringify(one));
+    two.data.order.carts[0].discounts.push({ id: 7, title: "Free drink", promocode: null });
+    assert.deepEqual(mapZupplerGraphqlOrder(two).canonical.discounts, [
+      { discount_id: "2057530", title: "off your order", promocode: "SHS26", amount: null },
+      { discount_id: "7", title: "Free drink", promocode: null, amount: null },
+    ]);
+  });
+
+  test("a discount on a second cart is read too", () => {
+    const carts = JSON.parse(JSON.stringify(one));
+    carts.data.order.carts.push({ restaurantId: 8841, discounts: [{ id: 9, title: "x", promocode: "SECOND" }] });
+    assert.deepEqual(mapZupplerGraphqlOrder(carts).canonical.discounts?.map((d) => d.promocode), ["SHS26", "SECOND"]);
+  });
+
+  test("blank promocode/title read as null; a malformed entry is skipped", () => {
+    const blank = JSON.parse(JSON.stringify(one));
+    blank.data.order.carts[0].discounts = [{ id: 1, title: "  ", promocode: "" }, null, "x"];
+    assert.deepEqual(mapZupplerGraphqlOrder(blank).canonical.discounts, [{ discount_id: "1", title: null, promocode: null, amount: 3.99 }]);
+  });
+
+  test("the query already selects the fields - nothing new or guessed was added to LoadOrder", () =>
+    assert.match(LOAD_ORDER_QUERY, /discounts \{ id title promocode \}/));
+}
+
 // --- Dollars mode: money() must NOT divide by 100 ---------------------------
 console.log("dollars mode (ZUPPLER_AMOUNTS=dollars):");
 {

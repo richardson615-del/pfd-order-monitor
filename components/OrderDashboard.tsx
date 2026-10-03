@@ -11,7 +11,7 @@ import { countsForHistory, money } from "@/lib/history";
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
-import type { AlertGateState } from "@/lib/alert-gate";
+import type { AlertGateState, AlertReason } from "@/lib/alert-gate";
 import ReadyScreen from "./ReadyScreen";
 import { KIOSK_WIFI_HINT, OFFLINE_FOOTER, offlineNotice } from "@/lib/first-run";
 import { isSetupDone, markSetupDone, rememberDeviceRef, writeRestaurantCache } from "@/lib/kiosk-cache";
@@ -100,9 +100,23 @@ export default function OrderDashboard({
    * it (migration 037). null until the hook has read anything.
    */
   const [alertState, setAlertState] = useState<AlertGateState | null>(null);
-  const onAlertStateChange = useCallback((subscribed: boolean, state: AlertGateState) => {
+  /**
+   * Why (lib/alert-gate.ts AlertReason), and when the gate last went up and
+   * why it did - so the office can tell a tablet whose gate keeps coming
+   * back from one that never had alerts on (Workstream AG, migration 047).
+   */
+  const [alertReason, setAlertReason] = useState<AlertReason | null>(null);
+  const [alertRaise, setAlertRaise] = useState<{ at: string; reason: AlertReason | null } | null>(null);
+  const lastAlertState = useRef<AlertGateState | null>(null);
+  const onAlertStateChange = useCallback((subscribed: boolean, state: AlertGateState, reason: AlertReason | null) => {
     setPushSubscribed(subscribed);
     setAlertState(state);
+    setAlertReason(reason);
+    // A raise is any move onto a gate from the orders, or from nothing yet.
+    if (state !== "hidden" && (lastAlertState.current === null || lastAlertState.current === "hidden")) {
+      setAlertRaise({ at: new Date().toISOString(), reason });
+    }
+    lastAlertState.current = state;
   }, []);
 
   /**
@@ -390,7 +404,14 @@ export default function OrderDashboard({
         // screen that will not, and WHY not (alertState) - null until
         // AlertGate has answered. And which shell this is, so the office
         // can see who needs one pushed.
-        body: JSON.stringify({ pushSubscribed, shellVersion, alertState }),
+        body: JSON.stringify({
+          pushSubscribed,
+          shellVersion,
+          alertState,
+          alertReason,
+          alertRaisedAt: alertRaise?.at ?? null,
+          alertRaisedReason: alertRaise?.reason ?? null,
+        }),
       })
         .then(async (res) => {
           // 429 is the server saying "you beat less than a minute ago and I
@@ -427,7 +448,7 @@ export default function OrderDashboard({
     // Re-run when the subscription answer changes: with [] this closure would
     // capture the first value (null, before AlertGate has looked) and report
     // it for the life of the tab.
-  }, [pushSubscribed, shellVersion, alertState]);
+  }, [pushSubscribed, shellVersion, alertState, alertReason, alertRaise]);
 
   // The push subscription is read and repaired by AlertGate, which owns that
   // question - it reports the answer here through onSubscribedChange so the

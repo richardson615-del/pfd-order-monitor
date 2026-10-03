@@ -60,6 +60,9 @@ test("no heartbeat row: every derived field is null or false, the counts are rea
     online: false,
     push_subscribed: null,
     alert_state: null,
+    alert_reason: null,
+    alert_raised_at: null,
+    alert_raised_reason: null,
     push_subscriptions: 2,
     shell_version: null,
     display_mode: "kitchen",
@@ -135,6 +138,33 @@ test("blocked comes through as the word, and anything else the column could not 
   assert.equal(blocked.push_subscribed, false);
   const odd = tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: { last_seen_at: ago(0), alert_state: "Blocked" }, pushSubscriptions: 0, now: NOW });
   assert.equal(odd.alert_state, null);
+});
+
+test("why the gate went up comes through as the code, and anything else is null (047)", () => {
+  // Workstream AG: a tablet whose gate keeps coming back shows a recent raise
+  // with alert_state hidden, and the reason says whether it was the
+  // permission, the subscription or the record.
+  const t = tabletStatus({
+    expected: true,
+    displayMode: "kitchen",
+    heartbeat: {
+      last_seen_at: ago(0),
+      push_subscribed: false,
+      alert_state: "hidden",
+      alert_reason: "record_failed",
+      alert_raised_at: ago(120_000),
+      alert_raised_reason: "perm_default",
+    },
+    pushSubscriptions: 1,
+    now: NOW,
+  });
+  assert.equal(t.alert_reason, "record_failed");
+  assert.equal(t.alert_raised_at, ago(120_000));
+  assert.equal(t.alert_raised_reason, "perm_default");
+  const odd = tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: { last_seen_at: ago(0), alert_reason: "flaky", alert_raised_reason: "" }, pushSubscriptions: 0, now: NOW });
+  assert.equal(odd.alert_reason, null);
+  assert.equal(odd.alert_raised_reason, null);
+  assert.equal(odd.alert_raised_at, null);
 });
 
 test("not expected is still reported truthfully, not blanked", () => {

@@ -3,11 +3,17 @@ import { supabaseServer, supabaseAdmin } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
 import { minShellVersion } from "@/lib/app-update";
 import { HEARTBEAT_MIN_INTERVAL_MS } from "@/lib/kiosk";
+import { ALERT_REASONS } from "@/lib/alert-gate";
 
 export const dynamic = "force-dynamic";
 
 /** The gate states the dashboard can report (lib/alert-gate.ts AlertGateState); the column's CHECK matches. */
 const ALERT_STATES: ReadonlySet<unknown> = new Set(["hidden", "ask", "blocked", "unsupported"]);
+/** lib/alert-gate.ts AlertReason; migration 047's CHECK matches. */
+const REASONS: ReadonlySet<unknown> = new Set(ALERT_REASONS);
+/** A raise time the tablet reports is believed only inside this window - a tablet clock can be wrong, not a week wrong. */
+const RAISED_AT_PAST_MS = 7 * 24 * 60 * 60_000;
+const RAISED_AT_FUTURE_MS = 5 * 60_000;
 
 /**
  * POST /api/dashboard/heartbeat
@@ -73,6 +79,20 @@ export async function POST(req: NextRequest) {
   // notification policy is missing - and this is how the office finds out.
   const alertState = ALERT_STATES.has(body?.alertState) ? (body.alertState as string) : null;
 
+  // Why, and when the gate last went up (migration 047, Workstream AG). Same
+  // rule: only the gate's own reason codes; anything else is null. The raise
+  // is written only when the beat carries one, so a beat that does not say
+  // never erases the last one the office could see.
+  const alertReason = REASONS.has(body?.alertReason) ? (body.alertReason as string) : null;
+  const raisedAtMs = typeof body?.alertRaisedAt === "string" ? Date.parse(body.alertRaisedAt) : NaN;
+  const alertRaised =
+    Number.isFinite(raisedAtMs) && raisedAtMs > Date.now() - RAISED_AT_PAST_MS && raisedAtMs < Date.now() + RAISED_AT_FUTURE_MS
+      ? {
+          alert_raised_at: new Date(raisedAtMs).toISOString(),
+          alert_raised_reason: REASONS.has(body?.alertRaisedReason) ? (body.alertRaisedReason as string) : null,
+        }
+      : {};
+
   // Once a minute per restaurant is plenty (the client beats every two).
   // Anything faster is a bug or abuse, and at five hundred tablets a
   // runaway beat loop is the difference between a quiet database and a
@@ -98,6 +118,8 @@ export async function POST(req: NextRequest) {
         push_subscribed: pushSubscribed,
         shell_version: shellVersion,
         alert_state: alertState,
+        alert_reason: alertReason,
+        ...alertRaised,
       })),
       { onConflict: "restaurant_id" }
     );

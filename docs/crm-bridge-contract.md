@@ -184,6 +184,9 @@ itself.
   "online": true,               // server-computed: last_seen_at within 5 min (TABLET_ONLINE_WITHIN_MS)
   "push_subscribed": true|null, // the last heartbeat's own report; null = it did not say (older client, no row)
   "alert_state": "hidden|ask|blocked|unsupported|null", // WHY it cannot ring, from the same heartbeat (037); null = it did not say
+  "alert_reason": "perm_default|perm_denied|sub_absent|sub_read_failed|record_failed|unsupported|null", // why, at the last beat (047); null = nothing wrong / not said
+  "alert_raised_at": "…|null",  // when the alert gate last went up on that screen (047); null = never reported
+  "alert_raised_reason": "…|null", // alert_reason at that moment; same codes
   "push_subscriptions": 2,      // live push_subscriptions rows for this restaurant
   "shell_version": 4|null,      // Android shell appVersionCode from the last heartbeat; null = it did not say
   "display_mode": "kitchen",    // as above
@@ -215,6 +218,21 @@ the policy is missing or was changed — the tablet shows "Alerts are off on
 this tablet — call Premium", and the fix is in the Hexnode console, never at
 the store. The CRM should label it **Alerts blocked (MDM policy)**, distinct
 from "Alerts off" (`push_subscribed=false` with any other state).
+
+`alert_reason`, `alert_raised_at`, `alert_raised_reason` (added 2026-10-03,
+bridge migration 047, Workstream AG; additive — an older bridge omits them)
+say **why**. `perm_default` = never allowed (or the app lost the permission);
+`perm_denied` = blocked; `sub_absent` = allowed, but the browser could not
+make a push subscription; `unsupported` = no Push API. Two codes arrive with
+`alert_state: "hidden"` on purpose — `sub_read_failed` (the browser could not
+be asked) and `record_failed` (the bridge refused the record) — the tablet
+keeps showing orders and `push_subscribed` is `false`, so label them
+**Alerts unconfirmed**, not "Alerts off". `alert_raised_at` +
+`alert_raised_reason` are the last time the full-screen gate went up and
+why: a tablet whose gate keeps coming back shows a recent raise with
+`alert_state: "hidden"`. Read `user_agent` beside them — `SamsungBrowser` or
+`; wv)` means the app is not running on Chrome, and the fix is at the tablet
+(set Chrome as the default browser), not in Hexnode.
 
 Two liveness signals exist and mean different things: this heartbeat is
 "the app is open and talking to us" (2-minute cadence, primary); an MDM's

@@ -1,7 +1,7 @@
 "use client";
 
 import { Brand } from "./Brand";
-import { gateBlocks } from "@/lib/alert-gate";
+import { browserHostHint, gateBlocks } from "@/lib/alert-gate";
 import { useAlertGate, type OnAlertStateChange } from "./useAlertGate";
 
 /** The number on the printed login ticket, so a restaurant reads the same one everywhere. */
@@ -30,6 +30,10 @@ export default function AlertGate({
   // Nothing decided yet: show nothing rather than flashing a gate over a
   // working screen for the half-second the async read takes.
   if (state === null || !gateBlocks(state)) return null;
+
+  // AG3: on an unmanaged tablet running Premium outside Chrome, the gate
+  // loops however many times anyone taps. Say the one thing that fixes it.
+  const hostHint = browserHostHint(typeof navigator === "undefined" ? null : navigator.userAgent);
 
   return (
     <div className="alert-gate" role="dialog" aria-modal="true" aria-labelledby="alert-gate-title">
@@ -84,6 +88,7 @@ export default function AlertGate({
           </>
         )}
 
+        {hostHint && <p className="alert-gate-help alert-gate-host">{hostHint}</p>}
         {error && <p className="alert-gate-error">{error}</p>}
       </div>
     </div>

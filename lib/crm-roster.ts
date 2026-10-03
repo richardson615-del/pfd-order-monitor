@@ -48,10 +48,12 @@ export async function loadRosterContext(restaurantIds?: string[]): Promise<Roste
       // Every Zuppler listing each restaurant owns, so the console can see
       // which of an account's listings are mapped and which will be dropped.
       admin.from("restaurant_zuppler_ids").select("restaurant_id, zuppler_restaurant_id"),
-      // What each restaurant's tablet last said (migrations 024/030/033/037).
+      // What each restaurant's tablet last said (migrations 024/030/033/037/047).
       admin
         .from("dashboard_heartbeats")
-        .select("restaurant_id, last_seen_at, user_agent, push_subscribed, shell_version, alert_state"),
+        .select(
+          "restaurant_id, last_seen_at, user_agent, push_subscribed, shell_version, alert_state, alert_reason, alert_raised_at, alert_raised_reason"
+        ),
       // How many browsers can ring for it.
       admin.from("push_subscriptions").select("restaurant_id"),
       // Which physical kiosk is bound to it (migration 036): the device

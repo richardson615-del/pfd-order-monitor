@@ -50,6 +50,16 @@ test("line_items (row 66) are selected and returned, null when absent", () => {
   assert.match(route, /line_items: o\.line_items \?\? null/);
 });
 
+test("discount and discounts (migration 046) are selected and returned; discounts null when absent", () => {
+  assert.match(route, /SELECT_COLUMNS =\s*"[^"]*\bdiscount, discounts\b/);
+  assert.match(route, /discount: num\(o\.discount\)/);
+  assert.match(route, /discounts: o\.discounts \?\? null/);
+});
+
+test("never raw_payload - the codes come from the mapped column, not the stored payload", () => {
+  assert.doesNotMatch(route, /raw_payload/);
+});
+
 test("response echoes the zuppler_restaurant_id needed to resolve a CRM account", () => {
   assert.match(route, /zuppler_restaurant_id/);
 });

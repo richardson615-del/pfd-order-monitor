@@ -1056,6 +1056,43 @@ ticket use (which folds quantity into the name and money into a string).
 disagree with the live mapper. Only `line_items IS NULL` rows; dry run by
 default, `--write` to apply, `--production` for the production database.
 
+**`discount` + `discounts` on the customer-orders feed (added 2026-10-02,
+migration 046, prs-crm marketing engine).** Each order now also carries its
+discount total and each discount with the promo code the customer used:
+
+```json
+"discount": 3.99,
+"discounts": [
+  { "discount_id": "2057530", "title": "off your order", "promocode": "SHS26", "amount": 3.99 }
+]
+```
+
+- From Zuppler's `carts[].discounts { id title promocode }`, which LoadOrder
+  has always selected. Matt sampled production on 2026-10-02: `promocode`
+  was filled on 25/25 discounted orders.
+- `amount` (dollars, positive) is the order's own `totals.discount` and is
+  set ONLY when the order has exactly one discount; with two or more it is
+  `null` on each. LoadOrder selects no per-discount amount, and splitting a
+  total would be a guess. Whether Zuppler's discount type has its own amount
+  field is UNKNOWN (check graphiql before adding one - an unknown field
+  rejects the whole query).
+- `discounts` is `[]` for a Zuppler order with no discount, and `null` for
+  email, phone and ezCater orders and for any Zuppler order the backfill has
+  not reached. `discount` is `orders.discount` as a number, or null.
+- Column: `orders.discounts` (migration 046). Only this feed returns it;
+  `/api/crm/accounting/orders` and `/api/crm/orders` are unchanged, and no
+  payout or money figure changes.
+- A write that changes only `discounts` does not move `orders.updated_at`
+  (046 changes the trigger), so the tablets' incremental poll never pulls
+  backfilled old orders onto today's screen.
+
+**Discount backfill, one-time (`scripts/backfill-discounts.ts`,
+2026-10-02).** Fills `discounts` for historical Zuppler orders from stored
+`raw_payload` by running `mapZupplerGraphqlOrder()` itself. Only
+`discounts IS NULL` rows; dry run by default, `--write` to apply,
+`--production` for the production database. Prints counts only. Run after
+046 is applied.
+
 ## Email delivery (Automatic Email Manager restaurants)
 
 Some restaurants print by watching a mailbox with AEM on a local PC rather

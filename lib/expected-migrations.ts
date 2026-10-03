@@ -46,4 +46,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "043_restaurant_link_audit.sql",
   "044_order_line_items.sql",
   "045_ezcater.sql",
+  "046_order_discounts.sql",
 ];

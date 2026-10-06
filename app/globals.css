@@ -109,6 +109,20 @@
   font-family: var(--font-sans, system-ui), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* --- no zoom (Matt, 2026-10-06) ------------------------------------------
+   The viewport meta says user-scalable=no; Chrome's "Force enable zoom"
+   ignores it. pan-x pan-y on the root allows one-finger scrolling and
+   nothing else, so a two-finger brush cannot pinch the page. manipulation
+   on everything turns off double-tap zoom (and the 300ms tap delay with it).
+   text-size-adjust stops Android inflating fonts on its own. The JS side is
+   components/ZoomLock.tsx. */
+html {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+*, *::before, *::after { touch-action: manipulation; }
+
 /* The CRM's dark set, copied in but applied nowhere yet (Nick's default,
    2026-10-02: light only; a per-tablet toggle is a later brief). */
 .dark {
@@ -1081,8 +1095,8 @@ table.admin-table th, table.admin-table td {
 .card-accept {
   display: flex;
   width: 100%;
-  margin-top: 16px;
-  min-height: 64px;
+  margin-top: 12px;
+  min-height: 56px;
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -1092,7 +1106,7 @@ table.admin-table th, table.admin-table td {
   border-radius: var(--radius-md);
   justify-content: center;
 }
-[data-display="kitchen"] .card-accept { min-height: 76px; font-size: 26px; }
+[data-display="kitchen"] .card-accept { min-height: 60px; font-size: 22px; margin-top: 12px; }
 
 /* The countdown pill: the promise, in the colour of how it is going. Calm
    is quiet; amber under five minutes; over is red and reads "+3:12 over". */
@@ -1100,7 +1114,7 @@ table.admin-table th, table.admin-table td {
 .card-flag.countdown.calm { background: var(--panel-2); color: var(--text); }
 .card-flag.countdown.amber { background: color-mix(in oklch, var(--age-warn) 14%, transparent); color: var(--status-warning-text); }
 .card-flag.countdown.over { background: var(--age-late); color: var(--status-critical-foreground); }
-[data-display="kitchen"] .card-flag.countdown { font-size: 22px; padding: 6px 16px; }
+[data-display="kitchen"] .card-flag.countdown { font-size: 18px; padding: 4px 12px; }
 /* An over countdown carries age-late (OrderCard maps the phase to the
    tone), so it breathes through the same rule as a late unaccepted order. */
 .app-hero .hero-count.amber { color: var(--status-warning-text); }
@@ -1358,12 +1372,12 @@ table.admin-table th, table.admin-table td {
 [data-display="kitchen"] { padding-bottom: 24px; }
 
 [data-display="kitchen"] .app-head { padding: 18px 20px; }
-[data-display="kitchen"] .app-hero { font-size: 30px; padding: 6px 20px 2px; }
-[data-display="kitchen"] .app-hero b { font-size: 44px; }
+[data-display="kitchen"] .app-hero { font-size: 24px; padding: 4px 20px 2px; }
+[data-display="kitchen"] .app-hero b { font-size: 34px; }
 [data-display="kitchen"] .app-tab-n { margin-left: 8px; }
-[data-display="kitchen"] .card-items { font-size: 18px; margin-top: 8px; }
-[data-display="kitchen"] .done-row { padding: 18px 22px; border-radius: var(--radius-lg); font-size: 18px; }
-[data-display="kitchen"] .done-no { font-size: 26px; }
+[data-display="kitchen"] .card-items { font-size: 16px; margin-top: 4px; }
+[data-display="kitchen"] .done-row { padding: 12px 18px; border-radius: var(--radius-lg); font-size: 17px; }
+[data-display="kitchen"] .done-no { font-size: 22px; }
 [data-display="kitchen"] .done-name { font-size: 20px; }
 [data-display="kitchen"] .done-kind { font-size: 13px; }
 [data-display="kitchen"] .done-total { font-size: 22px; }
@@ -1380,20 +1394,20 @@ table.admin-table th, table.admin-table td {
   min-height: 56px;
 }
 
-[data-display="kitchen"] .app-list { gap: 14px; padding: 0 20px; }
+[data-display="kitchen"] .app-list { gap: 10px; padding: 0 20px; }
 
 [data-display="kitchen"] .card {
-  padding: 20px 24px 20px 34px;
+  padding: 12px 18px 12px 26px;
 }
-[data-display="kitchen"] .card::before { width: 12px; }
+[data-display="kitchen"] .card::before { width: 10px; }
 
-[data-display="kitchen"] .card-no { font-size: 38px; }
-[data-display="kitchen"] .card-type { font-size: 16px; }
-[data-display="kitchen"] .card-age { font-size: 32px; }
-[data-display="kitchen"] .card-who { margin-top: 10px; }
-[data-display="kitchen"] .card-name { font-size: 24px; }
-[data-display="kitchen"] .card-total { font-size: 26px; }
-[data-display="kitchen"] .card-flag { font-size: 14px; padding: 6px 14px; }
+[data-display="kitchen"] .card-no { font-size: 30px; }
+[data-display="kitchen"] .card-type { font-size: 14px; }
+[data-display="kitchen"] .card-age { font-size: 26px; }
+[data-display="kitchen"] .card-who { margin-top: 4px; }
+[data-display="kitchen"] .card-name { font-size: 20px; }
+[data-display="kitchen"] .card-total { font-size: 21px; }
+[data-display="kitchen"] .card-flag { font-size: 13px; padding: 4px 12px; }
 [data-display="kitchen"] .app-empty { padding: 70px 20px; font-size: 20px; }
 
 /* A ticket nobody has taken for over ten minutes breathes, so it pulls the
@@ -1446,21 +1460,112 @@ table.admin-table th, table.admin-table td {
   min-height: 40px;
 }
 
-[data-display="standard"] .app-list { gap: 14px; padding: 4px 24px; }
+[data-display="standard"] .app-list { gap: 10px; padding: 4px 24px; }
 
 [data-display="standard"] .card {
-  padding: 18px 20px 18px 24px;
+  padding: 12px 16px 12px 20px;
 }
 [data-display="standard"] .card::before { width: 4px; }
 
 [data-display="standard"] .card-no { font-size: 21px; }
 [data-display="standard"] .card-type { font-size: 12px; }
 [data-display="standard"] .card-age { font-size: 15px; font-weight: 700; }
-[data-display="standard"] .card-who { margin-top: 8px; }
+[data-display="standard"] .card-who { margin-top: 4px; }
 [data-display="standard"] .card-name { font-size: 16px; }
 [data-display="standard"] .card-total { font-size: 17px; }
 [data-display="standard"] .card-flag { font-size: 11px; padding: 4px 10px; }
 [data-display="standard"] .app-empty { padding: 60px 24px; font-size: 16px; }
+
+/* ==========================================================================
+   STATS (Matt, 2026-10-06: gamification + analytics)
+   CRM cards and pills, no new colours: indigo for progress, the CRM green
+   for a goal hit or a good number, the text amber for a slow one. Red stays
+   reserved for late orders on the Orders tab.
+   ========================================================================== */
+
+.score { display: flex; flex-direction: column; gap: 12px; padding: 4px 20px 24px; }
+.score-stale { color: var(--status-warning-text); font-size: var(--text-sm); margin: 0; }
+
+.score-card, .score-tile, .score-hero {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
+.score-kicker {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.score-sub { font-size: var(--text-sm); color: var(--text-dim); margin-top: 4px; }
+.score-good { color: var(--status-online-text); }
+
+.score-hero { display: flex; align-items: center; gap: 18px; }
+.score-hero-line { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: var(--text-lg); margin-top: 4px; letter-spacing: -0.01em; }
+.score-ring { width: 108px; height: 108px; flex: none; }
+.score-ring-track { fill: none; stroke: var(--muted); stroke-width: 12; }
+.score-ring-fill { fill: none; stroke: var(--brand); stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset var(--duration-base) var(--ease-out); }
+.score-ring.hit .score-ring-fill { stroke: var(--st-done); }
+.score-ring-n { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: 30px; text-anchor: middle; fill: var(--text); }
+.score-ring-of { font-size: 13px; text-anchor: middle; fill: var(--text-dim); }
+
+.score-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.score-tile-value { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.02em; margin-top: 4px; }
+.score-tile.good .score-tile-value { color: var(--status-online-text); }
+.score-tile.warn .score-tile-value { color: var(--status-warning-text); }
+
+.score-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
+.score-big { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: 44px; line-height: 1.05; margin-top: 4px; }
+.score-level-line { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+.score-level-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px; height: 36px; padding: 0 8px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-foreground);
+  font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: 18px;
+}
+.score-level-name { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: 22px; }
+.score-today { margin-left: auto; font-weight: 600; color: var(--status-online-text); }
+
+.score-bar { height: 10px; border-radius: 999px; background: var(--muted); overflow: hidden; margin-top: 10px; }
+.score-bar.small { height: 6px; margin-top: 8px; }
+.score-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--brand); transition: width var(--duration-base) var(--ease-out); }
+
+.score-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin-top: 10px; align-items: end; }
+.score-week-day { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.score-week-bars { position: relative; width: 100%; height: 96px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; }
+.score-week-bars > span { width: 38%; border-radius: 6px 6px 2px 2px; min-height: 2px; }
+.score-week-last { background: var(--muted); border: 1px solid var(--border); }
+.score-week-this { background: color-mix(in srgb, var(--brand) 55%, var(--panel)); }
+.score-week-day.today .score-week-this { background: var(--brand); }
+.score-week-n { font-weight: 600; font-size: var(--text-sm); }
+.score-week-label { font-size: var(--text-xs); color: var(--text-dim); }
+.score-week-day.today .score-week-label { color: var(--text); font-weight: 600; }
+.score-legend { display: flex; gap: 16px; margin-top: 8px; font-size: var(--text-xs); color: var(--text-dim); }
+.score-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.score-dot.this { background: var(--brand); }
+.score-dot.last { background: var(--muted); border: 1px solid var(--border); }
+
+.score-badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+.score-badge { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; background: var(--surface-sunken); }
+.score-badge.earned { background: color-mix(in srgb, var(--st-done) 10%, var(--panel)); border-color: color-mix(in srgb, var(--st-done) 40%, var(--border)); }
+.score-badge-top { display: flex; align-items: center; gap: 8px; }
+.score-badge-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  border: 2px dashed var(--border); font-size: 13px; font-weight: 700;
+}
+.score-badge.earned .score-badge-mark { border: none; background: var(--st-done); color: var(--status-online-foreground); }
+.score-badge-label { font-weight: 700; }
+.score-badge-rule { font-size: var(--text-xs); color: var(--text-dim); margin-top: 4px; line-height: 1.35; }
+.score-badge-progress { font-size: var(--text-xs); color: var(--text-dim); margin-top: 4px; }
+
+@media (max-width: 760px) {
+  .score-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .score-row { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* --- narrow screens ----------------------------------------------------- */
 /* A phone checking in on the restaurant, which happens. The kitchen scale
@@ -1470,10 +1575,10 @@ table.admin-table th, table.admin-table td {
   [data-display="kitchen"] .app-hero { font-size: 22px; }
   [data-display="kitchen"] .app-hero b { font-size: 30px; }
   .ticket-print { flex-basis: 140px; }
-  [data-display="kitchen"] .card-no { font-size: 27px; }
-  [data-display="kitchen"] .card-age { font-size: 23px; }
-  [data-display="kitchen"] .card-name { font-size: 18px; }
-  [data-display="kitchen"] .card-total { font-size: 20px; }
+  [data-display="kitchen"] .card-no { font-size: 24px; }
+  [data-display="kitchen"] .card-age { font-size: 21px; }
+  [data-display="kitchen"] .card-name { font-size: 17px; }
+  [data-display="kitchen"] .card-total { font-size: 18px; }
   [data-display="kitchen"] .app-list,
   [data-display="kitchen"] .app-tabs,
   [data-display="kitchen"] .app-head { padding-left: 14px; padding-right: 14px; }

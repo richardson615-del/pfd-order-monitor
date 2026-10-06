@@ -3,6 +3,7 @@ import { Sora } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import ZoomLock from "@/components/ZoomLock";
 
 /**
  * The CRM's two faces (Nick, 2026-10-02: the tablet gets the CRM look).
@@ -55,7 +56,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  minimumScale: 1,
   userScalable: false,
+  // The keyboard (search, login) must not zoom the page either.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
@@ -67,6 +71,7 @@ export default function RootLayout({
     <html lang="en" className={`${sans.variable} ${heading.variable}`}>
       <body>
         <ServiceWorkerRegister />
+        <ZoomLock />
         {children}
       </body>
     </html>

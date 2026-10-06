@@ -1203,6 +1203,76 @@ at the restaurant sees anything at all.
 Email restaurants never raise the printer-silence, never-checked-in or
 no-printer checks.
 
+## Messages (restaurant tablet <-> dispatch)
+
+Added 2026-10-06 (Matt: "an ability for them to send our dispatch
+messages"), migration 048 `restaurant_messages`. Two-way: the kitchen writes
+from the tablet ("Message dispatch" in the header, with two quick picks), the
+CRM polls the feed below and opens a dispatch ticket, and a dispatcher's reply
+is POSTed back and shown on the tablet with a chime and an unread badge.
+
+### New kitchen messages
+
+`GET /api/crm/messages[?since=<iso>]` -> `{ checked_at, since, truncated, messages[] }`.
+
+Kitchen-written messages only (`direction = from_restaurant`), **oldest
+first**, at most 500 per read (`truncated: true` means read again with
+`since` = the last one's `created_at`). `since` is **inclusive**
+(`created_at >= since`), so the CRM must dedupe on `id`; that is what lets a
+message written in the same millisecond as the last one read never be
+skipped. Without `since`, the last 24 hours.
+
+Each message:
+
+```json
+{
+  "id": "uuid",
+  "restaurant_id": "bridge uuid",
+  "crm_restaurant_id": "CRM account id or null (unlinked)",
+  "restaurant_name": "Willie Mae's Kitchen",
+  "kind": "text | driver_late | order_problem | menu_change",
+  "body": "Where's my driver?",
+  "created_at": "2026-10-06T19:14:03.120Z",
+  "order": null
+}
+```
+
+`order`, when the message is about one: `{ id, order_number, order_type,
+customer_name, status, received_at, accepted_at }`. **Never** the customer's
+phone or address. `driver_late` attaches the newest open delivery when there
+is one (null otherwise); `order_problem` always carries the order the kitchen
+picked. `kind` is there so priority can be set without reading the words.
+
+**`menu_change`** (same day, Matt: "the restaurant keeps their menu up to date
+on their own, then it goes to the CRM, then our agent updates that
+restaurant's menus on all fronts"): `body` is the restaurant's own words, one
+change per line, plain English ("Ribs are now $24.99", "Out of banana
+pudding"). It never carries an order. The CRM should make it a Menu update
+ticket and parse `body` into a menu change set against that restaurant's
+current menu. Approval, publishing to Zuppler / DoorDash / ezCater and
+read-back verification then run as for any other change set.
+
+### Dispatch reply
+
+`POST /api/crm/messages` `{ restaurant, body, author?, ticket_no? }` -> 201 `{ message }`.
+
+- `restaurant`: either id (bridge uuid or CRM account id; the two-id rule).
+- `body`: 1-1000 characters after trimming.
+- `author`: the name the kitchen sees ("Kayla"). Send a first name, not an
+  email. Optional; the tablet shows "Dispatch" without it.
+- `ticket_no`: the CRM ticket number, shown on the tablet as "ticket #1042".
+  A leading `#` is dropped.
+
+Refusals: 400 `{ error, code: "invalid" }`, 404 `{ error, code:
+"restaurant_not_found" }`. The returned `message` carries `id`,
+`restaurant_id`, `crm_restaurant_id`, `direction: "to_restaurant"`, `body`,
+`author`, `crm_ticket_no`, `created_at`.
+
+The tablet polls its thread every ~20 s, so a reply shows within about half a
+minute. It chimes once if the tablet's sound is armed, and shows "Dispatch
+replied" until the panel is opened. Opening the panel sets `read_at` on every
+reply.
+
 ## Standing rules
 
 - **Two ids, and `restaurant_id` in CRM calls is the CRM account id; the

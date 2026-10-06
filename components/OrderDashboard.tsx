@@ -7,6 +7,7 @@ import OrderCard from "./OrderCard";
 import CompletedRow from "./CompletedRow";
 import PastWeek from "./PastWeek";
 import Scoreboard from "./Scoreboard";
+import MenuEditor from "./MenuEditor";
 import DispatchMessages from "./DispatchMessages";
 import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
@@ -57,7 +58,7 @@ import {
  * restaurant's prep target; COMPLETE ends it. An order nobody accepted
  * stops chiming six hours after it arrived but stays on the list.
  */
-type TabKey = "orders" | "completed" | "past" | "stats";
+type TabKey = "orders" | "completed" | "past" | "stats" | "menu";
 
 export default function OrderDashboard({
   initialOrders,
@@ -684,7 +685,7 @@ export default function OrderDashboard({
           {/* Messages with Premium dispatch (Matt, 2026-10-06). Today's
               orders go in so "Where's my driver?" and "Problem with an
               order" can attach the right one. */}
-          <DispatchMessages orders={[...kitchen, ...completed]} timezone={timezone} soundArmed={soundArmed} />
+          <DispatchMessages orders={[...kitchen, ...completed]} timezone={timezone} soundArmed={soundArmed} onOpenMenu={() => setTab("menu")} />
           {/* Says the worst true thing, not the one that happens to be
               working. See liveState(). */}
           <span className={`app-live ${live.level}`} title={live.detail ?? undefined}>
@@ -724,6 +725,9 @@ export default function OrderDashboard({
           </button>
           <button role="tab" aria-selected={tab === "stats"} className={`app-tab ${tab === "stats" ? "active" : ""}`} onClick={() => setTab("stats")}>
             Stats
+          </button>
+          <button role="tab" aria-selected={tab === "menu"} className={`app-tab ${tab === "menu" ? "active" : ""}`} onClick={() => setTab("menu")}>
+            Menu
           </button>
         </div>
       </div>
@@ -788,6 +792,8 @@ export default function OrderDashboard({
       {tab === "past" && <PastWeek timezone={timezone} />}
 
       {tab === "stats" && <Scoreboard />}
+
+      {tab === "menu" && <MenuEditor timezone={timezone} />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

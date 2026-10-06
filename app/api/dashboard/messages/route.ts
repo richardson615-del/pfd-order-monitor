@@ -32,7 +32,7 @@ export async function GET() {
   if ("error" in s) return s.error;
   const { data, error } = await s.supabase
     .from("restaurant_messages")
-    .select("id, restaurant_id, direction, kind, body, order_id, author, crm_ticket_no, created_at, read_at")
+    .select("id, restaurant_id, direction, kind, body, order_id, author, crm_ticket_no, created_at, read_at, menu_changes")
     .eq("restaurant_id", s.restaurantId)
     .order("created_at", { ascending: false })
     .limit(THREAD_LIMIT);

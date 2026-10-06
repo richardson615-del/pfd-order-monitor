@@ -1638,8 +1638,6 @@ table.admin-table th, table.admin-table td {
 .msg-pick-row .num { font-weight: 700; }
 .msg-pick-time { color: var(--text-dim); font-size: var(--text-sm); }
 
-.msg-menu { padding: 10px 18px 0; }
-.msg-menu-hint { margin: 6px 0; color: var(--text-dim); font-size: var(--text-sm); }
 .msg-menu-examples { margin: 0; padding-left: 18px; color: var(--text-dim); font-size: var(--text-sm); }
 
 .msg-error { color: var(--status-critical-text); font-size: var(--text-sm); margin: 8px 18px 0; }
@@ -1651,6 +1649,51 @@ table.admin-table th, table.admin-table td {
   font: inherit; font-size: 17px; color: var(--text);
 }
 .msg-send { min-height: 52px; padding: 0 22px; border-radius: var(--radius-md); background: var(--brand); border-color: var(--brand); color: var(--primary-foreground); font-weight: 700; font-size: 17px; }
+
+
+/* ---------------------------------------------------------------------------
+   MENU TAB (migration 049) - the restaurant's menu, tap to change
+   --------------------------------------------------------------------------- */
+.menu-tab { padding: 0 20px 24px; }
+.menu-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 0 10px; }
+.menu-title { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: var(--text-lg); }
+.menu-sub { color: var(--text-dim); font-size: var(--text-sm); margin-top: 2px; }
+.menu-search { min-width: 220px; flex: 0 1 320px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); font: inherit; font-size: var(--text-md); color: var(--text); }
+.menu-search:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+.menu-note { color: var(--text-dim); font-size: var(--text-sm); margin: 0 0 8px; }
+.menu-sent { margin: 0 0 10px; padding: 10px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--status-online) 14%, var(--card)); color: var(--text); font-size: var(--text-sm); border: 1px solid color-mix(in srgb, var(--status-online) 40%, var(--border)); }
+.menu-cat { margin: 6px 0 14px; }
+.menu-cat-name { margin: 0 0 6px; font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+.menu-cat-n { margin-left: 6px; font-weight: 500; }
+.menu-items { display: grid; gap: 6px; }
+.menu-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; min-height: 52px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; font-size: var(--text-md); cursor: pointer; }
+.menu-item:active { background: var(--surface-sunken); }
+.menu-item.out .menu-item-name { color: var(--text-dim); text-decoration: line-through; }
+.menu-item-name { font-weight: 600; min-width: 0; }
+.menu-item-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.menu-item-price { font-weight: 600; min-width: 64px; text-align: right; }
+.menu-chip { font-size: var(--text-xs); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+.menu-chip.out { border-color: color-mix(in srgb, var(--status-critical) 50%, var(--border)); color: var(--status-critical); }
+.menu-chip.sent { border-color: color-mix(in srgb, var(--brand) 50%, var(--border)); color: var(--brand); }
+
+.menu-sheet { max-width: 520px; }
+.menu-sheet-body { padding: 14px 18px 18px; display: grid; gap: 18px; overflow-y: auto; }
+.menu-sheet-desc { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.menu-sheet-section { display: grid; gap: 8px; }
+.menu-sheet-label { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+.menu-sheet-row { display: flex; align-items: center; gap: 8px; }
+.menu-dollar { color: var(--text-dim); font-weight: 600; }
+.menu-input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); font: inherit; font-size: var(--text-lg); color: var(--text); }
+.menu-input:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+.menu-action { min-height: 48px; padding: 0 18px; white-space: nowrap; }
+.menu-action.danger { background: var(--status-critical); border-color: var(--status-critical); color: #fff; }
+.menu-action:disabled { opacity: 0.5; }
+.menu-field-err { margin: 0; color: var(--status-critical); font-size: var(--text-sm); }
+.menu-sheet-foot { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+
+.menu-words { display: grid; gap: 10px; max-width: 640px; }
+.menu-words textarea { width: 100%; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); font: inherit; font-size: var(--text-md); color: var(--text); resize: vertical; }
+.menu-words .msg-send { justify-self: start; }
 
 /* --- narrow screens ----------------------------------------------------- */
 /* A phone checking in on the restaurant, which happens. The kitchen scale

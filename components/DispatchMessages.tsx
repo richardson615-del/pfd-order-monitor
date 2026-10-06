@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Order } from "@/lib/types";
-import { MENU_CHANGE_EXAMPLES, QUICK_PICKS, driverLateOrder, newReplies, type RestaurantMessage } from "@/lib/messages";
+import { QUICK_PICKS, driverLateOrder, newReplies, type RestaurantMessage } from "@/lib/messages";
 import { timeLabel } from "@/lib/local-day";
 import { playChime } from "@/lib/sound";
 
@@ -11,8 +11,8 @@ import { playChime } from "@/lib/sound";
  * dispatch from the tablet, and dispatch's reply comes back here.
  *
  * A header button with an unread badge, and a panel with the thread, three
- * quick picks ("Where's my driver?", "Problem with an order", "Update menu")
- * and a box to type in. The thread is polled every POLL_MS whether or not the panel is
+ * quick picks ("Where's my driver?", "Problem with an order", and "Update
+ * menu", which opens the Menu tab) and a box to type in. The thread is polled every POLL_MS whether or not the panel is
  * open, so a reply can ring and badge on a screen nobody is touching. A
  * reply chimes once (only if sound is armed - the chime is a courtesy, the
  * order alarm is the thing that must ring) and shows a banner until the
@@ -24,10 +24,13 @@ export default function DispatchMessages({
   orders,
   timezone,
   soundArmed,
+  onOpenMenu,
 }: {
   orders: Order[];
   timezone: string | null;
   soundArmed: boolean;
+  /** "Update menu" opens the Menu tab (components/MenuEditor.tsx), where a change is a tap on the item. */
+  onOpenMenu: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<RestaurantMessage[]>([]);
@@ -35,7 +38,6 @@ export default function DispatchMessages({
   const [banner, setBanner] = useState(false);
   const [draft, setDraft] = useState("");
   const [picking, setPicking] = useState(false);
-  const [menuMode, setMenuMode] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const seenRef = useRef<Set<string> | null>(null);
@@ -138,10 +140,7 @@ export default function DispatchMessages({
 
   const sendText = async () => {
     if (!draft.trim()) return;
-    if (await send({ kind: menuMode ? "menu_change" : "text", body: draft })) {
-      setDraft("");
-      setMenuMode(false);
-    }
+    if (await send({ kind: "text", body: draft })) setDraft("");
   };
 
   const orderNo = (id: string | null) => (id ? orders.find((o) => o.id === id)?.order_number : undefined);
@@ -193,24 +192,7 @@ export default function DispatchMessages({
               })}
             </div>
 
-            {menuMode ? (
-              <div className="msg-menu">
-                <div className="msg-pick-head">
-                  <span>What changed on the menu?</span>
-                  <button type="button" className="msg-link" onClick={() => setMenuMode(false)}>
-                    Cancel
-                  </button>
-                </div>
-                <p className="msg-menu-hint">
-                  One change per line, in your own words. Premium checks it and updates Zuppler, DoorDash and the rest for you.
-                </p>
-                <ul className="msg-menu-examples">
-                  {MENU_CHANGE_EXAMPLES.map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : picking ? (
+            {picking ? (
               <div className="msg-pick">
                 <div className="msg-pick-head">
                   <span>Which order?</span>
@@ -235,7 +217,15 @@ export default function DispatchMessages({
                 <button type="button" className="msg-chip" disabled={sending} onClick={() => setPicking(true)}>
                   {QUICK_PICKS.order_problem.label}
                 </button>
-                <button type="button" className="msg-chip" disabled={sending} onClick={() => setMenuMode(true)}>
+                <button
+                  type="button"
+                  className="msg-chip"
+                  disabled={sending}
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenMenu();
+                  }}
+                >
                   {QUICK_PICKS.menu_change.label}
                 </button>
               </div>
@@ -253,12 +243,12 @@ export default function DispatchMessages({
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={menuMode ? "e.g. Ribs are now $24.99" : "Type a message to dispatch…"}
-                rows={menuMode ? 4 : 2}
+                placeholder="Type a message to dispatch…"
+                rows={2}
                 maxLength={1000}
               />
               <button type="submit" className="btn msg-send" disabled={sending || !draft.trim()}>
-                {sending ? "Sending…" : menuMode ? "Send menu change" : "Send"}
+                {sending ? "Sending…" : "Send"}
               </button>
             </form>
           </aside>

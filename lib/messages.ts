@@ -12,6 +12,7 @@
  * (tablet) or the CRM key + the restaurant ref (CRM).
  */
 import type { Order } from "./types";
+import type { MenuChanges } from "./menu-editor";
 
 export const MESSAGE_KINDS = ["text", "driver_late", "order_problem", "menu_change"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
@@ -36,6 +37,8 @@ export interface RestaurantMessage {
   crm_ticket_no: string | null;
   created_at: string;
   read_at: string | null;
+  /** kind = menu_change made from the Menu tab (migration 049): the exact changes. Null on a typed one. */
+  menu_changes?: MenuChanges | null;
 }
 
 /** What the kitchen sees on the quick-pick buttons, and the words sent when they add none. */

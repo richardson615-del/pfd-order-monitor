@@ -1232,6 +1232,7 @@ Each message:
   "restaurant_name": "Willie Mae's Kitchen",
   "kind": "text | driver_late | order_problem | menu_change",
   "body": "Where's my driver?",
+  "menu_changes": null,
   "created_at": "2026-10-06T19:14:03.120Z",
   "order": null
 }
@@ -1245,12 +1246,73 @@ picked. `kind` is there so priority can be set without reading the words.
 
 **`menu_change`** (same day, Matt: "the restaurant keeps their menu up to date
 on their own, then it goes to the CRM, then our agent updates that
-restaurant's menus on all fronts"): `body` is the restaurant's own words, one
-change per line, plain English ("Ribs are now $24.99", "Out of banana
-pudding"). It never carries an order. The CRM should make it a Menu update
-ticket and parse `body` into a menu change set against that restaurant's
-current menu. Approval, publishing to Zuppler / DoorDash / ezCater and
-read-back verification then run as for any other change set.
+restaurant's menus on all fronts"; then "updates need to be able to be made
+on tablet"). It never carries an order. Two shapes:
+
+- **Made on the Menu tab** (migration 049, the normal case once the CRM has
+  pushed the menu - see below): `menu_changes` is set:
+
+  ```json
+  {
+    "menu_id": "<the CRM menu snapshot id the kitchen was looking at>",
+    "lines": ["price #1234 = 24.99", "86 #1235"],
+    "changes": [{ "ref": "1234", "action": "set_price", "item": "Rib Plate", "line": "price #1234 = 24.99", "text": "Rib Plate: $22.99 to $24.99" }]
+  }
+  ```
+
+  `lines` are in the CRM rules parser's exact grammar
+  (`prs-crm/src/lib/menu-sync/parser.ts`, `RULES_GRAMMAR`) and name the item
+  by the `ref` the CRM itself pushed: `price #<ref> = 24.99`, `86 #<ref>`,
+  `un-86 #<ref>`, `rename #<ref> -> <new name>`. The CRM should feed
+  `lines.join("\n")` to the **rules** parser - no model, nothing to
+  interpret. `menu_id` says which snapshot the refs belong to; if the
+  current menu is newer the refs may still match (Zuppler ids are stable),
+  and if one does not the parser asks, as it does today. `body` is the
+  same change in words for the ticket.
+
+- **Typed** (no menu pushed to that tablet yet): `menu_changes` is null and
+  `body` is the restaurant's own words, one change per line ("Ribs are now
+  $24.99", "Out of banana pudding"). Parse `body` as today.
+
+Either way: a Menu update ticket plus a menu change set against the
+restaurant's current menu. Approval, publishing to Zuppler / DoorDash /
+ezCater and read-back verification run as for any other change set. **After
+a publish (and after every nightly refresh), push the menu again** - that is
+what clears "Sent to Premium" on the tablet and shows the kitchen the change
+is live.
+
+### The menu on the tablet
+
+`PUT /api/crm/restaurants/:id/menu` (either id) replaces the restaurant's
+menu for its Menu tab. One row per restaurant; the whole menu every time.
+
+```json
+{
+  "menu_id": "<menu snapshot id>",
+  "source": "zuppler | csv | crm_edit",
+  "categories": [
+    { "ref": "<category ref>", "name": "Plates",
+      "items": [{ "ref": "<item ref>", "name": "Rib Plate", "price_cents": 2299, "available": true, "description": "Half slab" }] }
+  ]
+}
+```
+
+- `ref` is what the CRM's own parser resolves `#<ref>` to (`entryRef`: the
+  Zuppler external id, or `crm:<row uuid>` for a CSV row). Every category and
+  item needs one; a duplicate item ref or a missing ref fails the whole push
+  (400 `{ error, code: "invalid" }`), so the kitchen can never edit an item
+  the CRM cannot find.
+- `price_cents` is the price the **restaurant** sees - its own price
+  (`base_price_cents`), not a channel's marked-up one.
+- `available` defaults to true; `description` is optional.
+- Limits: 200 categories, 4,000 items, names 200 characters.
+
+-> 200 `{ restaurant_id, crm_restaurant_id, menu_id, item_count, pushed_at }`;
+404 `{ code: "restaurant_not_found" }`. `GET` the same path returns
+`{ menu: { menu_id, source, item_count, pushed_at } | null }` to confirm a
+push landed. The tablet reads it every five minutes and on opening the tab.
+Modifier groups and options are not on the tablet yet; the kitchen types
+those, or calls.
 
 ### Dispatch reply
 

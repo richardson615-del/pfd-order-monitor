@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data: rows, error } = await admin
     .from("restaurant_messages")
-    .select("id, restaurant_id, kind, body, order_id, created_at")
+    .select("id, restaurant_id, kind, body, order_id, created_at, menu_changes")
     .eq("direction", "from_restaurant")
     .gte("created_at", windowStart.toISOString())
     .order("created_at", { ascending: true })
@@ -68,6 +68,9 @@ export async function GET(req: NextRequest) {
       restaurant_name: r?.name ?? null,
       kind: m.kind,
       body: m.body,
+      // Set when the change was made on the Menu tab (049): { menu_id, lines[] in the
+      // CRM parser's grammar by ref, changes[] }. Null for a typed menu_change.
+      menu_changes: m.menu_changes ?? null,
       created_at: m.created_at,
       order: m.order_id ? byOrder.get(m.order_id as string) ?? null : null,
     };

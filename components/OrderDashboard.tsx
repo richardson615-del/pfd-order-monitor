@@ -6,6 +6,7 @@ import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
 import CompletedRow from "./CompletedRow";
 import PastWeek from "./PastWeek";
+import Scoreboard from "./Scoreboard";
 import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
 import { Brand } from "./Brand";
@@ -55,7 +56,7 @@ import {
  * restaurant's prep target; COMPLETE ends it. An order nobody accepted
  * stops chiming six hours after it arrived but stays on the list.
  */
-type TabKey = "orders" | "completed" | "past";
+type TabKey = "orders" | "completed" | "past" | "stats";
 
 export default function OrderDashboard({
   initialOrders,
@@ -716,6 +717,9 @@ export default function OrderDashboard({
           <button role="tab" aria-selected={tab === "past"} className={`app-tab ${tab === "past" ? "active" : ""}`} onClick={() => setTab("past")}>
             Past week
           </button>
+          <button role="tab" aria-selected={tab === "stats"} className={`app-tab ${tab === "stats" ? "active" : ""}`} onClick={() => setTab("stats")}>
+            Stats
+          </button>
         </div>
       </div>
 
@@ -777,6 +781,8 @@ export default function OrderDashboard({
       )}
 
       {tab === "past" && <PastWeek timezone={timezone} />}
+
+      {tab === "stats" && <Scoreboard />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

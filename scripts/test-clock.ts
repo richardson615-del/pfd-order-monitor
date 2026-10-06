@@ -57,16 +57,22 @@ test("it shows the restaurant's time when a zone is known", () => {
   assert.equal(clockLabel(NOW, "America/New_York"), "9:52 AM");
 });
 
-test("null falls back to device time, which is what it did before", () => {
-  const device = new Date(NOW).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  assert.equal(clockLabel(NOW, null), device);
-  assert.equal(clockLabel(NOW, undefined), device);
+test("no zone set reads Central, not the tablet's own zone (2026-10-06)", () => {
+  assert.equal(clockLabel(NOW, null), "8:52 AM");
+  assert.equal(clockLabel(NOW, undefined), "8:52 AM");
 });
 
-test("a bad zone degrades to device time, never to a blank header", () => {
-  const device = new Date(NOW).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  assert.equal(clockLabel(NOW, "America/Nashville"), device);
-  assert.equal(clockLabel(NOW, "CST"), device);
+test("a bad zone degrades to Central, never to a blank header", () => {
+  assert.equal(clockLabel(NOW, "America/Nashville"), "8:52 AM");
+  assert.equal(clockLabel(NOW, "CST"), "8:52 AM");
+});
+
+test("always 12-hour with AM/PM, whatever the tablet's language", () => {
+  const evening = NOW + 12 * 3600_000; // 8:52 PM Central
+  assert.equal(clockLabel(evening, "America/Chicago"), "8:52 PM");
+  assert.doesNotMatch(clockLabel(evening, null), /^20:/);
+  // what the old code did on a tablet set to English (UK)
+  assert.equal(new Date(evening).toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }), "20:52");
 });
 
 console.log("\nthe bridge:");

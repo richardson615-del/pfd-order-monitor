@@ -29,18 +29,29 @@ export function isValidTimeZone(value: unknown): value is string {
 }
 
 /**
- * "8:52 AM" in the restaurant's zone if we know it, else the device's.
- *
- * Falls back rather than failing on purpose: the clock is the least
- * important thing on a screen whose job is to ring, and a header that
- * renders nothing because a zone name was mistyped is worse than one that
- * shows the tablet's own time. The bridge validates on write, so the
- * fallback here is belt and braces, not the plan.
+ * Every Premium market is on Central time (Nashville, Springfield, south
+ * Kentucky), so a restaurant whose zone was never set reads Central rather
+ * than whatever the tablet happens to be set to (Matt, 2026-10-06: "the clock
+ * needs to be central time"). The CRM still pushes a real zone per
+ * restaurant; this is only the default when it has not.
  */
+export const DEFAULT_TIMEZONE = "America/Chicago";
+
+/** The restaurant's zone if it is a real one, else Central. */
+export function effectiveTimeZone(timezone: string | null | undefined): string {
+  return timezone && isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+}
+
+/**
+ * 12-hour, always: "8:52 AM", never "08:52" or "20:52". Pinned to en-US
+ * because toLocaleTimeString([]) follows the tablet's own language setting,
+ * and a tablet set to English (UK) or with 24-hour time on shows a 24-hour
+ * clock (Matt, 2026-10-06). Every time a person reads on the tablet goes
+ * through these options.
+ */
+export const TIME_FORMAT: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit", hour12: true };
+
+/** "8:52 AM" in the restaurant's zone, Central when it has none. */
 export function clockLabel(now: number, timezone: string | null | undefined): string {
-  const opts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
-  if (timezone && isValidTimeZone(timezone)) {
-    return new Date(now).toLocaleTimeString([], { ...opts, timeZone: timezone });
-  }
-  return new Date(now).toLocaleTimeString([], opts);
+  return new Date(now).toLocaleTimeString("en-US", { ...TIME_FORMAT, timeZone: effectiveTimeZone(timezone) });
 }

@@ -11,17 +11,17 @@
  *
  * Pure, and built on Intl rather than on arithmetic: DST is not a thing to
  * re-implement. `timezone` is restaurants.timezone (migration 032); null
- * falls back to the device's zone, the same way the clock does.
+ * falls back to Central (DEFAULT_TIMEZONE), the same way the clock does.
  */
 
-import { isValidTimeZone } from "./clock";
+import { TIME_FORMAT, effectiveTimeZone } from "./clock";
 
 /** "2026-09-16" for the instant, in the zone. */
 export function localDayKey(at: string | number | Date, timezone: string | null | undefined): string {
   const d = at instanceof Date ? at : new Date(at);
   if (Number.isNaN(d.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-CA", {
-    ...(timezone && isValidTimeZone(timezone) ? { timeZone: timezone } : {}),
+    timeZone: effectiveTimeZone(timezone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -64,14 +64,10 @@ export function recentDayKeys(now: number, timezone: string | null | undefined, 
   return keys.reverse();
 }
 
-/** "6:29 PM" in the zone (or the device's), for "Done 6:29 PM" and the ticket header. */
+/** "6:29 PM" in the zone (Central when unset), 12-hour always, for "Done 6:29 PM" and the ticket header. */
 export function timeLabel(at: string | number | null | undefined, timezone: string | null | undefined): string {
   if (at === null || at === undefined) return "";
   const d = new Date(at);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-    ...(timezone && isValidTimeZone(timezone) ? { timeZone: timezone } : {}),
-  });
+  return d.toLocaleTimeString("en-US", { ...TIME_FORMAT, timeZone: effectiveTimeZone(timezone) });
 }

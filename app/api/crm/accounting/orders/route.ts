@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
 
   const admin = supabaseAdmin();
   const SELECT_COLUMNS =
-    "id, order_number, external_id, source, status, received_at, printed_at, cancelled_at, order_type, channel_id, payment_type, items_total, tax, service_fee, delivery_fee, tip, discount, surcharge, included_tax, hidden_fee, customer_total, money_variance, restaurant_id, restaurants(name, zuppler_restaurant_id)";
+    "id, order_number, external_id, source, status, received_at, printed_at, cancelled_at, order_type, channel_id, payment_type, items_total, tax, service_fee, delivery_fee, tip, discount, surcharge, ezcater_fee, included_tax, hidden_fee, customer_total, money_variance, restaurant_id, restaurants(name, zuppler_restaurant_id, crm_restaurant_id)";
 
   // Fetch up to `limit` rows starting at `offset`, PLUS one more beyond
   // that -- the extra row is how this route knows whether more data
@@ -172,6 +172,9 @@ export async function GET(req: NextRequest) {
       id: o.restaurant_id,
       name: o.restaurants?.name ?? null,
       zuppler_restaurant_id: o.restaurants?.zuppler_restaurant_id ?? null,
+      // The CRM account (migration 007). Read by the CRM for ezCater orders,
+      // whose restaurant may have no Zuppler id (migration 050).
+      crm_restaurant_id: o.restaurants?.crm_restaurant_id ?? null,
     },
     channel_id: o.channel_id,
     order_type: o.order_type,
@@ -187,6 +190,11 @@ export async function GET(req: NextRequest) {
       // revenue, inside `total` but not the restaurant's sales. Null
       // elsewhere. Payouts must subtract it; the statement must show it.
       surcharge: num(o.surcharge),
+      // ezCater orders only (migration 050): what ezCater kept - customer
+      // total less catererTotalDue. Inside `total`; the CRM takes it off
+      // PFD's side. Null elsewhere, and null on an ezCater order whose
+      // catererTotalDue ezCater did not send (the CRM then excludes it).
+      ezcater_fee: num(o.ezcater_fee),
       included_tax: num(o.included_tax),
       hidden_fee: num(o.hidden_fee),
       total: num(o.customer_total),

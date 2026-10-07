@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase-server";
 import { ezCaterOrderToCanonical } from "./ezcater";
+import { promoteDueEzCaterOrders, syncEzCaterOrderToKitchen, validLeadHours } from "./ezcater-promote";
 import {
   createOrderSubscription,
   createSubscriber,
@@ -215,6 +216,8 @@ export async function setLocation(catererUuid: string, change: { restaurantId?: 
     .update({
       restaurant_id: restaurantId,
       active,
+      // Migration 050: the kitchen switch needs the location on; off turns both off.
+      ...(active ? {} : { send_to_kitchen: false }),
       subscribed_events: subscribed,
       ...(change.restaurantId !== undefined ? { mapped_at: now, mapped_by: actor } : {}),
       updated_at: now,
@@ -222,6 +225,39 @@ export async function setLocation(catererUuid: string, change: { restaurantId?: 
     .eq("caterer_uuid", catererUuid);
   if (error) throw new EzCaterAdminError(error.message);
   console.log("ezCater location changed", { catererUuid, restaurantId, active, subscribed, by: actor });
+}
+
+/**
+ * The kitchen switch (migration 050): promote this location's stored orders
+ * into `orders` - print, tablet, accounting feed - once each is within the
+ * lead time. Needs the location on (the DB check says so too). Turning it on
+ * sends anything already due straight away.
+ */
+export async function setKitchen(catererUuid: string, change: { sendToKitchen?: boolean; leadHours?: number }, actor: string) {
+  const admin = supabaseAdmin();
+  const { data: loc } = await admin.from("ezcater_locations").select("caterer_uuid, name, active, send_to_kitchen").eq("caterer_uuid", catererUuid).maybeSingle();
+  if (!loc) throw new EzCaterAdminError("No such ezCater location.");
+  if (change.sendToKitchen === true && !loc.active) throw new EzCaterAdminError("Switch the location on (ingest) before sending its orders to the kitchen.");
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (typeof change.sendToKitchen === "boolean") patch.send_to_kitchen = change.sendToKitchen;
+  if (change.leadHours !== undefined) {
+    const lead = validLeadHours(change.leadHours);
+    if (lead === null) throw new EzCaterAdminError("Lead time must be a whole number of hours from 1 to 168.");
+    patch.kitchen_lead_hours = lead;
+  }
+  const { error } = await admin.from("ezcater_locations").update(patch).eq("caterer_uuid", catererUuid);
+  if (error) throw new EzCaterAdminError(error.message);
+  console.log("ezCater kitchen setting changed", { catererUuid, ...patch, by: actor });
+  const swept = change.sendToKitchen === true ? await promoteDueEzCaterOrders() : null;
+  return { ok: true, swept };
+}
+
+/** "Send to kitchen now": promote one stored order without waiting for its lead time. The kitchen switch still has to be on. */
+export async function sendOrderToKitchenNow(ezcaterOrderId: string, actor: string) {
+  const res = await syncEzCaterOrderToKitchen(ezcaterOrderId, { force: true });
+  console.log("ezCater order sent to the kitchen by hand", { ezcaterOrderId, result: res.status, by: actor });
+  if (res.status === "skipped") throw new EzCaterAdminError(`Not sent: ${res.detail ?? "skipped"}`);
+  return res;
 }
 
 /** Fetch and map one order WITHOUT storing anything - to see an order the way ingest would. */
@@ -239,12 +275,12 @@ export async function dryRunOrder(orderId: string) {
 export async function getEzCaterState() {
   const admin = supabaseAdmin();
   const [locations, subscriber, restaurants, receipts, orders] = await Promise.all([
-    admin.from("ezcater_locations").select("caterer_uuid, name, store_number, address, live, restaurant_id, active, subscribed_events, last_synced_at, mapped_at, mapped_by").order("name"),
+    admin.from("ezcater_locations").select("caterer_uuid, name, store_number, address, live, restaurant_id, active, send_to_kitchen, kitchen_lead_hours, subscribed_events, last_synced_at, mapped_at, mapped_by").order("name"),
     // Never the secret.
     admin.from("ezcater_subscriber").select("id, name, webhook_url, created_at, created_by").limit(1).maybeSingle(),
     admin.from("restaurants").select("id, name, crm_restaurant_id").order("name"),
     admin.from("webhook_receipts").select("received_at, status, http_status, order_uuid, detail").eq("source", "ezcater").order("received_at", { ascending: false }).limit(20),
-    admin.from("ezcater_orders").select("ezcater_order_id, caterer_uuid, order_number, status, fulfillment, event_time, customer_total, event_count, modified_at, cancelled_at, first_seen_at, updated_at").order("updated_at", { ascending: false }).limit(20),
+    admin.from("ezcater_orders").select("ezcater_order_id, caterer_uuid, order_number, status, fulfillment, event_time, customer_total, caterer_total_due, event_count, modified_at, cancelled_at, first_seen_at, updated_at, promoted_order_id, promoted_at, promote_error").order("updated_at", { ascending: false }).limit(20),
   ]);
   return {
     tokenConfigured: ezCaterTokenConfigured(),

@@ -550,7 +550,7 @@ the tablet said about itself, never identity. Assigning one = bind.
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
-| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend", actor, tz? }` | `{ ok, action, … }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination`; 400 `invalid_action` |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel", actor, tz? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed`; 400 `invalid_action` |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`

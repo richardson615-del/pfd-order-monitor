@@ -12,8 +12,10 @@ export interface CanonicalOrderInput {
   /** "test" is a real source in the database (migration 006) - a CRM-issued
    *  test print. It never reaches ingestOrder today, since test prints insert
    *  directly, but the type should not claim otherwise. "phone" (migration
-   *  042) is an order a dispatcher took in the CRM and posted here (O1). */
-  source: "email" | "zuppler" | "test" | "phone";
+   *  042) is an order a dispatcher took in the CRM and posted here (O1).
+   *  "ezcater" (migration 050) is a stored ezCater order promoted into the
+   *  kitchen by lib/ezcater-promote.ts. */
+  source: "email" | "zuppler" | "test" | "phone" | "ezcater";
   /** The source system's own id (Gmail message id, Zuppler order uuid, the
    *  CRM's phone_orders id). With `source`, the idempotency key. */
   externalId: string;
@@ -66,6 +68,10 @@ export interface CanonicalOrderInput {
    *  restaurant's sales; part of the total the customer paid, so it counts
    *  in the component sum. Null for every other source. */
   surcharge?: number | null;
+  /** ezCater orders only (migration 050): what ezCater kept - customer total
+   *  less catererTotalDue. The CRM takes it off PFD's side. Not part of the
+   *  component sum: the customer paid it inside the total. */
+  ezcaterFee?: number | null;
   /** Tax already inside subtotal. Recorded, never added when reconciling. */
   includedTax?: number | null;
   /** Zuppler's "hidden" total. Zero everywhere so far; captured regardless. */
@@ -335,6 +341,7 @@ export async function ingestOrder(
       tip: input.tip ?? null,
       discount: input.discount ?? null,
       surcharge: input.surcharge ?? null,
+      ...(input.source === "ezcater" ? { ezcater_fee: input.ezcaterFee ?? null } : {}),
       included_tax: input.includedTax ?? null,
       hidden_fee: input.hiddenFee ?? null,
       channel_id: input.channelId ?? null,

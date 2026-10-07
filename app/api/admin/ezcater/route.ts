@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isCurrentUserAdmin } from "@/lib/authz";
 import { supabaseServer } from "@/lib/supabase-server";
 import { EzCaterApiError } from "@/lib/ezcater-client";
-import { EzCaterAdminError, applySeed, dryRunOrder, ensureSubscriber, getEzCaterState, setLocation, syncCaterers } from "@/lib/ezcater-admin";
+import { EzCaterAdminError, applySeed, dryRunOrder, ensureSubscriber, getEzCaterState, sendOrderToKitchenNow, setKitchen, setLocation, syncCaterers } from "@/lib/ezcater-admin";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,6 +16,9 @@ export const maxDuration = 60;
  *                                   link / unlink; on = subscribe + ingest, off = unsubscribe
  *   create_subscriber               create THE subscriber (store its one-time secret)
  *   dry_run {order_id}              fetch + map one order, store nothing
+ *   set_kitchen {caterer_uuid, send_to_kitchen?, kitchen_lead_hours?}
+ *                                   migration 050: promote stored orders into `orders` (print + payouts)
+ *   send_to_kitchen {order_id}      promote one stored order now, skipping the lead-time wait
  *
  * Admins only (the `admins` table). The webhook URL is this deployment's own
  * /api/ingest/ezcater, so the subscriber is created from the production site.
@@ -69,6 +72,19 @@ export async function POST(req: NextRequest) {
         const orderId = typeof body?.order_id === "string" ? body.order_id.trim() : "";
         if (!orderId) return NextResponse.json({ error: "order_id is required" }, { status: 400 });
         return NextResponse.json(await dryRunOrder(orderId));
+      }
+      case "set_kitchen": {
+        const catererUuid = typeof body?.caterer_uuid === "string" ? body.caterer_uuid : "";
+        if (!catererUuid) return NextResponse.json({ error: "caterer_uuid is required" }, { status: 400 });
+        const change: { sendToKitchen?: boolean; leadHours?: number } = {};
+        if (typeof body.send_to_kitchen === "boolean") change.sendToKitchen = body.send_to_kitchen;
+        if (body.kitchen_lead_hours !== undefined) change.leadHours = Number(body.kitchen_lead_hours);
+        return NextResponse.json(await setKitchen(catererUuid, change, await actor()));
+      }
+      case "send_to_kitchen": {
+        const orderId = typeof body?.order_id === "string" ? body.order_id.trim() : "";
+        if (!orderId) return NextResponse.json({ error: "order_id is required" }, { status: 400 });
+        return NextResponse.json(await sendOrderToKitchenNow(orderId, await actor()));
       }
       default:
         return NextResponse.json({ error: `unknown action '${action}'` }, { status: 400 });

@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "./supabase-server";
 import { ezCaterAction, ezCaterOrderToCanonical, type EzCaterOrder, type EzCaterOrderEvent } from "./ezcater";
 import { fetchEzCaterOrderRaw, mapEzCaterOrder } from "./ezcater-client";
+import { syncEzCaterOrderToKitchen } from "./ezcater-promote";
 
 /**
  * One ezCater order notification -> the ezcater_orders row (Phase 2).
@@ -11,9 +12,12 @@ import { fetchEzCaterOrderRaw, mapEzCaterOrder } from "./ezcater-client";
  * modification arrives as a second `accepted` for the same id (docs:
  * order-modifications) - so accepted is an upsert, keyed on ezCater's id.
  *
- * Nothing here touches `orders`: printing is off while ingestion is proven
- * (Matt, 2026-09-28), and every restaurant-facing surface reads `orders`.
- * See migration 045.
+ * Nothing here touches `orders` itself. Once the row is stored, the kitchen
+ * side is lib/ezcater-promote.ts (migration 050): it promotes the order into
+ * `orders` only at a location whose kitchen switch is on, and only once the
+ * hand-off is within the location's lead time; it reprints a modification
+ * and cancels a cancellation for an order already promoted. A kitchen-side
+ * failure is recorded on the row and never fails the webhook.
  */
 
 export type EzCaterIngestStatus =
@@ -125,7 +129,7 @@ export async function ingestEzCaterNotification(n: EzCaterNotification, deps: { 
         .update({ ...row, status: "cancelled", cancelled_at: existing.cancelled_at ?? now, last_event_key: event.type, last_event_at: event.occurredAt, event_count: (existing.event_count ?? 0) + 1, updated_at: now })
         .eq("ezcater_order_id", event.orderId);
       if (error) return { status: "error", detail: error.message };
-      return { status: "cancelled" };
+      return withKitchen({ status: "cancelled" }, event.orderId);
     }
     const { error } = await admin.from("ezcater_orders").insert({ ...rowFor(order!, raw, restaurant, event), status: "cancelled", cancelled_at: now });
     if (error) return { status: "error", detail: error.message };
@@ -141,7 +145,7 @@ export async function ingestEzCaterNotification(n: EzCaterNotification, deps: { 
       if ((error as any).code === "23505") return { status: "duplicate" };
       return { status: "error", detail: error.message };
     }
-    return { status: "created" };
+    return withKitchen({ status: "created" }, event.orderId);
   }
   const prev = existing.raw_payload ? safeMap(existing.raw_payload) : null;
   const changed = !prev || substance(prev) !== substance(action.order);
@@ -158,7 +162,14 @@ export async function ingestEzCaterNotification(n: EzCaterNotification, deps: { 
     .eq("ezcater_order_id", event.orderId);
   if (error) return { status: "error", detail: error.message };
   if (changed) console.log("ezCater order modified", { ezcaterOrderId: event.orderId, orderNumber: action.order.orderNumber });
-  return { status: changed ? "updated" : "duplicate" };
+  return withKitchen({ status: changed ? "updated" : "duplicate" }, event.orderId, { changed });
+}
+
+/** The stored row's kitchen side (lib/ezcater-promote.ts), appended to the receipt's detail. Never turns a stored order into a failure. */
+async function withKitchen(result: EzCaterIngestResult, ezcaterOrderId: string, opts: { changed?: boolean } = {}): Promise<EzCaterIngestResult> {
+  const kitchen = await syncEzCaterOrderToKitchen(ezcaterOrderId, opts);
+  const note = `kitchen: ${kitchen.status}${kitchen.detail ? ` (${kitchen.detail})` : ""}`;
+  return { ...result, detail: [result.detail, note].filter(Boolean).join("; ") };
 }
 
 function safeMap(raw: any): EzCaterOrder | null {
@@ -180,6 +191,7 @@ function rowFor(order: EzCaterOrder, raw: any, restaurant: { id: string; name: s
     fulfillment: order.fulfillment,
     event_time: order.eventTime || null,
     customer_total: order.money.total,
+    caterer_total_due: order.money.catererTotalDue ?? null,
     canonical,
     raw_payload: raw,
     last_event_key: event.type,

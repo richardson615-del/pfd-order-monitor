@@ -12,6 +12,7 @@ import { readNotification, ezCaterTimeToIso } from "../lib/ezcater-ingest";
 import { EZCATER_SEED, EZCATER_SUBSCRIBED_EVENTS, planSeed } from "../lib/ezcater-admin";
 import { ezCaterOrderToCanonical } from "../lib/ezcater";
 import { moneyVariance } from "../lib/canonical";
+import { docsOrder } from "./lib/ezcater-docs-order";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -65,43 +66,10 @@ test("no age limit is enforced (none is documented): an old but valid signature 
 // ---- the order, from ezCater's documented example -----------------------------
 
 console.log("\nezCater order -> EzCaterOrder (https://api.ezcater.io/order-details example):");
-const money = (c: number) => ({ currency: "USD", subunits: c, subunitsV2: String(c) });
-const docsOrder = {
-  deliveryId: "3593ce70-7227-4fd4-8a78-9591083d0674",
-  uuid: "your-ezcater-order-id",
-  caterer: { uuid: "ezcater-caterer-id", name: "My Caterer Name", storeNumber: "00001", live: true, address: { city: "Boston" } },
-  catererCart: {
-    feesAndDiscounts: [
-      { cost: money(2999), name: "Delivery Fee" },
-      { cost: money(-1199), name: "Preferred Caterer Program" },
-      { cost: money(-1199), name: "Rewards Promo" },
-    ],
-    orderItems: [
-      { customizations: [{ customizationTypeName: "Cheese Addon", name: "Parmigiano Reggiano", quantity: 10 }], labelFor: null, menuItemSizeName: '12" Pizza', name: "Margherita Pizza", noteToCaterer: '12" thin crust Margherita Pizza', quantity: 10, specialInstructions: "Please be careful not to burn crust", totalInSubunits: money(16750), uuid: "i1" },
-      { customizations: [{ customizationTypeName: "Soda", name: "Select Soda", quantity: 10 }], labelFor: null, menuItemSizeName: "2ltr Soda", name: "Assorted Sodas", noteToCaterer: "2ltr brand name sodas from fridge", quantity: 10, specialInstructions: "Please bring cold soda if possible", totalInSubunits: money(2750), uuid: "i2" },
-    ],
-    tableware: { specialInstructions: null, tablewareChoices: [{ isIncluded: true, itemCount: 10, name: "Napkins" }, { isIncluded: true, itemCount: 10, name: "Plates" }, { isIncluded: false, itemCount: 10, name: "Forks" }] },
-    totals: { catererTotalDue: 171.02 },
-  },
-  event: {
-    address: { city: "Boston", deliveryInstructions: "Ask for Jane at front desk", name: "My Office", state: "MA", street: "2345 Business Boulevard", street2: null, zip: "23456" },
-    catererHandoffFoodTime: "2025-03-27T16:15:00Z",
-    contact: { name: "Jane Doe", phone: "5555555555" },
-    customerProvidedName: "Team building event",
-    headcount: 10,
-    orderType: "DELIVERY",
-    thirdPartyDeliveryPartner: null,
-    timestamp: "2025-03-27T16:30:00Z",
-  },
-  lifecycle: { orderIsCurrently: "accepted" },
-  orderCustomer: { fullName: "Jane Doe" },
-  orderNumber: "O1O1O1",
-  totals: { customerTotalDue: money(23864), salesTax: money(1365), subTotal: money(19500), tip: money(0) },
-};
 
 test("money in dollars from subunits; the customer's delivery fee only (not ezCater's deductions); total reconciles", () => {
   const o = mapEzCaterOrder(docsOrder);
-  assert.deepEqual(o.money, { subtotal: 195, tax: 13.65, deliveryFee: 29.99, tip: 0, total: 238.64 });
+  assert.deepEqual(o.money, { subtotal: 195, tax: 13.65, deliveryFee: 29.99, tip: 0, total: 238.64, catererTotalDue: 171.02 });
   const c = ezCaterOrderToCanonical(o, { id: "r1", name: "Willie Mae's" });
   assert.ok(Math.abs(moneyVariance(c) ?? 1) < 0.005);
 });
@@ -216,12 +184,14 @@ test("a seed matches the uuid exactly and exactly one restaurant (exact name fir
 
 // ---- printing stays off --------------------------------------------------------------
 
-console.log("\nprinting is OFF while ingestion is proven (Matt, 2026-09-28):");
-test("the ezCater ingest never writes `orders` and never calls ingestOrder, print jobs or push", () => {
+console.log("\nthe ingest stores; the kitchen is a separate, switched step (migration 050):");
+test("the ezCater ingest itself never writes `orders` or print jobs; only lib/ezcater-promote.ts does, behind the kitchen switch", () => {
   const ingest = src("lib/ezcater-ingest.ts");
   assert.doesNotMatch(ingest, /from\("orders"\)/);
   assert.doesNotMatch(ingest, /ingestOrder|print_jobs|notifyRestaurant|deliverToApp/);
   assert.match(ingest, /from\("ezcater_orders"\)/);
+  assert.match(ingest, /syncEzCaterOrderToKitchen/);
+  assert.match(src("db/migrations/050_ezcater_promotion.sql"), /send_to_kitchen boolean not null default false/);
 });
 
 test("an inactive or unlinked location is recorded and not ingested; active needs a restaurant (DB check)", () => {

@@ -101,15 +101,15 @@ async function main() {
     assert.deepEqual(seen, ["upsert", "cancel"]);
   });
 
-  await test("nothing calls ezCater, holds a credential, or ingests yet", () => {
+  await test("nothing here calls ezCater, holds a credential, or ingests", () => {
     const lib = src("lib/ezcater.ts");
     // Code only - the header comment is allowed to talk about what is not built.
     const code = lib.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     assert.doesNotMatch(code, /fetch\(|https:\/\/|process\.env|ingestOrder\(|supabase/i);
     // Its only import is the canonical TYPE: it cannot reach the database or ingest.
     assert.deepEqual(code.split(/\r?\n/).filter((l) => l.startsWith("import ")), ['import type { CanonicalOrderInput } from "./canonical";']);
-    // The canonical source list is unchanged until a migration adds 'ezcater'.
-    assert.doesNotMatch(src("lib/canonical.ts"), /"ezcater"/);
+    // Migration 050 added 'ezcater' to the canonical source list; promotion lives in lib/ezcater-promote.ts, not here.
+    assert.match(src("lib/canonical.ts"), /"ezcater"/);
   });
 
   console.log(`${passed} passed`);

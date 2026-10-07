@@ -8,8 +8,10 @@ import { useCallback, useEffect, useState } from "react";
  * /admin/ezcater (Phase 2). In order: Sync caterers (confirms the six) ->
  * Apply seed (links them, never switches any on) -> Create subscriber ->
  * switch Willie Mae's on (subscribes accepted + cancelled) -> watch the
- * receipts and orders below. Printing is OFF: ingested orders land in
- * ezcater_orders, never in the kitchen's queue.
+ * receipts and orders below. Ingested orders land in ezcater_orders. The
+ * Kitchen column (migration 050) is the second switch: on, a stored order
+ * goes into `orders` - printed, on the tablet, on the CRM's accounting feed -
+ * once its hand-off is within the lead time.
  */
 export default function EzCaterAdmin() {
   const [state, setState] = useState<any>(null);
@@ -56,7 +58,7 @@ export default function EzCaterAdmin() {
       <div className="card">
         <h2>ezCater</h2>
         <p className="muted">
-          Order events from ezCater (accepted, which also carries modifications, and cancelled) for active locations land in <code>ezcater_orders</code>. <strong>Nothing prints</strong> and nothing reaches the tablet while ingestion is being proven.
+          Order events from ezCater (accepted, which also carries modifications, and cancelled) for active locations land in <code>ezcater_orders</code>. A location's orders print, reach the tablet and go to the CRM for payouts only once its <strong>Kitchen</strong> switch is on, and each one prints when its hand-off is within that location's lead time.
         </p>
         <p>
           API token: {state.tokenConfigured ? <span className="success-text">configured</span> : <span className="error-text">EZCATER_API_TOKEN not set in this deployment</span>}
@@ -101,7 +103,7 @@ export default function EzCaterAdmin() {
       <div className="card">
         <h3>Locations ({state.locations.length})</h3>
         <table className="admin-table">
-          <thead><tr><th>ezCater location</th><th>Restaurant</th><th>Subscribed</th><th>Ingest</th></tr></thead>
+          <thead><tr><th>ezCater location</th><th>Restaurant</th><th>Subscribed</th><th>Ingest</th><th>Kitchen</th></tr></thead>
           <tbody>
             {state.locations.map((l: any) => (
               <tr key={l.caterer_uuid}>
@@ -129,6 +131,20 @@ export default function EzCaterAdmin() {
                     <button className="btn small" disabled={busy !== null || !l.restaurant_id || !state.subscriber} onClick={() => act(`on-${l.caterer_uuid}`, { action: "set_location", caterer_uuid: l.caterer_uuid, active: true }, `Switch ${l.name} on? This subscribes it to ${state.subscribedEvents.join(" + ")} at ezCater and stores its orders (${restaurantName(l.restaurant_id)}). Nothing prints.`)}>Off — switch on</button>
                   )}
                 </td>
+                <td>
+                  {l.send_to_kitchen ? (
+                    <button className="btn small" disabled={busy !== null} onClick={() => act(`koff-${l.caterer_uuid}`, { action: "set_kitchen", caterer_uuid: l.caterer_uuid, send_to_kitchen: false }, `Stop sending ${l.name}'s ezCater orders to the kitchen? Orders already sent stay sent; new ones are stored only.`)}>On — switch off</button>
+                  ) : (
+                    <button className="btn small" disabled={busy !== null || !l.active} onClick={() => act(`kon-${l.caterer_uuid}`, { action: "set_kitchen", caterer_uuid: l.caterer_uuid, send_to_kitchen: true }, `Send ${l.name}'s ezCater orders to the kitchen (${restaurantName(l.restaurant_id)})? Each prints and reaches the tablet ${l.kitchen_lead_hours ?? 24} h before hand-off, and goes to the CRM for payouts. Any stored order already inside that window goes now.`)}>Off — switch on</button>
+                  )}
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    prints{" "}
+                    <select value={l.kitchen_lead_hours ?? 24} disabled={busy !== null} onChange={(e) => act(`lead-${l.caterer_uuid}`, { action: "set_kitchen", caterer_uuid: l.caterer_uuid, kitchen_lead_hours: Number(e.target.value) })}>
+                      {[2, 4, 8, 12, 24, 36, 48, 72].map((h) => <option key={h} value={h}>{h} h</option>)}
+                    </select>{" "}
+                    before hand-off
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -148,7 +164,7 @@ export default function EzCaterAdmin() {
       <div className="card">
         <h3>Orders stored ({state.orders.length})</h3>
         <table className="admin-table">
-          <thead><tr><th>ezCater #</th><th>Status</th><th>Due (handoff)</th><th>Total</th><th>Events</th><th>Updated</th></tr></thead>
+          <thead><tr><th>ezCater #</th><th>Status</th><th>Due (handoff)</th><th>Total</th><th>ezCater fee</th><th>Kitchen</th><th>Events</th><th>Updated</th></tr></thead>
           <tbody>
             {state.orders.map((o: any) => (
               <tr key={o.ezcater_order_id}>
@@ -156,6 +172,17 @@ export default function EzCaterAdmin() {
                 <td>{o.status}{o.modified_at ? " · modified" : ""}</td>
                 <td>{o.event_time ? new Date(o.event_time).toLocaleString() : "—"}</td>
                 <td>{o.customer_total != null ? `$${Number(o.customer_total).toFixed(2)}` : "—"}</td>
+                <td>{o.customer_total != null && o.caterer_total_due != null ? `$${(Number(o.customer_total) - Number(o.caterer_total_due)).toFixed(2)}` : <span className="error-text">not sent</span>}</td>
+                <td>
+                  {o.promoted_order_id ? (
+                    <>sent {o.promoted_at ? new Date(o.promoted_at).toLocaleString() : ""}</>
+                  ) : o.status === "accepted" ? (
+                    <button className="btn small" disabled={busy !== null} onClick={() => act(`send-${o.ezcater_order_id}`, { action: "send_to_kitchen", order_id: o.ezcater_order_id }, `Print ezCater #${o.order_number} now and send it to the CRM, without waiting for its lead time?`)}>Send now</button>
+                  ) : (
+                    "—"
+                  )}
+                  {o.promote_error && <div className="error-text">{o.promote_error}</div>}
+                </td>
                 <td>{o.event_count}</td>
                 <td>{new Date(o.updated_at).toLocaleString()}</td>
               </tr>

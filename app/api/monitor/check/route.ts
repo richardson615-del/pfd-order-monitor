@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-server";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
 import { recordCronRun, MONITOR_JOB } from "@/lib/cron-liveness";
+import { promoteDueEzCaterOrders } from "@/lib/ezcater-promote";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -165,6 +166,16 @@ export async function GET(req: NextRequest) {
     await sendWebhook(`✅ Order Monitor: ${resolvedKeys.length} issue(s) cleared.`);
   }
 
+  // ezCater orders whose hand-off has come inside their location's lead time
+  // go to the kitchen now (migration 050). Its own try: a promotion problem
+  // must never stop the health checks above from being recorded.
+  let ezcater: { checked: number; promoted: number; errors: number } | null = null;
+  try {
+    ezcater = await promoteDueEzCaterOrders();
+  } catch (err) {
+    console.error("monitor: ezCater promotion sweep failed -", err instanceof Error ? err.message : err);
+  }
+
   // Stamped on COMPLETION, not on entry: a cron that fires every 15 minutes
   // and throws every time is dead in every way that matters, and recording it
   // on arrival would report it as healthy. Clearing silent_alerted_at here is
@@ -179,6 +190,7 @@ export async function GET(req: NextRequest) {
     open: issues.length,
     new: fresh.length,
     resolved: resolvedKeys.length,
+    ezcater,
     channels: {
       webhook: !!process.env.ALERT_WEBHOOK_URL,
       sms: twilioConfigured(),

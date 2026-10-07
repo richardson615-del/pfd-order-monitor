@@ -249,6 +249,19 @@ function dollarsOf(m: any): number | null {
   return Number.isFinite(n) ? Math.round(n) / 100 : null;
 }
 
+/**
+ * catererTotalDue is a plain dollar number in the docs' own example
+ * (171.02), unlike every other money field, which is { subunits }. Read
+ * either shape; anything else is null - never guessed, because the CRM
+ * prices ezCater's fee from it and refuses an order without it.
+ */
+export function catererTotalDueOf(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) return Math.round(Number(v) * 100) / 100;
+  if (v && typeof v === "object") return dollarsOf(v);
+  return null;
+}
+
 const clean = (s: unknown) => (typeof s === "string" && s.trim() ? s.trim() : null);
 
 /**
@@ -328,7 +341,7 @@ export function mapEzCaterOrder(o: any): EzCaterOrder {
       ? { street: [clean(a.street), clean(a.street2), clean(a.street3)].filter(Boolean).join(", ") || null, city: clean(a.city), state: clean(a.state), zip: clean(a.zip), instructions: clean(a.deliveryInstructions) }
       : null,
     items,
-    money: { subtotal: subtotal!, tax: dollarsOf(o?.totals?.salesTax), deliveryFee, tip: dollarsOf(o?.totals?.tip), total: total! },
+    money: { subtotal: subtotal!, tax: dollarsOf(o?.totals?.salesTax), deliveryFee, tip: dollarsOf(o?.totals?.tip), total: total!, catererTotalDue: catererTotalDueOf(o?.catererCart?.totals?.catererTotalDue) },
     notes,
   };
 }

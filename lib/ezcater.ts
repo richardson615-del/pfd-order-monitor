@@ -70,6 +70,8 @@ export interface EzCaterOrder {
     tip: number | null;
     /** What the customer paid ezCater. PFD is paid this less ezCater's commission, settled by ezCater (spec §4). */
     total: number;
+    /** What ezCater pays PFD for the order (catererCart.totals.catererTotalDue); null when ezCater did not say. */
+    catererTotalDue?: number | null;
   };
   notes: string | null;
 }
@@ -98,8 +100,8 @@ export function ezCaterAction(event: EzCaterOrderEvent, order: EzCaterOrder | nu
   return { kind: "upsert", order };
 }
 
-/** The canonical order for ezCater, with its own source until orders.source allows 'ezcater' (see the header). */
-export type EzCaterCanonicalOrder = Omit<CanonicalOrderInput, "source"> & { source: "ezcater" };
+/** The canonical order for ezCater (orders.source 'ezcater' since migration 050). */
+export type EzCaterCanonicalOrder = CanonicalOrderInput & { source: "ezcater" };
 
 const dollars = (n: number) => `$${n.toFixed(2)}`;
 const zeroNull = (n: number | null) => (n === null || n === 0 ? null : n);

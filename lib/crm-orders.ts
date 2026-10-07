@@ -393,8 +393,27 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel"];
+
+/**
+ * Whether the CRM may cancel an order (Matt, 2026-10-07: a phone customer
+ * calls back and cancels). Only a PHONE order: a Zuppler or ezCater order is
+ * cancelled where it was placed and reaches us through that channel's own
+ * cancel, so a CRM cancel would leave the two disagreeing. Null = allowed.
+ */
+export function cancelRefusal(o: { status: string | null; source: string | null }): { code: "not_phone_order" | "order_cancelled" | "order_completed"; error: string } | null {
+  if (o.source !== "phone") return { code: "not_phone_order", error: `only a phone order can be cancelled from the CRM; this one came from ${o.source ?? "an unknown source"} and is cancelled there` };
+  if (o.status === "cancelled") return { code: "order_cancelled", error: "this order is already cancelled" };
+  if (o.status === "completed") return { code: "order_completed", error: "this order is completed; it can't be cancelled" };
+  return null;
+}
+
+/** The tablet push for a cancelled order. ASCII, like every banner. */
+export const cancelledPush = (orderNumber: string | null | undefined) => ({
+  title: `CANCELLED - Order #${orderNumber ?? "?"}`,
+  body: "Do not make this order. The customer cancelled.",
+});
 
 /**
  * Whether an order may be RESENT (Nick, 2026-09-29): any order the

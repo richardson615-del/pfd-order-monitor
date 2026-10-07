@@ -15,6 +15,8 @@ import {
   PRINT_STUCK_MS,
   UNACCEPTED_FLAG_MS,
   appDelivery,
+  cancelRefusal,
+  cancelledPush,
   changedSince,
   emailSummary,
   isOrderAction,
@@ -293,7 +295,9 @@ test("actions reuse the two primitives that already existed, name the actor, and
   assert.match(a, /\.eq\("delivery", "app"\)/, "the outcome lands on the order's one app row");
   assert.match(a, /order\.status === "cancelled" \|\| order\.status === "completed"[\s\S]*?status: 409/);
   assert.match(a, /code: "app_not_expected"/);
-  assert.ok(isOrderAction("reprint") && isOrderAction("resend_app") && !isOrderAction("cancel"));
+  // Cancel became an action on 2026-10-07 (phone orders only, lib/order-cancel.ts) - its
+  // own test is below. The route itself still never writes an order directly.
+  assert.ok(isOrderAction("reprint") && isOrderAction("resend_app") && !isOrderAction("delete"));
   assert.doesNotMatch(a, /\.from\("orders"\)\s*\.update|\.delete\(/, "no new way to touch an order");
 });
 
@@ -307,6 +311,23 @@ test("accounting/orders takes either id now, and the contract documents both end
   assert.match(doc, /POST \| `\/api\/crm\/orders\/:id\/actions`/);
   assert.match(doc, /GET \| `\/api\/crm\/accounting\/orders`/);
   assert.match(doc, /phone_last4/);
+});
+
+test("cancel: only a phone order, never twice, never a completed one; the push says do not make it", () => {
+  assert.equal(cancelRefusal({ status: "accepted", source: "phone" }), null);
+  assert.equal(cancelRefusal({ status: "new", source: "phone" }), null);
+  assert.equal(cancelRefusal({ status: "new", source: "zuppler" })?.code, "not_phone_order");
+  assert.equal(cancelRefusal({ status: "new", source: "ezcater" })?.code, "not_phone_order");
+  assert.equal(cancelRefusal({ status: "cancelled", source: "phone" })?.code, "order_cancelled");
+  assert.equal(cancelRefusal({ status: "completed", source: "phone" })?.code, "order_completed");
+  assert.ok(isOrderAction("cancel"));
+  assert.deepEqual(cancelledPush("P-1042"), { title: "CANCELLED - Order #P-1042", body: "Do not make this order. The customer cancelled." });
+  const route = src("app/api/crm/orders/[id]/actions/route.ts");
+  assert.match(route, /cancelRefusal\(order\)/, "the route asks the refusal before touching anything");
+  assert.match(route, /status, source, received_at/, "the route reads the source the refusal needs");
+  const lib = src("lib/order-cancel.ts");
+  assert.doesNotMatch(lib, /printed_at:\s*null/, "printed_at is never cleared");
+  assert.match(lib, /\.in\("status", \["queued", "claimed"\]\)/, "only unprinted tickets are pulled");
 });
 
 console.log(`\n${passed} assertions passed.`);

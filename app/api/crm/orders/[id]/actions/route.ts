@@ -5,7 +5,8 @@ import { queueOrderToPrinters } from "@/lib/print-queue";
 import { reprintBy } from "@/lib/print-policy";
 import { appDeliveryOutcome } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, resendRefusal } from "@/lib/crm-orders";
+import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, resendRefusal } from "@/lib/crm-orders";
+import { cancelOrderForCrm } from "@/lib/order-cancel";
 import { resendOrder } from "@/lib/order-resend";
 import { isValidTimeZone } from "@/lib/clock";
 import { UUID_RE } from "@/lib/restaurant-ref";
@@ -37,6 +38,13 @@ export const dynamic = "force-dynamic";
  *               not cancelled, completed ones included; 409 not_today
  *               after midnight. Body may carry `tz`.
  *
+ *   cancel      (2026-10-07) a PHONE order only (cancelRefusal): status
+ *               cancelled, unprinted tickets pulled, the email restaurant
+ *               told, the tablet pushed "CANCELLED - Order #n". Answers
+ *               was_printed so the CRM knows whether the kitchen may have
+ *               started it. 409 for any other source, or a cancelled /
+ *               completed order. The CRM removes Shipday and refunds.
+ *
  * reprint / resend_app: 409 on a cancelled or completed order: the food is
  * not to be made, or already was. The actor is the CRM session's email,
  * passed through - the bridge cannot know it otherwise.
@@ -56,10 +64,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const admin = supabaseAdmin();
   const { data: order } = await admin
     .from("orders")
-    .select("id, restaurant_id, order_number, status, received_at, customer_name, customer_total")
+    .select("id, restaurant_id, order_number, status, source, received_at, customer_name, customer_total")
     .eq("id", params.id)
     .maybeSingle();
   if (!order) return NextResponse.json({ error: "order not found", code: "order_not_found" }, { status: 404 });
+
+  if (action === "cancel") {
+    const refusal = cancelRefusal(order);
+    if (refusal) return NextResponse.json(refusal, { status: 409 });
+    const result = await cancelOrderForCrm(order, actor);
+    return NextResponse.json({ ok: true, action, ...result });
+  }
 
   if (action === "resend") {
     const tz = typeof body?.tz === "string" && isValidTimeZone(body.tz) ? body.tz : DEFAULT_ORDERS_TZ;

@@ -41,6 +41,16 @@ export function composeSmsAlert(newIssues: HealthIssue[]): string | null {
   return truncate(head + titles.join("; ") + (more > 0 ? `; +${more} more` : ""), SMS_MAX);
 }
 
+/**
+ * Texts are paused unless ALERT_SMS_ENABLED is "1" (2026-10-11, Matt: "stop
+ * sending order monitor texts, no one needs txt for those right now").
+ * Paused = no SMS channel at all, so alerts are stamped as handled instead of
+ * retried every run. Turning texts back on is that one env var.
+ */
+export function smsEnabled(): boolean {
+  return process.env.ALERT_SMS_ENABLED === "1";
+}
+
 /** Recipients from ALERT_SMS_TO, comma or space separated. */
 export function smsRecipients(): string[] {
   return (process.env.ALERT_SMS_TO || "")
@@ -68,7 +78,7 @@ export function smsConfigGaps(): string[] {
 }
 
 export function twilioConfigured(): boolean {
-  return !!(
+  return smsEnabled() && !!(
     process.env.TWILIO_ACCOUNT_SID &&
     process.env.TWILIO_AUTH_TOKEN &&
     process.env.TWILIO_FROM_NUMBER &&

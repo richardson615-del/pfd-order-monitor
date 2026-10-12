@@ -4,7 +4,7 @@
  * is worth pinning down.
  */
 import assert from "node:assert/strict";
-import { composeSmsAlert, smsRecipients } from "@/lib/alerts";
+import { composeSmsAlert, smsRecipients, twilioConfigured, sendSms } from "@/lib/alerts";
 import type { HealthIssue } from "@/lib/health";
 
 let passed = 0;
@@ -89,6 +89,33 @@ test("recipients parse from comma or space separated lists", () => {
     assert.deepEqual(smsRecipients(), ["+15551234567", "+15557654321", "+15550000000"]);
   } finally {
     delete process.env.ALERT_SMS_TO;
+  }
+});
+
+test("texts are paused unless ALERT_SMS_ENABLED=1, even fully configured", () => {
+  const keys = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "ALERT_SMS_TO", "ALERT_SMS_ENABLED"] as const;
+  const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  Object.assign(process.env, { TWILIO_ACCOUNT_SID: "ACx", TWILIO_AUTH_TOKEN: "t", TWILIO_FROM_NUMBER: "+15550000000", ALERT_SMS_TO: "+15551234567" });
+  delete process.env.ALERT_SMS_ENABLED;
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response("{}", { status: 201 });
+  }) as typeof fetch;
+  try {
+    assert.equal(twilioConfigured(), false);
+    // The paused check runs before sendSms's first await, so no request can start.
+    void sendSms("hello");
+    assert.equal(calls, 0);
+    process.env.ALERT_SMS_ENABLED = "1";
+    assert.equal(twilioConfigured(), true);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of keys) {
+      if (before[k] === undefined) delete process.env[k];
+      else process.env[k] = before[k];
+    }
   }
 });
 

@@ -958,6 +958,14 @@ always meant. The order then shows in `GET /api/crm/orders` with
 - `payment.type` — `cash` | `card` | `house`; `status` — `paid` | `due`;
   `last4` — **exactly four digits** or absent. A longer value is refused,
   never truncated, so a card number arriving here is found out.
+- **Split payment** (2026-10-11, optional): `payment.cards` — 1 to 5 of
+  `{ last4, amount }` (dollars each card paid, `last4` four digits or absent);
+  `payment.cash_due` — dollars of cash still to collect, only with
+  `type: "cash", status: "due"`. When either is sent, cards + `cash_due` must
+  equal `money.total` to the cent, else 400 `invalid_payment`; a cash order
+  with `cards` must send `cash_due`. An older bridge ignored both fields (and
+  printed the whole total as due), so the CRM must not send a split until
+  this bridge is live.
 - **No card number anywhere.** Every free-text field is checked for a run
   of 13–19 digits (spaces/dashes allowed) → 400 `card_number_rejected`.
 - `actor` — the CRM session's email; kept with the order's payload, not
@@ -973,6 +981,9 @@ Zuppler; ASCII for the Epson):
 | card · paid · no last4 | `PAID - CARD` |
 | cash · due | `CASH DUE $58.09` |
 | cash · paid | `PAID - CASH` |
+| cash · due · cash_due 20 · one card 31.20 ****4242 | `CASH DUE $20.00 - PAID $31.20 CARD ****4242` |
+| cash · due · cash_due 20 · two cards | `CASH DUE $20.00 - REST PAID BY 2 CARDS` |
+| card · paid · two cards ****4242, ****1111 | `PAID - CARD ****4242 + ****1111` |
 | card · due | `CARD DUE $58.09 (CARD ****8598)` |
 | house · due | `HOUSE ACCOUNT - DO NOT COLLECT` |
 | house · paid | `PAID - HOUSE ACCOUNT` |

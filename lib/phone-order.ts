@@ -62,6 +62,15 @@ export interface PhoneOrderPayment {
   status: PhonePaymentStatus;
   /** The card's last four digits, and never more than four. */
   last4: string | null;
+  /**
+   * Split payment (2026-10-11, the CRM takes several cards, or card and
+   * cash, on one order). `cash_due` is the cash still to collect when it is
+   * less than the whole total; `cards` is what each card already paid. Both
+   * optional and absent on an ordinary order. When either is present, cards
+   * + cash_due must equal money.total to the cent.
+   */
+  cash_due?: number | null;
+  cards?: Array<{ last4: string | null; amount: number }> | null;
 }
 
 /** The body of POST /api/crm/orders, after parsing. */
@@ -265,6 +274,38 @@ export function parsePhoneOrder(body: unknown): PhoneOrderParse {
   }
   const payment: PhoneOrderPayment = { type: pa.type as PhonePaymentType, status: pa.status as PhonePaymentStatus, last4 };
 
+  // Split payment: optional, and only ever adds to an ordinary payment.
+  if (pa.cards != null) {
+    if (!Array.isArray(pa.cards) || pa.cards.length < 1 || pa.cards.length > 5) return fail("invalid_payment", "payment.cards must be a list of 1 to 5 cards");
+    const cards: Array<{ last4: string | null; amount: number }> = [];
+    for (const c of pa.cards) {
+      const cr = (c && typeof c === "object" ? c : {}) as Record<string, unknown>;
+      const amount = typeof cr.amount === "number" ? Math.round(cr.amount * 100) / 100 : NaN;
+      if (!Number.isFinite(amount) || amount <= 0 || amount > mm.total) return fail("invalid_payment", "each payment.cards[].amount must be a dollar amount above 0 and within the total");
+      let l4: string | null = null;
+      if (cr.last4 != null) {
+        const t = String(cr.last4).trim();
+        if (!LAST4_RE.test(t)) return fail("invalid_payment", "payment.cards[].last4 must be exactly four digits");
+        l4 = t;
+      }
+      cards.push({ last4: l4, amount });
+    }
+    payment.cards = cards;
+  }
+  if (pa.cash_due != null) {
+    const cd = typeof pa.cash_due === "number" ? Math.round(pa.cash_due * 100) / 100 : NaN;
+    if (!Number.isFinite(cd) || cd <= 0 || cd > mm.total) return fail("invalid_payment", "payment.cash_due must be a dollar amount above 0 and within the total");
+    if (payment.type !== "cash" || payment.status !== "due") return fail("invalid_payment", "payment.cash_due goes with type 'cash', status 'due'");
+    payment.cash_due = cd;
+  }
+  if (payment.cards || payment.cash_due != null) {
+    const paid = (payment.cards ?? []).reduce((n, c) => n + c.amount, 0);
+    const covered = Math.round((paid + (payment.cash_due ?? 0)) * 100) / 100;
+    if (payment.type === "cash" && payment.cash_due == null) return fail("invalid_payment", "a cash order with cards needs payment.cash_due");
+    if (covered !== mm.total) return fail("invalid_payment", `payment.cards + payment.cash_due ($${covered.toFixed(2)}) must equal money.total ($${mm.total.toFixed(2)})`);
+    if (payment.type === "card" && !payment.last4) payment.last4 = payment.cards?.[0]?.last4 ?? null;
+  }
+
   const notes = optStr(b.notes, 1000);
   const actor = optStr(b.actor, 200);
 
@@ -307,6 +348,15 @@ export function parsePhoneOrder(body: unknown): PhoneOrderParse {
  */
 export function tenderLine(payment: PhoneOrderPayment, total: number): string {
   const due = `$${total.toFixed(2)}`;
+  const cards = payment.cards ?? [];
+  // Split payment: only the cash still owed is due, and the ticket says what the cards covered.
+  if (payment.type === "cash" && payment.status === "due" && payment.cash_due != null && cards.length) {
+    const paid = cards.length === 1 ? `PAID $${cards[0].amount.toFixed(2)} CARD${cards[0].last4 ? ` ****${cards[0].last4}` : ""}` : `REST PAID BY ${cards.length} CARDS`;
+    return `CASH DUE $${payment.cash_due.toFixed(2)} - ${paid}`;
+  }
+  if (payment.type === "card" && payment.status === "paid" && cards.length > 1) {
+    return `PAID - ${cards.map((c, i) => (i === 0 ? "CARD " : "") + (c.last4 ? `****${c.last4}` : "CARD")).join(" + ")}`;
+  }
   switch (payment.type) {
     case "card": {
       const card = payment.last4 ? `CARD ****${payment.last4}` : "CARD";

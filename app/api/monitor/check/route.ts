@@ -149,7 +149,8 @@ export async function GET(req: NextRequest) {
     // Mark delivered only when something actually got through. With no
     // channel configured at all there is nothing to retry towards, so those
     // are stamped too - otherwise every run would "retry" forever.
-    const delivered = sms.sent > 0 || (!twilioConfigured() && !process.env.ALERT_WEBHOOK_URL);
+    // Texts paused (ALERT_SMS_ENABLED unset) counts as no SMS channel.
+    const delivered = sms.sent > 0 || !twilioConfigured();
     if (delivered) {
       await admin
         .from("monitor_alerts")

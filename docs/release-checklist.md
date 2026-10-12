@@ -16,7 +16,7 @@ Detection has been working for a while; delivery is what makes it real. An
 alerting system nobody receives is indistinguishable from no alerting.
 
 - [ ] `ALERT_WEBHOOK_URL` set (Slack/Discord) - receives **everything**
-- [ ] `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `ALERT_SMS_TO` set - receives **criticals only**
+- [ ] `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `ALERT_SMS_TO` set, plus `ALERT_SMS_ENABLED=1` to actually send (texts are paused by default since 2026-10-11) - receives **criticals only**
 - [ ] A test alert has actually arrived on a phone, not just returned 200
 
 ### G2. The alert store is writable

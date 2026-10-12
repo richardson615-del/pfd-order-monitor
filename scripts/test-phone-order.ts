@@ -146,6 +146,21 @@ test("money must add up: total = subtotal + tax + delivery + service + tip + sur
   assert.ok(PHONE_ORDER_MAX_TOTAL >= 1000, "a catering order fits");
 });
 
+test("split payment: cards + cash_due must equal the total, and cash_due only goes with cash due", () => {
+  const total = ok({}).money.total;
+  const card = Math.round((total - 10) * 100) / 100;
+  const o = ok({ payment: { type: "cash", status: "due", cash_due: 10, cards: [{ last4: "4242", amount: card }] } });
+  assert.deepEqual(o.payment, { type: "cash", status: "due", last4: null, cash_due: 10, cards: [{ last4: "4242", amount: card }] });
+  bad({ payment: { type: "cash", status: "due", cash_due: 10, cards: [{ last4: "4242", amount: 1 }] } }, "invalid_payment");
+  bad({ payment: { type: "card", status: "paid", cash_due: 10 } }, "invalid_payment");
+  bad({ payment: { type: "cash", status: "due", cards: [{ last4: "4242", amount: card }] } }, "invalid_payment");
+  bad({ payment: { type: "cash", status: "due", cash_due: 10, cards: [{ last4: "4111111111111111", amount: card }] } }, "invalid_payment");
+  const two = ok({ payment: { type: "card", status: "paid", cards: [{ last4: "4242", amount: 1 }, { last4: "1111", amount: Math.round((total - 1) * 100) / 100 }] } });
+  assert.equal(two.payment.last4, "4242");
+  // An ordinary payment is unchanged: no split keys appear.
+  assert.deepEqual(ok({ payment: { type: "cash", status: "due" } }).payment, { type: "cash", status: "due", last4: null });
+});
+
 test("payment: cash | card | house, paid | due, and last4 is exactly four digits or absent", () => {
   bad({ payment: { type: "gift", status: "paid" } }, "invalid_payment");
   bad({ payment: { type: "card", status: "authorized" } }, "invalid_payment");
@@ -190,6 +205,14 @@ test("the tender line tells the counter whether to collect, and matches the rend
   assert.equal(tenderLine({ type: "cash", status: "paid", last4: null }, 42.1), "PAID - CASH");
   assert.equal(tenderLine({ type: "house", status: "due", last4: null }, 42.1), "HOUSE ACCOUNT - DO NOT COLLECT");
   assert.equal(tenderLine({ type: "house", status: "paid", last4: null }, 42.1), "PAID - HOUSE ACCOUNT");
+  // Split payment (2026-10-11): only the cash still owed is due.
+  assert.equal(tenderLine({ type: "cash", status: "due", last4: null, cash_due: 20, cards: [{ last4: "4242", amount: 31.2 }] }, 51.2), "CASH DUE $20.00 - PAID $31.20 CARD ****4242");
+  assert.equal(tenderLine({ type: "cash", status: "due", last4: null, cash_due: 20, cards: [{ last4: "4242", amount: 10 }, { last4: "1111", amount: 21.2 }] }, 51.2), "CASH DUE $20.00 - REST PAID BY 2 CARDS");
+  assert.equal(tenderLine({ type: "card", status: "paid", last4: "4242", cards: [{ last4: "4242", amount: 10 }, { last4: "1111", amount: 41.2 }] }, 51.2), "PAID - CARD ****4242 + ****1111");
+  for (const line of [
+    tenderLine({ type: "cash", status: "due", last4: null, cash_due: 20, cards: [{ last4: "4242", amount: 31.2 }] }, 51.2),
+    tenderLine({ type: "card", status: "paid", last4: null, cards: [{ last4: null, amount: 1 }, { last4: null, amount: 1 }] }, 2),
+  ]) assert.match(line, TENDER_LINE_RE);
   for (const type of ["cash", "card", "house"] as const) {
     for (const status of ["paid", "due"] as const) {
       const line = tenderLine({ type, status, last4: "1234" }, 1);

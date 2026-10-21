@@ -24,7 +24,8 @@ function fail(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   const status = err instanceof EzCaterAdminError ? 409 : err instanceof EzCaterApiError ? 502 : 500;
   console.error("crm/ezcater:", message);
-  return NextResponse.json({ error: message }, { status });
+  // A `code` makes the CRM show a refusal (409) as the bridge's own words, not as an outage.
+  return NextResponse.json({ error: message, ...(status === 409 ? { code: "ezcater_refused" } : {}) }, { status });
 }
 
 const actorOf = (req: NextRequest) => {

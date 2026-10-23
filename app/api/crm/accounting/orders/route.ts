@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { findRestaurantByRef } from "@/lib/restaurant-ref";
+import { ezCaterItemsFromPayload, type EzCaterAccountingItem } from "@/lib/ezcater-crm";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -153,6 +154,17 @@ export async function GET(req: NextRequest) {
   const truncated = data.length > limit;
   if (truncated) data.length = limit;
 
+  // ezCater orders carry their items (2026-10-23, Matt: pay the restaurant on
+  // its own menu prices, not ezCater's). Read only for the ezCater rows on
+  // this page, so no other source's payload is ever loaded or sent.
+  const ezIds = data.filter((o: any) => o.source === "ezcater").map((o: any) => o.id);
+  const ezItems = new Map<string, EzCaterAccountingItem[] | null>();
+  if (ezIds.length) {
+    const { data: payloads, error: payloadError } = await admin.from("orders").select("id, raw_payload").in("id", ezIds);
+    if (payloadError) return NextResponse.json({ error: payloadError.message }, { status: 500 });
+    for (const p of payloads ?? []) ezItems.set((p as any).id, ezCaterItemsFromPayload((p as any).raw_payload));
+  }
+
   const num = (v: unknown) => (v == null ? null : Number(v));
   const rows = (data ?? []).map((o: any) => ({
     order_id: o.id,
@@ -201,6 +213,9 @@ export async function GET(req: NextRequest) {
     },
     // Zero means the components explain the total exactly.
     money_variance: num(o.money_variance),
+    // ezCater orders only: the lines (name, quantity, ezCater's extended price).
+    // The CRM pays the restaurant on its own price for each. Null elsewhere.
+    items: o.source === "ezcater" ? (ezItems.get(o.id) ?? null) : null,
   }));
 
   const billable = rows.filter((r) => !r.cancelled);

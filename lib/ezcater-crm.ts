@@ -98,6 +98,38 @@ export function toCrmOrder(r: EzCaterOrderRowIn): EzCaterCrmOrder {
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Pure: the window asked for, by hand-off time. Default: 7 days back to 30 days ahead, so upcoming catering shows. */
+/** One ezCater line as the CRM's payout reads it (2026-10-23): name, quantity, extended price. */
+export interface EzCaterAccountingItem {
+  name: string;
+  quantity: number;
+  /** ezCater's extended price for the line, dollars (null when ezCater did not send it). */
+  total: number | null;
+  modifiers: string[];
+}
+
+/**
+ * The items of a promoted ezCater order, from its `orders.raw_payload`
+ * ({ kind: "ezcater_order", order }). Matt 2026-10-23: the restaurant is paid
+ * on its own menu prices, not ezCater's (PFD marks ezCater menus up), so the
+ * CRM prices each line itself. Null when the payload is not an ezCater order.
+ */
+export function ezCaterItemsFromPayload(raw: unknown): EzCaterAccountingItem[] | null {
+  const p = raw as { kind?: unknown; order?: { items?: unknown } } | null;
+  if (!p || p.kind !== "ezcater_order" || !Array.isArray(p.order?.items)) return null;
+  return (p.order!.items as any[]).flatMap((it) => {
+    const name = typeof it?.name === "string" ? it.name.trim() : "";
+    if (!name) return [];
+    const q = Number(it?.quantity);
+    const t = it?.total == null ? null : Number(it.total);
+    return [{
+      name,
+      quantity: Number.isFinite(q) && q > 0 ? q : 1,
+      total: t !== null && Number.isFinite(t) ? Math.round(t * 100) / 100 : null,
+      modifiers: Array.isArray(it?.modifiers) ? it.modifiers.filter((m: unknown) => typeof m === "string") : [],
+    }];
+  });
+}
+
 export function orderWindow(from: string | null, to: string | null, now = new Date()): { from: string; to: string } {
   const day = 86_400_000;
   const f = from && ISO_DAY.test(from) ? `${from}T00:00:00-06:00` : new Date(now.getTime() - 7 * day).toISOString();

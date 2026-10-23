@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { orderWindow, toCrmOrder, type EzCaterOrderRowIn } from "../lib/ezcater-crm";
+import { ezCaterItemsFromPayload, orderWindow, toCrmOrder, type EzCaterOrderRowIn } from "../lib/ezcater-crm";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -101,6 +101,33 @@ test("on the CRM write key, actor from the header, no secret selected", () => {
   assert.ok(route.includes('req.headers.get("x-crm-actor")'));
   const lib = src("lib/ezcater-crm.ts");
   assert.ok(!/webhook_secret|raw_payload/.test(lib.replace(/\/\*[\s\S]*?\*\//g, "")));
+});
+
+console.log("accounting items (2026-10-23):");
+test("reads name, quantity and extended price from a promoted order's payload", () => {
+  const items = ezCaterItemsFromPayload({
+    kind: "ezcater_order",
+    order: { items: [
+      { name: " Party Pack (20 People) ", quantity: 2, total: 530, modifiers: ["Pulled pork"] },
+      { name: "Gallon Sweet Tea", quantity: 0, total: "12.5", modifiers: null },
+      { name: "", quantity: 1, total: 1 },
+    ] },
+  });
+  assert.deepEqual(items, [
+    { name: "Party Pack (20 People)", quantity: 2, total: 530, modifiers: ["Pulled pork"] },
+    { name: "Gallon Sweet Tea", quantity: 1, total: 12.5, modifiers: [] },
+  ]);
+});
+test("anything that is not an ezCater payload is null", () => {
+  assert.equal(ezCaterItemsFromPayload(null), null);
+  assert.equal(ezCaterItemsFromPayload({ kind: "phone_order", order: { items: [] } }), null);
+  assert.equal(ezCaterItemsFromPayload({ kind: "ezcater_order", order: {} }), null);
+});
+test("the accounting feed sends items for ezCater rows only, and never the payload", () => {
+  const route = src("app/api/crm/accounting/orders/route.ts");
+  assert.ok(route.includes('items: o.source === "ezcater" ? (ezItems.get(o.id) ?? null) : null'));
+  assert.ok(route.includes('.select("id, raw_payload").in("id", ezIds)'));
+  assert.ok(!/raw_payload:/.test(route));
 });
 
 console.log(`\n${passed} passed`);

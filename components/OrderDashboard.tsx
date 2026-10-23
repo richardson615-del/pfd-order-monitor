@@ -17,7 +17,7 @@ import AlertGate from "./AlertGate";
 import type { AlertGateState, AlertReason } from "@/lib/alert-gate";
 import ReadyScreen from "./ReadyScreen";
 import { KIOSK_WIFI_HINT, OFFLINE_FOOTER, offlineNotice } from "@/lib/first-run";
-import { isSetupDone, markSetupDone, rememberDeviceRef, writeRestaurantCache } from "@/lib/kiosk-cache";
+import { isSetupDone, markSetupDone, readDeviceRefCache, rememberDeviceRef, writeRestaurantCache } from "@/lib/kiosk-cache";
 import {
   SHELL_VERSION_KEY,
   readShellVersion,
@@ -394,6 +394,7 @@ export default function OrderDashboard({
   //
   // Fire-and-forget. A heartbeat that failed to record must never disturb the
   // thing it is reporting on.
+  const rebindingRef = useRef(false);
   useEffect(() => {
     const beat = () => {
       // Still fire-and-forget for the REQUEST, but the outcome is recorded:
@@ -414,6 +415,8 @@ export default function OrderDashboard({
           alertReason,
           alertRaisedAt: alertRaise?.at ?? null,
           alertRaisedReason: alertRaise?.reason ?? null,
+          // Which tablet this is, so the bridge can say the office moved it.
+          deviceRef: readDeviceRefCache(),
         }),
       })
         .then(async (res) => {
@@ -429,6 +432,12 @@ export default function OrderDashboard({
             setNewBuild(true);
           }
           if (typeof data?.minShellVersion === "number") setMinShell(data.minShellVersion);
+          // The office moved this tablet to another restaurant in the CRM:
+          // sign out and re-boot as the new one (signOutAndRebind, below).
+          if (data?.rebind === true && !rebindingRef.current) {
+            rebindingRef.current = true;
+            void signOutAndRebind();
+          }
         })
         .catch(() => {
           // A beat that cannot reach the server tells us nothing, and must
@@ -802,4 +811,17 @@ export default function OrderDashboard({
       {offline && <p className="offline-foot">{OFFLINE_FOOTER}</p>}
     </div>
   );
+}
+
+/**
+ * The office moved this tablet to another restaurant (heartbeat `rebind`).
+ * Sign out, then go to the boot screen: it asks the bridge whose tablet
+ * this is and signs in as the new restaurant. Leaves for /link even when
+ * the sign-out call fails - the boot screen is where the tablet must be.
+ */
+async function signOutAndRebind(): Promise<void> {
+  try {
+    await supabaseBrowser().auth.signOut();
+  } catch {}
+  window.location.assign("/link");
 }

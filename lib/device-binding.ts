@@ -121,3 +121,23 @@ export function parseBindings(body: unknown): BindingInput[] | null {
 
 /** How long a never-assigned reference stays on the CRM's "new tablets seen" list. */
 export const UNBOUND_VISIBLE_MS = 7 * 24 * 3600_000;
+
+/**
+ * Has the office moved this tablet to another restaurant while it was
+ * signed in? (Elijah, 2026-10-23: a Greek Style Gyro tablet reassigned to
+ * Teriyaki Madness in the CRM kept showing Greek Style.)
+ *
+ * Bootstrap only runs when a tablet has no session, and a session refreshes
+ * itself forever, so a reassignment never reached a tablet that was already
+ * signed in - and the app has no sign-out button to force it. The heartbeat
+ * now carries the device reference and asks this question every beat.
+ *
+ * True only when the reference is BOUND to a restaurant the session does not
+ * cover. Unbound (back to stock, repair, never assigned) is false: signing a
+ * working screen out because nobody has assigned it yet would trade a
+ * paperwork gap for a restaurant missing orders.
+ */
+export function bindingMismatch(boundRestaurantId: string | null | undefined, sessionRestaurantIds: readonly string[]): boolean {
+  if (!boundRestaurantId) return false;
+  return !sessionRestaurantIds.includes(boundRestaurantId);
+}

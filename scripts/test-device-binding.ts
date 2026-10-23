@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  bindingMismatch,
   BOOTSTRAP_MINT_MIN_INTERVAL_MS,
   BOOTSTRAP_POLL_MS,
   BOOTSTRAP_RATE_MAX,
@@ -156,6 +157,33 @@ test("unbound lists what has called in and is assigned to nobody", () => {
   assert.match(route, /authorizeCrmWrite\(req\)/);
   assert.match(route, /\.is\("restaurant_id", null\)/);
   assert.match(route, /UNBOUND_VISIBLE_MS/);
+});
+
+// Elijah, 2026-10-23: a tablet moved from Greek Style Gyro to Teriyaki
+// Madness in the CRM kept showing Greek Style, and there is no sign-out.
+test("a tablet bound to another restaurant is told to re-bind; unbound or matching is left alone", () => {
+  assert.equal(bindingMismatch("teriyaki", ["greek"]), true);
+  assert.equal(bindingMismatch("teriyaki", []), true);
+  assert.equal(bindingMismatch("greek", ["greek"]), false);
+  assert.equal(bindingMismatch("greek", ["other", "greek"]), false);
+  assert.equal(bindingMismatch(null, ["greek"]), false);
+  assert.equal(bindingMismatch(undefined, ["greek"]), false);
+});
+
+test("the heartbeat carries the device and the answer; the dashboard signs out and re-boots on it", () => {
+  const beat = src("app/api/dashboard/heartbeat/route.ts");
+  assert.match(beat, /deviceMovedAway\(body\?\.deviceRef, restaurantIds\)/);
+  assert.match(beat, /\.from\("kiosk_devices"\)/);
+  // every reply carries it, the rate-limited one included
+  assert.equal((beat.match(/rebind[,}\s]/g) ?? []).length >= 4, true);
+  // only a yes/no leaves the server, never which restaurant it is bound to
+  assert.doesNotMatch(beat, /bound_restaurant|rebind:\s*data/);
+  const dash = src("components/OrderDashboard.tsx");
+  assert.match(dash, /deviceRef: readDeviceRefCache\(\)/);
+  assert.match(dash, /data\?\.rebind === true/);
+  assert.match(dash, /signOutAndRebind\(\)/);
+  assert.match(dash, /auth\.signOut\(\)/);
+  assert.match(dash, /window\.location\.assign\("\/link"\)/);
 });
 
 console.log(`\n${passed} assertions passed.`);

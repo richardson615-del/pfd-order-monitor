@@ -206,9 +206,12 @@ test("the restaurant comes from the session, never the request body", () => {
   const readsFromBody = [...body.matchAll(/body\?\.(\w+)/g)].map((m) => m[1]);
   // Migration 047 (Workstream AG) adds why the gate went up and when -
   // still only this screen's own story.
+  // deviceRef (2026-10-23) is this screen's own Android reference, used only
+  // to READ whether the office moved it - it writes nothing and the reply
+  // carries a yes/no, never another restaurant.
   assert.deepEqual(
     [...new Set(readsFromBody)],
-    ["pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason"]
+    ["deviceRef", "pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason"]
   );
   assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
 });

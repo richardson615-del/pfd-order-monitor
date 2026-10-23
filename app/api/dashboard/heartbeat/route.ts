@@ -4,6 +4,7 @@ import { getCurrentUserRestaurantIds } from "@/lib/authz";
 import { minShellVersion } from "@/lib/app-update";
 import { HEARTBEAT_MIN_INTERVAL_MS } from "@/lib/kiosk";
 import { ALERT_REASONS } from "@/lib/alert-gate";
+import { bindingMismatch, isDeviceRef } from "@/lib/device-binding";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +43,17 @@ export async function POST(req: NextRequest) {
   }
 
   const restaurantIds = await getCurrentUserRestaurantIds();
+  const body = await req.json().catch(() => null);
+
+  // Has the office moved this tablet? Answered before anything else -
+  // including the rate limit - because it is the one thing in this reply
+  // the tablet must act on. Only the yes/no leaves: never which restaurant.
+  const rebind = await deviceMovedAway(body?.deviceRef, restaurantIds);
+
   if (!restaurantIds.length) {
     // Signed in but linked to nothing. Not an error worth shouting about -
     // the dashboard already tells this person to ask PFD to add them.
-    return NextResponse.json({ ok: true, recorded: 0 });
+    return NextResponse.json({ ok: true, recorded: 0, rebind });
   }
 
   // Trimmed: this is written on every beat and read by a human working out
@@ -62,7 +70,6 @@ export async function POST(req: NextRequest) {
    * older client that never sends the field must not be written down as
    * having alerts off.
    */
-  const body = await req.json().catch(() => null);
   const pushSubscribed = typeof body?.pushSubscribed === "boolean" ? body.pushSubscribed : null;
 
   // Which Android shell this screen runs in (migration 033). Same rule as
@@ -105,7 +112,7 @@ export async function POST(req: NextRequest) {
   const cutoff = Date.now() - HEARTBEAT_MIN_INTERVAL_MS;
   const tooSoon = (recent ?? []).every((r: any) => new Date(r.last_seen_at).getTime() > cutoff) && (recent ?? []).length === restaurantIds.length;
   if (tooSoon) {
-    return NextResponse.json({ ok: false, recorded: 0, rate_limited: true, ...serving() }, { status: 429 });
+    return NextResponse.json({ ok: false, recorded: 0, rate_limited: true, rebind, ...serving() }, { status: 429 });
   }
 
   const { error } = await supabaseAdmin()
@@ -129,10 +136,10 @@ export async function POST(req: NextRequest) {
     // still showing orders, and breaking the dashboard over a monitoring
     // write would turn a reporting gap into an outage.
     console.error("heartbeat not recorded:", error.message);
-    return NextResponse.json({ ok: false, recorded: 0, ...serving() });
+    return NextResponse.json({ ok: false, recorded: 0, rebind, ...serving() });
   }
 
-  return NextResponse.json({ ok: true, recorded: restaurantIds.length, ...serving() });
+  return NextResponse.json({ ok: true, recorded: restaurantIds.length, rebind, ...serving() });
 }
 
 /**
@@ -146,4 +153,25 @@ function serving() {
     buildId: process.env.VERCEL_GIT_COMMIT_SHA || "dev",
     minShellVersion: minShellVersion(),
   };
+}
+
+/**
+ * True when the tablet's device reference is bound (kiosk_devices) to a
+ * restaurant this session does not cover - the office reassigned it in the
+ * CRM after it signed in. A malformed or unknown reference, or a lookup
+ * that fails, is false: this must never sign out a working screen by
+ * accident.
+ */
+async function deviceMovedAway(deviceRef: unknown, restaurantIds: string[]): Promise<boolean> {
+  if (!isDeviceRef(deviceRef)) return false;
+  try {
+    const { data } = await supabaseAdmin()
+      .from("kiosk_devices")
+      .select("restaurant_id")
+      .eq("device_ref", deviceRef)
+      .maybeSingle();
+    return bindingMismatch((data as { restaurant_id?: string | null } | null)?.restaurant_id ?? null, restaurantIds);
+  } catch {
+    return false;
+  }
 }

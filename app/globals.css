@@ -1725,3 +1725,26 @@ table.admin-table th, table.admin-table td {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- Money tab (migration 051, partner portal A1) ---------------------- */
+.money-tab { padding: 0 20px 24px; }
+.money-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 6px 0 14px; }
+.money-stat { display: grid; gap: 2px; padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); }
+.money-stat-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+.money-stat-value { font-family: var(--font-brand), system-ui, sans-serif; font-weight: 700; font-size: 28px; line-height: 1.1; color: var(--text); }
+.money-stat-sub { font-size: var(--text-sm); color: var(--text-dim); }
+.money-list { display: grid; gap: 6px; }
+.money-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; min-height: 56px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); }
+.money-week { display: grid; gap: 2px; min-width: 0; }
+.money-week-label { font-weight: 600; font-size: var(--text-md); }
+.money-week-sub { font-size: var(--text-sm); color: var(--text-dim); }
+.money-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.money-amount { font-weight: 700; font-size: var(--text-lg); min-width: 90px; text-align: right; }
+.money-chip { font-size: var(--text-xs); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); white-space: nowrap; }
+.money-chip.paid { border-color: color-mix(in srgb, var(--status-online) 50%, var(--border)); color: var(--status-online); }
+.money-chip.pending { border-color: color-mix(in srgb, var(--brand) 50%, var(--border)); color: var(--brand); }
+.money-chip.attention { border-color: color-mix(in srgb, var(--status-critical) 50%, var(--border)); color: var(--status-critical); }
+@media (max-width: 560px) {
+  .money-row { flex-direction: column; align-items: stretch; }
+  .money-right { justify-content: space-between; }
+}

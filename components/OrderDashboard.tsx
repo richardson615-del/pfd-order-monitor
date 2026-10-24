@@ -8,6 +8,7 @@ import CompletedRow from "./CompletedRow";
 import PastWeek from "./PastWeek";
 import Scoreboard from "./Scoreboard";
 import MenuEditor from "./MenuEditor";
+import MoneyTab from "./MoneyTab";
 import DispatchMessages from "./DispatchMessages";
 import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
@@ -58,7 +59,7 @@ import {
  * restaurant's prep target; COMPLETE ends it. An order nobody accepted
  * stops chiming six hours after it arrived but stays on the list.
  */
-type TabKey = "orders" | "completed" | "past" | "stats" | "menu";
+type TabKey = "orders" | "completed" | "past" | "stats" | "menu" | "money";
 
 export default function OrderDashboard({
   initialOrders,
@@ -738,6 +739,9 @@ export default function OrderDashboard({
           <button role="tab" aria-selected={tab === "menu"} className={`app-tab ${tab === "menu" ? "active" : ""}`} onClick={() => setTab("menu")}>
             Menu
           </button>
+          <button role="tab" aria-selected={tab === "money"} className={`app-tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>
+            Money
+          </button>
         </div>
       </div>
 
@@ -803,6 +807,8 @@ export default function OrderDashboard({
       {tab === "stats" && <Scoreboard />}
 
       {tab === "menu" && <MenuEditor timezone={timezone} />}
+
+      {tab === "money" && <MoneyTab />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

@@ -209,9 +209,12 @@ test("the restaurant comes from the session, never the request body", () => {
   // deviceRef (2026-10-23) is this screen's own Android reference, used only
   // to READ whether the office moved it - it writes nothing and the reply
   // carries a yes/no, never another restaurant.
+  // remote (2026-10-24, partner portal A2) is this screen saying it is NOT the
+  // kitchen - it can only make the route write LESS (nothing), never another
+  // restaurant's row.
   assert.deepEqual(
     [...new Set(readsFromBody)],
-    ["deviceRef", "pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason"]
+    ["deviceRef", "remote", "pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason"]
   );
   assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
 });

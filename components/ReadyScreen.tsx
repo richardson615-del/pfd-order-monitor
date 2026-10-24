@@ -1,5 +1,7 @@
 "use client";
 
+import { RemoteLink } from "./AlertGate";
+
 import { useEffect, useState } from "react";
 import { Brand } from "./Brand";
 import { useAlertGate, type OnAlertStateChange } from "./useAlertGate";
@@ -28,8 +30,11 @@ export default function ReadyScreen({
   online,
   onSubscribedChange,
   onDone,
+  onRemote,
 }: {
   restaurantName: string;
+  /** "Just checking in" - this is not the kitchen tablet (lib/screen-role.ts). */
+  onRemote?: () => void;
   /** The dashboard's own view: connected and synced at least once. */
   online: boolean;
   onSubscribedChange?: OnAlertStateChange;
@@ -170,6 +175,7 @@ export default function ReadyScreen({
             {testNote}
           </p>
         )}
+        {onRemote && <RemoteLink onRemote={onRemote} />}
       </div>
     </div>
   );

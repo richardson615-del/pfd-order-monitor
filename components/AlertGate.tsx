@@ -21,9 +21,12 @@ const SUPPORT_PHONE = "(615) 619-5081";
 export default function AlertGate({
   restaurantName,
   onSubscribedChange,
+  onRemote,
 }: {
   restaurantName: string;
   onSubscribedChange?: OnAlertStateChange;
+  /** "Just checking in" - this is not the kitchen tablet (lib/screen-role.ts). */
+  onRemote?: () => void;
 }) {
   const { state, busy, error, check, turnOn } = useAlertGate(onSubscribedChange);
 
@@ -90,7 +93,17 @@ export default function AlertGate({
 
         {hostHint && <p className="alert-gate-help alert-gate-host">{hostHint}</p>}
         {error && <p className="alert-gate-error">{error}</p>}
+        {onRemote && <RemoteLink onRemote={onRemote} />}
       </div>
     </div>
+  );
+}
+
+/** The way out for an owner on a laptop or phone: the kitchen tablet rings, this screen only looks. */
+export function RemoteLink({ onRemote }: { onRemote: () => void }) {
+  return (
+    <button className="alert-gate-remote" onClick={onRemote}>
+      Not the kitchen tablet? Just checking in from a computer or phone
+    </button>
   );
 }

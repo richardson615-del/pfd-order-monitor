@@ -56,6 +56,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, recorded: 0, rebind });
   }
 
+  // A computer or phone checking in with the restaurant's login (partner
+  // portal A2, lib/screen-role.ts). It still gets the build and rebind
+  // answers, but it is never written down: this row is the office's proof
+  // that the KITCHEN is watching, and an owner's laptop must not keep a dead
+  // tablet looking alive.
+  if (body?.remote === true) {
+    return NextResponse.json({ ok: true, recorded: 0, remote: true, rebind, ...serving() });
+  }
+
   // Trimmed: this is written on every beat and read by a human working out
   // what is on a wall, not parsed.
   const userAgent = (req.headers.get("user-agent") ?? "").slice(0, 300) || null;

@@ -28,6 +28,8 @@ import {
   shouldReloadNow,
   updateAvailable,
 } from "@/lib/app-update";
+import AppNav, { type TabKey, type NavTab } from "@/components/AppNav";
+import { SCREEN_ROLE_KEY, screenRole, type ScreenRole } from "@/lib/screen-role";
 import { armAudio, isAudioArmed, playNewOrderAlert, playOvertimeTone } from "@/lib/sound";
 import { heroSummary, kitchenSort, newlyOver } from "@/lib/countdown";
 import {
@@ -61,7 +63,6 @@ import {
  * restaurant's prep target; COMPLETE ends it. An order nobody accepted
  * stops chiming six hours after it arrived but stays on the list.
  */
-type TabKey = "orders" | "completed" | "past" | "stats" | "menu" | "money" | "store";
 
 export default function OrderDashboard({
   initialOrders,
@@ -187,6 +188,38 @@ export default function OrderDashboard({
       } catch {}
     }
   }, []);
+  /**
+   * Kitchen tablet, or somebody checking in from a computer or phone with the
+   * same login (lib/screen-role.ts). null until read: nothing that depends on
+   * it - the alert gate, the heartbeat - runs before it is known.
+   */
+  const [role, setRole] = useState<ScreenRole | null>(null);
+  useEffect(() => {
+    let chosen: string | null = null;
+    try {
+      chosen = window.localStorage.getItem(SCREEN_ROLE_KEY);
+    } catch {}
+    let remembered: string | null = null;
+    try {
+      remembered = window.localStorage.getItem(SHELL_VERSION_KEY);
+    } catch {}
+    setRole(
+      screenRole({
+        shellVersion: readShellVersion(window.location.href, remembered),
+        deviceRef: readDeviceRefCache(),
+        pointerFine: window.matchMedia?.("(pointer: fine)").matches ?? false,
+        shortSide: Math.min(window.screen?.width ?? 0, window.screen?.height ?? 0),
+        chosen,
+      })
+    );
+  }, []);
+  const chooseRole = useCallback((next: ScreenRole) => {
+    try {
+      window.localStorage.setItem(SCREEN_ROLE_KEY, next);
+    } catch {}
+    setRole(next);
+  }, []);
+
   const [now, setNow] = useState(() => Date.now());
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -420,6 +453,7 @@ export default function OrderDashboard({
   // thing it is reporting on.
   const rebindingRef = useRef(false);
   useEffect(() => {
+    if (role === null) return;
     const beat = () => {
       // Still fire-and-forget for the REQUEST, but the outcome is recorded:
       // the pill claimed the office could see this tablet with nothing behind
@@ -441,6 +475,7 @@ export default function OrderDashboard({
           alertRaisedReason: alertRaise?.reason ?? null,
           // Which tablet this is, so the bridge can say the office moved it.
           deviceRef: readDeviceRefCache(),
+          remote: role === "remote", // lib/screen-role.ts: answered, never recorded
         }),
       })
         .then(async (res) => {
@@ -484,7 +519,7 @@ export default function OrderDashboard({
     // Re-run when the subscription answer changes: with [] this closure would
     // capture the first value (null, before AlertGate has looked) and report
     // it for the life of the tab.
-  }, [pushSubscribed, shellVersion, alertState, alertReason, alertRaise]);
+  }, [pushSubscribed, shellVersion, alertState, alertReason, alertRaise, role]);
 
   // The push subscription is read and repaired by AlertGate, which owns that
   // question - it reports the answer here through onSubscribedChange so the
@@ -670,6 +705,16 @@ export default function OrderDashboard({
     document.title = `${restaurantName} — Premium Orders`;
   }, [restaurantName]);
 
+  const navTabs: NavTab[] = [
+    { key: "orders", label: "Orders", short: "Orders", count: kitchen.length },
+    { key: "completed", label: "Completed", short: "Done", count: completedCounted.length },
+    { key: "past", label: "Past week", short: "Week" },
+    { key: "stats", label: "Stats", short: "Stats" },
+    { key: "menu", label: "Menu", short: "Menu" },
+    { key: "money", label: "Money", short: "Money" },
+    { key: "store", label: "Store", short: "Store", flag: Boolean(storePause) },
+  ];
+
   return (
     <div className="app" data-display={mode}>
       {/* Above everything. Nothing below this renders while alerts are off -
@@ -677,15 +722,16 @@ export default function OrderDashboard({
       {/* First run on this device: the Ready screen carries the same gate as
           one of its three checks, and the one tap happens there. Every run
           after that: the gate on its own, only if alerts are ever off. */}
-      {firstRun === true ? (
+      {role !== "kitchen" ? null : firstRun === true ? (
         <ReadyScreen
           restaurantName={restaurantName}
           online={connection !== "down" && !stale}
           onSubscribedChange={onAlertStateChange}
           onDone={finishSetup}
+          onRemote={() => chooseRole("remote")}
         />
       ) : firstRun === false ? (
-        <AlertGate restaurantName={restaurantName} onSubscribedChange={onAlertStateChange} />
+        <AlertGate restaurantName={restaurantName} onSubscribedChange={onAlertStateChange} onRemote={() => chooseRole("remote")} />
       ) : null}
 
       {/* Offline has its own strip below, with the button that fixes it; the
@@ -759,31 +805,17 @@ export default function OrderDashboard({
         </p>
       )}
 
-      <div className="app-tabs">
-        <div className="app-tabs-track" role="tablist">
-          <button role="tab" aria-selected={tab === "orders"} className={`app-tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>
-            Orders <span className="app-tab-n num">{kitchen.length}</span>
+      <div className="app-body">
+      <AppNav tabs={navTabs} active={tab} onSelect={setTab} />
+      <main className="app-main">
+      {role === "remote" && tab === "orders" && (
+        <p className="app-remote-note" role="status">
+          <span>You&apos;re checking in from another screen. New orders ring on the kitchen tablet, not here.</span>
+          <button className="btn small" onClick={() => chooseRole("kitchen")}>
+            This is the kitchen tablet
           </button>
-          <button role="tab" aria-selected={tab === "completed"} className={`app-tab ${tab === "completed" ? "active" : ""}`} onClick={() => setTab("completed")}>
-            Completed <span className="app-tab-n num">{completedCounted.length}</span>
-          </button>
-          <button role="tab" aria-selected={tab === "past"} className={`app-tab ${tab === "past" ? "active" : ""}`} onClick={() => setTab("past")}>
-            Past week
-          </button>
-          <button role="tab" aria-selected={tab === "stats"} className={`app-tab ${tab === "stats" ? "active" : ""}`} onClick={() => setTab("stats")}>
-            Stats
-          </button>
-          <button role="tab" aria-selected={tab === "menu"} className={`app-tab ${tab === "menu" ? "active" : ""}`} onClick={() => setTab("menu")}>
-            Menu
-          </button>
-          <button role="tab" aria-selected={tab === "money"} className={`app-tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>
-            Money
-          </button>
-          <button role="tab" aria-selected={tab === "store"} className={`app-tab ${tab === "store" ? "active" : ""}`} onClick={() => setTab("store")}>
-            Store
-          </button>
-        </div>
-      </div>
+        </p>
+      )}
 
       {tab === "orders" && (
         <>
@@ -857,6 +889,8 @@ export default function OrderDashboard({
           tablet_not_watching once the heartbeat has been silent long enough
           while orders arrive - "if this lasts", not "right now". */}
       {offline && <p className="offline-foot">{OFFLINE_FOOTER}</p>}
+      </main>
+      </div>
     </div>
   );
 }

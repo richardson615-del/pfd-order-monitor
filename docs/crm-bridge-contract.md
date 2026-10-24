@@ -1292,6 +1292,49 @@ a publish (and after every nightly refresh), push the menu again** - that is
 what clears "Sent to Premium" on the tablet and shows the kitchen the change
 is live.
 
+### Statements on the tablet (the partner portal, A1)
+
+`PUT /api/crm/restaurants/:id/statements` (either id) replaces the restaurant's
+closed weeks for its Money tab (migration 051; prs-crm brief
+2026-10-24 "run everything from the CRM" §2). One row per restaurant per week,
+upserted on `(restaurant_id, period_start)`; a week not in the push is left as
+it was.
+
+```json
+{
+  "statements": [
+    { "period_start": "2026-10-13", "period_end": "2026-10-19", "statement_no": "WM-20261013",
+      "payment_status": "paid | pending | held | failed | skipped | none",
+      "paid_at": "2026-10-28T15:00:00Z", "payment_date": "2026-10-28", "payment_ref": "ACH 1234",
+      "order_count": 132, "amount_due_cents": 412355,
+      "view_url": "https://crm.pfdworks.com/api/statements/view/<token>",
+      "pdf_url": "https://crm.pfdworks.com/api/statements/view/<token>?format=pdf",
+      "generated_at": "2026-10-21T12:00:00Z",
+      "payload": { "lines": [{ "label": "Food", "amount": "$5,000.00" }] } }
+  ]
+}
+```
+
+- `amount_due_cents` is the CRM's frozen `netPayable` in cents. The bridge
+  computes nothing: a week with no amount is a refused push (400
+  `{ error, code: "invalid" }`), never a $0 line. One bad week fails the
+  whole push.
+- `view_url` / `pdf_url` are the CRM's own no-session statement links (the
+  ones the statement email carries); the app opens them in a new tab. Only
+  https links on the CRM's host are accepted (`CRM_STATEMENT_ORIGINS`,
+  default `https://crm.pfdworks.com`).
+- `payload` is whatever restaurant-facing summary the CRM chooses to send,
+  stored as sent for a later page - never a commission, rate or fee.
+- `payment_status` `none` = the week has not been allocated to a payment run
+  yet (the CRM's `null`); `skipped` = nothing to pay.
+- Limits: 60 weeks per push. The CRM pushes a restaurant's recent history on
+  close period, on every send / regenerate and on mark paid.
+- `GET` (same key) returns the held weeks' summary for a check that a push
+  landed.
+
+The tablet reads its own weeks through `GET /api/dashboard/statements` (the
+session client, RLS); a restaurant can read, never write.
+
 ### The menu on the tablet
 
 `PUT /api/crm/restaurants/:id/menu` (either id) replaces the restaurant's

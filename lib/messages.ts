@@ -15,6 +15,8 @@ import type { Order } from "./types";
 import type { MenuChanges } from "./menu-editor";
 
 export const MESSAGE_KINDS = ["text", "driver_late", "order_problem", "menu_change"] as const;
+/** Every kind a stored message may have: the sendable ones, plus the Store tab's own (migration 052), written only by its routes. */
+export const STORED_MESSAGE_KINDS = [...MESSAGE_KINDS, "pause", "hours_change"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 export type MessageDirection = "from_restaurant" | "to_restaurant";
 
@@ -26,11 +28,21 @@ export const RATE_WINDOW_MS = 10 * 60_000;
 /** How much of the thread the tablet shows. */
 export const THREAD_LIMIT = 50;
 
+export type StoredMessageKind = (typeof STORED_MESSAGE_KINDS)[number];
+
+/** The thread's small heading over a message that is not plain text. */
+export function messageKindLabel(kind: StoredMessageKind): string | null {
+  if (kind === "text") return null;
+  if (kind === "pause") return "Online orders";
+  if (kind === "hours_change") return "Hours change";
+  return QUICK_PICKS[kind].label;
+}
+
 export interface RestaurantMessage {
   id: string;
   restaurant_id: string;
   direction: MessageDirection;
-  kind: MessageKind;
+  kind: StoredMessageKind;
   body: string;
   order_id: string | null;
   author: string | null;

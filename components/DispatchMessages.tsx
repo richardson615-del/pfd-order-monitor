@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Order } from "@/lib/types";
-import { QUICK_PICKS, driverLateOrder, newReplies, type RestaurantMessage } from "@/lib/messages";
+import { QUICK_PICKS, driverLateOrder, messageKindLabel, newReplies, type RestaurantMessage } from "@/lib/messages";
 import { timeLabel } from "@/lib/local-day";
 import { playChime } from "@/lib/sound";
 
@@ -180,7 +180,7 @@ export default function DispatchMessages({
                 return (
                   <div key={m.id} className={`msg-row ${mine ? "mine" : "theirs"}`}>
                     <div className="msg-bubble">
-                      {m.kind !== "text" && <div className="msg-kind">{QUICK_PICKS[m.kind].label}{no ? ` · #${no}` : ""}</div>}
+                      {messageKindLabel(m.kind) && <div className="msg-kind">{messageKindLabel(m.kind)}{no ? ` · #${no}` : ""}</div>}
                       <div className="msg-body">{m.body}</div>
                     </div>
                     <div className="msg-meta">

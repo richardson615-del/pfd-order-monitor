@@ -1779,3 +1779,84 @@ table.admin-table th, table.admin-table td {
   .store-day { grid-template-columns: 1fr; }
   .store-day-actions { justify-content: flex-start; }
 }
+
+/* ==========================================================================
+   APP NAV - one set of buttons for three screens (partner portal A2,
+   2026-10-24; components/AppNav.tsx). The tablet keeps the segmented control
+   above. A phone gets a bottom bar; a computer (wide AND a mouse - a landscape
+   kitchen tablet is wide too, but it has a finger, not a pointer) gets a
+   column down the left. The kitchen's own sizes win nowhere here: these
+   selectors carry the extra .app[data-display] on purpose.
+   ========================================================================== */
+.app-tab-iconwrap, .app-tab-short { display: none; }
+.app-tab-icon { display: block; }
+.app-tab-flag { position: absolute; top: -2px; right: -5px; width: 9px; height: 9px; border-radius: 50%; background: var(--status-warning); box-shadow: 0 0 0 2px var(--panel); }
+
+/* --- phone ---------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .app[data-display] .app-tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+    background: var(--panel); border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 16px oklch(0.18 0.014 264 / 0.06);
+    overflow: visible;
+  }
+  .app[data-display] .app-tabs-track { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); width: 100%; padding: 0; gap: 0; background: none; border-radius: 0; }
+  .app[data-display] .app-tab {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-height: 56px; padding: 6px 0; font-size: 11px; line-height: 1; border-radius: 12px; box-shadow: none;
+  }
+  .app[data-display] .app-tab.active { background: var(--accent); color: var(--brand); box-shadow: none; }
+  .app[data-display] .app-tab-iconwrap { display: block; position: relative; }
+  .app[data-display] .app-tab-label { display: none; }
+  .app[data-display] .app-tab-short { display: block; }
+  .app[data-display] .app-tab-n {
+    position: absolute; top: 3px; left: calc(50% + 5px); margin: 0;
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--brand); color: var(--primary-foreground); font-size: 10px; font-weight: 700;
+  }
+  .app[data-display] .app-tab-n.zero { display: none; }
+  /* Room under the last card for the bar. */
+  .app-main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+
+  /* The header wraps instead of squeezing: name on its own line when it must. */
+  .app[data-display] .app-head { flex-wrap: wrap; gap: 8px 12px; padding: 12px 14px; }
+  .app[data-display] .app-head-id { min-width: 0; flex: 1 1 100%; align-items: flex-start; }
+  .app[data-display] .app-head-id > * { align-self: flex-start; }
+  .app[data-display] .app-head-restaurant { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app[data-display] .app-head-right { margin-left: 0; width: 100%; gap: 8px; flex-wrap: wrap; justify-content: space-between; }
+  .app[data-display] .app-clock { display: none; }
+  .app[data-display] .msg-btn { min-height: 40px; padding: 6px 12px; font-size: 14px; }
+  .app[data-display] .app-head-detail { padding: 10px 14px; font-size: 14px; }
+  .app-paused { margin: 8px 14px; }
+  .menu-tab, .money-tab, .store-tab { padding: 0 14px 16px; }
+  .menu-search { min-width: 0; flex: 1 1 100%; }
+  .money-stat-value { font-size: 24px; }
+}
+
+/* --- computer ------------------------------------------------------------- */
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .app-body { display: grid; grid-template-columns: 236px minmax(0, 1fr); align-items: start; max-width: 1480px; margin: 0 auto; }
+  .app[data-display] .app-tabs { position: sticky; top: 96px; padding: 18px 12px; overflow: visible; }
+  .app[data-display] .app-tabs-track { display: flex; flex-direction: column; width: 100%; padding: 0; gap: 2px; background: none; border-radius: 0; }
+  .app[data-display] .app-tab {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+    min-height: 44px; padding: 10px 14px; font-size: 15px; border-radius: 10px; box-shadow: none;
+  }
+  .app[data-display] .app-tab:hover:not(.active) { background: var(--panel-2); color: var(--text); }
+  .app[data-display] .app-tab.active { background: var(--accent); color: var(--brand); box-shadow: none; }
+  .app[data-display] .app-tab-iconwrap { display: inline-flex; position: relative; }
+  .app[data-display] .app-tab-n { margin-left: auto; }
+  .app[data-display] .app-tab-n.zero { opacity: 0.5; }
+  .app-main { min-width: 0; padding-top: 8px; padding-bottom: 32px; }
+  /* Orders as cards across the screen; a phone or tablet reads them one under another. */
+  .app[data-display] .app-main > .app-list:not(.completed) { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); align-items: start; }
+  .app[data-display] .app-main > .app-list.completed { max-width: 960px; }
+  .menu-tab, .money-tab, .store-tab { max-width: 1040px; }
+}
+
+/* Remote screen (lib/screen-role.ts): the way out of the gate, and the line on Orders. */
+.alert-gate-remote { margin-top: 18px; background: none; border: none; padding: 8px; color: var(--brand); font: inherit; font-size: var(--text-sm); font-weight: 600; text-decoration: underline; cursor: pointer; }
+.app-remote-note { margin: 8px 20px; padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim); font-size: var(--text-sm); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+@media (max-width: 640px) { .app-remote-note { margin: 8px 14px; padding: 8px 12px; font-size: 13px; } }

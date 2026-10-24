@@ -181,8 +181,8 @@ test("the dashboard keeps the orders on screen while offline, dimmed, with the s
   assert.match(src("app/globals.css"), /\.app-list\.offline \{ opacity/);
 });
 
-test("the login page is staff-only and nothing on the tablet points at it", () => {
-  assert.match(src("app/login/page.tsx"), /Premium staff sign-in/);
+test("the login page is for people (staff, or an owner on a computer or phone) and nothing on the tablet points at it", () => {
+  assert.match(src("app/login/page.tsx"), /from any computer or phone\. Kitchen tablets sign themselves in\./);
   for (const f of ["app/link/page.tsx", "public/offline.html", "components/ReadyScreen.tsx", "components/AlertGate.tsx", "components/OrderDashboard.tsx"]) {
     assert.doesNotMatch(src(f), /href="\/login"|\/login\?/, `${f} must not send a restaurant to the login form`);
   }

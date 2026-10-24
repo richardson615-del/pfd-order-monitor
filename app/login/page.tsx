@@ -117,12 +117,15 @@ function LoginForm() {
           shorthand for a company they know as Premium. */}
       <div className="login-brand">
         <Brand size="lg" onLight withSubtitle />
-        {/* Staff only, since 2026-09-16. A kitchen tablet with no session
-            lands on /link and shows a code for the office; nothing sends a
-            restaurant here and nothing on the tablet links to it. */}
+        {/* Since 2026-10-24 (partner portal A2) an owner signs in here with
+            the restaurant's login to check orders, the menu, money and the
+            store from a computer or phone (lib/screen-role.ts makes that a
+            remote screen). A kitchen tablet still never comes here: with no
+            session it lands on /link and shows a code for the office, and
+            nothing on the tablet links to this page. */}
         <p className="muted login-staff-note">
-          Premium staff sign-in. Kitchen tablets don&apos;t sign in here — they show a link code
-          for the office instead.
+          Sign in with your restaurant&apos;s login to check orders, your menu, money and store
+          settings from any computer or phone. Kitchen tablets sign themselves in.
         </p>
       </div>
 

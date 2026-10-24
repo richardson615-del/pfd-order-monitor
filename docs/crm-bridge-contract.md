@@ -1292,6 +1292,35 @@ a publish (and after every nightly refresh), push the menu again** - that is
 what clears "Sent to Premium" on the tablet and shows the kitchen the change
 is live.
 
+### Store: pause and hours (the partner portal, A3)
+
+Migration 052. Two things the restaurant does from its own app, both
+carried to the CRM by the existing message feed (`GET /api/crm/messages`),
+which now returns `details` on every message:
+
+- **`kind: "pause"`** - the restaurant paused or resumed online orders.
+  `details` = `{ paused_until: <iso> | null, reason: string | null }`
+  (`null` = turned back on). The bridge already applied it to
+  `restaurants.online_paused_until`; the CRM mirrors it (stops web, Muse and
+  phone orders for that restaurant) and opens its usual ticket so dispatch
+  pauses any other ordering site. The tablet owns the pause: nothing the CRM
+  pushes changes it.
+- **`kind: "hours_change"`** - new weekly hours the restaurant asked for.
+  `details` = `{ hours: { sunday: [{ open: "HH:MM", close: "HH:MM" }], ... }, note }`
+  (every day present, `[]` = closed, up to two ranges, a close before the
+  open = past midnight). The bridge changes nothing; the CRM applies it and
+  pushes the profile back.
+
+`PUT /api/crm/restaurants/:id/profile` (either id, `CRM_WRITE_KEY`) is that
+push: `{ hours: <week as above> | null, hours_lines: ["Monday: 11:00 AM - 9:00 PM", ...], ordering_channel?: "zuppler" | "both" | "pfd" }`,
+one row per restaurant, replaced whole. `"24:00"` is read as `23:59`. 400
+`{ error, code: "invalid" }` for a bad shape, 404 `restaurant_not_found`.
+`GET` returns the held lines and the live `online_paused_until`.
+
+Neither kind can be sent through `POST /api/dashboard/messages`; only the
+Store routes (`/api/dashboard/store/pause`, `/api/dashboard/store/hours`)
+write them, with the restaurant from the session.
+
 ### Statements on the tablet (the partner portal, A1)
 
 `PUT /api/crm/restaurants/:id/statements` (either id) replaces the restaurant's

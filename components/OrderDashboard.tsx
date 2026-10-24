@@ -9,6 +9,8 @@ import PastWeek from "./PastWeek";
 import Scoreboard from "./Scoreboard";
 import MenuEditor from "./MenuEditor";
 import MoneyTab from "./MoneyTab";
+import StoreTab from "./StoreTab";
+import { clockLabel as storeClock } from "@/lib/store";
 import DispatchMessages from "./DispatchMessages";
 import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
@@ -59,7 +61,7 @@ import {
  * restaurant's prep target; COMPLETE ends it. An order nobody accepted
  * stops chiming six hours after it arrived but stays on the list.
  */
-type TabKey = "orders" | "completed" | "past" | "stats" | "menu" | "money";
+type TabKey = "orders" | "completed" | "past" | "stats" | "menu" | "money" | "store";
 
 export default function OrderDashboard({
   initialOrders,
@@ -87,6 +89,27 @@ export default function OrderDashboard({
 }) {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [tab, setTab] = useState<TabKey>("orders");
+  // Store tab (migration 052): the live pause, for the strip over the tabs. Polled once a minute.
+  const [storePause, setStorePause] = useState<{ until: string; reason: string | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const res = await fetch("/api/dashboard/store", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setStorePause(data?.pause ?? null);
+      } catch {
+        /* keep what we have */
+      }
+    };
+    void read();
+    const t = window.setInterval(read, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, []);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [soundArmed, setSoundArmed] = useState(true); // assume ok until checked
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
@@ -722,6 +745,20 @@ export default function OrderDashboard({
         </p>
       )}
 
+      {storePause && (
+        <p className="app-paused" role="status">
+          <span>
+            Online orders paused until {storeClock(new Date(storePause.until), timezone ?? "America/Chicago")}
+            {storePause.reason ? ` - ${storePause.reason}` : ""}
+          </span>
+          {tab !== "store" && (
+            <button className="btn small" onClick={() => setTab("store")}>
+              Turn back on
+            </button>
+          )}
+        </p>
+      )}
+
       <div className="app-tabs">
         <div className="app-tabs-track" role="tablist">
           <button role="tab" aria-selected={tab === "orders"} className={`app-tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>
@@ -741,6 +778,9 @@ export default function OrderDashboard({
           </button>
           <button role="tab" aria-selected={tab === "money"} className={`app-tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>
             Money
+          </button>
+          <button role="tab" aria-selected={tab === "store"} className={`app-tab ${tab === "store" ? "active" : ""}`} onClick={() => setTab("store")}>
+            Store
           </button>
         </div>
       </div>
@@ -809,6 +849,8 @@ export default function OrderDashboard({
       {tab === "menu" && <MenuEditor timezone={timezone} />}
 
       {tab === "money" && <MoneyTab />}
+
+      {tab === "store" && <StoreTab onPauseChange={setStorePause} />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

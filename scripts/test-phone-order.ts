@@ -94,9 +94,70 @@ test("either id is accepted: restaurant_id or crm_restaurant_id, resolved by the
   bad({ restaurant_id: undefined }, "restaurant_required");
 });
 
-test("source must be 'phone' - this route is not a second Zuppler webhook", () => {
+test("source must be 'phone' or 'ubereats' - this route is not a second Zuppler webhook", () => {
   bad({ source: "zuppler" }, "invalid_source");
+  bad({ source: "ezcater" }, "invalid_source");
   bad({ source: undefined }, "invalid_source");
+  assert.equal(ok().source, "phone");
+});
+
+console.log("an Uber Eats order the CRM relays:");
+
+const UBER_ORDER_ID = "153dd7f1-339d-4619-940c-418943c14636";
+const uber = (over: Record<string, unknown> = {}) =>
+  body({
+    source: "ubereats",
+    external_id: UBER_ORDER_ID,
+    order_number: "UE-C14636",
+    order_type: "pickup",
+    customer: { name: "Dana R.", phone: null, address: null, address2: null, notes: null },
+    money: { subtotal: 40, tax: 3.9, delivery_fee: 0, service_fee: 0, tip: 0, discount: 0, surcharge: 0, total: 43.9 },
+    payment: { type: "marketplace", status: "paid" },
+    notes: "Uber Eats courier picks up",
+    actor: "uber-eats",
+    ...over,
+  });
+const parseUber = (over: Record<string, unknown> = {}) => parsePhoneOrder(uber(over));
+
+test("a paid Uber Eats order parses, keeps its source, and the ticket says PAID - UBER EATS", () => {
+  const r = parseUber();
+  assert.ok(r.ok, r.ok ? "" : `${r.code}: ${r.error}`);
+  if (!r.ok) return;
+  assert.equal(r.order.source, "ubereats");
+  assert.equal(r.order.order_number, "UE-C14636");
+  const line = tenderLine(r.order.payment, r.order.money.total, r.order.source);
+  assert.equal(line, "PAID - UBER EATS");
+  assert.match(line, TENDER_LINE_RE, "printed bold as an instruction");
+  const c = phoneOrderToCanonical(r.order, { id: "r1", name: "Willie Mae's" }, { fingerprint: "f" });
+  assert.equal(c.source, "ubereats");
+  assert.equal(c.paymentType, "PAID - UBER EATS");
+});
+
+test("a marketplace order is always paid, with no card or cash on it", () => {
+  const code = (over: Record<string, unknown>) => {
+    const r = parseUber(over);
+    return r.ok ? "ok" : r.code;
+  };
+  assert.equal(code({ payment: { type: "marketplace", status: "due" } }), "invalid_payment");
+  assert.equal(code({ payment: { type: "card", status: "paid", last4: "1234" } }), "invalid_payment");
+  assert.equal(code({ payment: { type: "cash", status: "due" } }), "invalid_payment");
+  assert.equal(code({ payment: { type: "marketplace", status: "paid", last4: "1234" } }), "invalid_payment");
+  assert.equal(code({ payment: { type: "marketplace", status: "paid", cash_due: 5 } }), "invalid_payment");
+});
+
+test("a phone order cannot claim to be paid on a marketplace", () => {
+  bad({ payment: { type: "marketplace", status: "paid" } }, "invalid_payment");
+});
+
+test("Uber's figures are stored even when they do not add up; a phone order's are still refused", () => {
+  const r = parseUber({ money: { subtotal: 40, tax: 3.9, delivery_fee: 0, service_fee: 0, tip: 0, discount: 0, surcharge: 0, total: 45.4 } });
+  assert.ok(r.ok, "kept out of the kitchen over a fee line would be worse; ingest records money_variance");
+  bad({ money: { subtotal: 40, tax: 3.9, delivery_fee: 4.99, service_fee: 0, tip: 8, discount: 0, surcharge: 1.2, total: 60 } }, "money_mismatch");
+});
+
+test("the card-number guard covers a marketplace order too", () => {
+  const r = parseUber({ notes: "4111 1111 1111 1111" });
+  assert.ok(!r.ok && r.code === "card_number_rejected");
 });
 
 test("external_id is the idempotency key and is required", () => {
@@ -339,7 +400,7 @@ test("the route answers 200 on an honest retry, 409 on a changed payload or a ta
 
 test("ingestOrder treats a phone repeat as a repeat, not a Zuppler-style amendment", () => {
   const canonical = src("lib/canonical.ts");
-  assert.ok(canonical.includes('source: "email" | "zuppler" | "test" | "phone"'));
+  assert.ok(canonical.includes('source: "email" | "zuppler" | "test" | "phone" | "ezcater" | "ubereats"'));
   assert.ok(canonical.includes('if (input.source !== "zuppler") {'), "only Zuppler amends");
   assert.ok(canonical.includes("surcharge: input.surcharge ?? null"), "the surcharge is written");
 });
@@ -352,6 +413,14 @@ test("migration 042 admits 'phone' and adds the surcharge column; the detail and
   assert.ok(src("app/api/crm/orders/[id]/route.ts").includes("surcharge: num(row.surcharge)"));
   const acct = src("app/api/crm/accounting/orders/route.ts");
   assert.ok(acct.includes("surcharge: num(o.surcharge)") && acct.includes("surcharge: sum((r) => r.money.surcharge)"));
+});
+
+test("migration 053 admits 'ubereats' and the route keys idempotency on the order's own source", () => {
+  assert.match(src("db/migrations/053_ubereats_source.sql"), /check \(source in \('email', 'zuppler', 'test', 'phone', 'ezcater', 'ubereats'\)\)/);
+  assert.ok(src("lib/expected-migrations.ts").includes('"053_ubereats_source.sql"'));
+  const route = src("app/api/crm/orders/route.ts");
+  assert.ok(route.includes('.eq("source", order.source)'), "a phone id and an Uber id never collide");
+  assert.ok(!route.includes('.eq("source", "phone")'));
 });
 
 test("the tablet's ticket body shows payment_type as stored, so it reads the same instruction as the paper", () => {

@@ -403,7 +403,9 @@ export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "
  * cancel, so a CRM cancel would leave the two disagreeing. Null = allowed.
  */
 export function cancelRefusal(o: { status: string | null; source: string | null }): { code: "not_phone_order" | "order_cancelled" | "order_completed"; error: string } | null {
-  if (o.source !== "phone") return { code: "not_phone_order", error: `only a phone order can be cancelled from the CRM; this one came from ${o.source ?? "an unknown source"} and is cancelled there` };
+  // A marketplace order the CRM relayed is cancelled the same way: the
+  // marketplace told the CRM, and the CRM tells the kitchen.
+  if (o.source !== "phone" && o.source !== "ubereats") return { code: "not_phone_order", error: `only a phone or Uber Eats order can be cancelled from the CRM; this one came from ${o.source ?? "an unknown source"} and is cancelled there` };
   if (o.status === "cancelled") return { code: "order_cancelled", error: "this order is already cancelled" };
   if (o.status === "completed") return { code: "order_completed", error: "this order is completed; it can't be cancelled" };
   return null;

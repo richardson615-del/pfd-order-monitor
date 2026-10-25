@@ -318,6 +318,8 @@ test("cancel: only a phone order, never twice, never a completed one; the push s
   assert.equal(cancelRefusal({ status: "new", source: "phone" }), null);
   assert.equal(cancelRefusal({ status: "new", source: "zuppler" })?.code, "not_phone_order");
   assert.equal(cancelRefusal({ status: "new", source: "ezcater" })?.code, "not_phone_order");
+  assert.equal(cancelRefusal({ status: "accepted", source: "ubereats" }), null, "Uber cancelled it; the CRM tells the kitchen");
+  assert.equal(cancelRefusal({ status: "completed", source: "ubereats" })?.code, "order_completed");
   assert.equal(cancelRefusal({ status: "cancelled", source: "phone" })?.code, "order_cancelled");
   assert.equal(cancelRefusal({ status: "completed", source: "phone" })?.code, "order_completed");
   assert.ok(isOrderAction("cancel"));

@@ -12,7 +12,7 @@ export interface OrderItem {
  * "which platform was this on?" is the first question asked about a wrong
  * order, and until now the answer was stored and never shown.
  */
-export type OrderSource = "email" | "zuppler" | "test" | "phone";
+export type OrderSource = "email" | "zuppler" | "test" | "phone" | "ezcater" | "ubereats";
 
 export interface Order {
   id: string;

@@ -95,7 +95,8 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/crm/orders - a phone order taken in the CRM (O1, 2026-09-18).
+ * POST /api/crm/orders - a phone order taken in the CRM (O1, 2026-09-18),
+ * or a marketplace order the CRM relays (`source: 'ubereats'`, 2026-10-25).
  *
  * Body: lib/phone-order.ts parsePhoneOrder(). The order is stored with
  * `source: 'phone'` through the same ingestOrder() every Zuppler order goes
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
   // The row this id already made, if any - checked here as well as inside
   // ingestOrder because only this route knows whether the retry is honest.
   const findExisting = () =>
-    admin.from("orders").select("id, raw_payload").eq("source", "phone").eq("external_id", order.external_id).maybeSingle();
+    admin.from("orders").select("id, raw_payload").eq("source", order.source).eq("external_id", order.external_id).maybeSingle();
 
   const { data: before } = await findExisting();
   if (before) {
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
   if (result.status === "error") return NextResponse.json({ error: result.error ?? "could not store the order" }, { status: 500 });
 
   if (result.status === "created") {
-    console.log("phone order created", JSON.stringify({ orderId: result.orderId, externalId: order.external_id, restaurant: restaurant.id, actor: order.actor }));
+    console.log(`${order.source} order created`, JSON.stringify({ orderId: result.orderId, externalId: order.external_id, restaurant: restaurant.id, actor: order.actor }));
     const row = await listRow(result.orderId!);
     return NextResponse.json({
       ok: true,

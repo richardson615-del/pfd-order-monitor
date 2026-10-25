@@ -932,7 +932,8 @@ always meant. The order then shows in `GET /api/crm/orders` with
 
 - `restaurant_id` — **either id** (Standing rules); `crm_restaurant_id` is
   accepted as an alias. Unknown to both columns → 422 `restaurant_not_found`.
-- `source` — must be `"phone"`.
+- `source` — `"phone"`, or `"ubereats"` for a marketplace order the CRM
+  relays (below).
 - `external_id` — the CRM's `phone_orders.id`; with `source`, the
   **idempotency key** (1–128 chars of `[A-Za-z0-9._:-]`).
 - `order_number` — optional, 1–20 letters/digits/dashes, what the ticket
@@ -1015,6 +1016,23 @@ as PFD revenue, not restaurant sales. The detail's `zuppler` object is
 edit actions live on its own `phone_orders`, not here. The CRM should
 feature-flag its caller (`PHONE_ORDERS_ENABLED`) and treat a 404 from this
 route as "bridge not deployed yet".
+
+**Uber Eats orders (migration 053, 2026-10-25).** The CRM is the Uber Eats
+Marketplace integration and relays each Uber order through this same POST
+with `source: "ubereats"`:
+
+- `external_id` is Uber's order id; idempotency is on `(source,
+  external_id)`, so a phone id and an Uber id never collide.
+- `payment` must be `{ "type": "marketplace", "status": "paid" }` with no
+  `last4`, `cards` or `cash_due`; `type: "marketplace"` is refused on a
+  phone order. The ticket line is `PAID - UBER EATS`.
+- `money` is Uber's. It is **not** refused for `money_mismatch`: Uber
+  computed it, not the CRM, so the order is stored and `money_variance`
+  records any difference.
+- `POST /api/crm/orders/:id/actions` `cancel` accepts a `ubereats` order as
+  it does a phone order (the CRM cancels it when Uber does).
+- The CRM's payout engine does not pay these out until a payout rule is
+  set (`unsupported_source`).
 
 **Menu source: none.** The brief asked for `GET /api/crm/restaurants/:id/menu`
 *if* the bridge's Zuppler client can load a menu. It cannot: the only

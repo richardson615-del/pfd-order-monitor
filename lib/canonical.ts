@@ -14,8 +14,9 @@ export interface CanonicalOrderInput {
    *  directly, but the type should not claim otherwise. "phone" (migration
    *  042) is an order a dispatcher took in the CRM and posted here (O1).
    *  "ezcater" (migration 050) is a stored ezCater order promoted into the
-   *  kitchen by lib/ezcater-promote.ts. */
-  source: "email" | "zuppler" | "test" | "phone" | "ezcater";
+   *  kitchen by lib/ezcater-promote.ts. "ubereats" (migration 053) is an
+   *  Uber Eats Marketplace order the CRM relays through POST /api/crm/orders. */
+  source: "email" | "zuppler" | "test" | "phone" | "ezcater" | "ubereats";
   /** The source system's own id (Gmail message id, Zuppler order uuid, the
    *  CRM's phone_orders id). With `source`, the idempotency key. */
   externalId: string;

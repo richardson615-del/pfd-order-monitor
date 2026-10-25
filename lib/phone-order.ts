@@ -23,7 +23,18 @@ import { TENDER_LINE_RE } from "./ticket";
  */
 
 export const PHONE_ORDER_TYPES = ["delivery", "pickup"] as const;
-export const PHONE_PAYMENT_TYPES = ["cash", "card", "house"] as const;
+export const PHONE_PAYMENT_TYPES = ["cash", "card", "house", "marketplace"] as const;
+/**
+ * Who the CRM is posting for. "phone" is an order a dispatcher took (O1).
+ * "ubereats" (2026-10-25, migration 053) is an Uber Eats Marketplace order
+ * the CRM received from Uber and relays to the kitchen. A marketplace order
+ * is always paid ("marketplace" / "paid"): the customer paid Uber, and the
+ * restaurant must never collect.
+ */
+export const CRM_ORDER_SOURCES = ["phone", "ubereats"] as const;
+export type CrmOrderSource = (typeof CRM_ORDER_SOURCES)[number];
+export const MARKETPLACE_SOURCES: ReadonlySet<string> = new Set(["ubereats"]);
+const MARKETPLACE_LABEL: Record<string, string> = { ubereats: "UBER EATS" };
 export const PHONE_PAYMENT_STATUSES = ["paid", "due"] as const;
 
 export type PhoneOrderType = (typeof PHONE_ORDER_TYPES)[number];
@@ -75,6 +86,8 @@ export interface PhoneOrderPayment {
 
 /** The body of POST /api/crm/orders, after parsing. */
 export interface PhoneOrder {
+  /** "phone" unless the CRM is relaying a marketplace order (CRM_ORDER_SOURCES). */
+  source: CrmOrderSource;
   /** Either id, as the CRM sent it; the route resolves it (lib/restaurant-ref.ts). */
   restaurant_ref: string;
   external_id: string;
@@ -163,7 +176,9 @@ export function parsePhoneOrder(body: unknown): PhoneOrderParse {
   }
   const b = body as Record<string, unknown>;
 
-  if (b.source !== "phone") return fail("invalid_source", "source must be 'phone'");
+  if (!CRM_ORDER_SOURCES.includes(b.source as CrmOrderSource)) return fail("invalid_source", "source must be 'phone' or 'ubereats'");
+  const source = b.source as CrmOrderSource;
+  const marketplace = MARKETPLACE_SOURCES.has(source);
 
   const ref = optStr(b.restaurant_id, 128) ?? optStr(b.crm_restaurant_id, 128);
   if (!ref) return fail("restaurant_required", "restaurant_id (either id) is required");
@@ -253,16 +268,29 @@ export function parsePhoneOrder(body: unknown): PhoneOrderParse {
   // not add up is refused here rather than stored as unreconciled: the CRM
   // computed these figures a moment ago and can fix them; a statement three
   // months from now cannot.
+  // A marketplace order is the exception: Uber computed these figures, not
+  // the CRM, and a fee line Uber adds must not keep a paid order out of the
+  // kitchen. It is stored, and ingest records the difference as
+  // money_variance for the office to see.
   const variance = Math.round((mm.total - (mm.subtotal + mm.tax + mm.delivery_fee + mm.service_fee + mm.tip + mm.surcharge - mm.discount)) * 100) / 100;
-  if (variance !== 0) {
+  if (variance !== 0 && !marketplace) {
     return fail("money_mismatch", `money.total ($${mm.total.toFixed(2)}) does not equal subtotal + tax + delivery_fee + service_fee + tip + surcharge - discount (off by $${variance.toFixed(2)})`);
   }
 
   const p = b.payment;
   if (!p || typeof p !== "object" || Array.isArray(p)) return fail("payment_required", "payment is required");
   const pa = p as Record<string, unknown>;
-  if (!PHONE_PAYMENT_TYPES.includes(pa.type as PhonePaymentType)) return fail("invalid_payment", "payment.type must be 'cash', 'card' or 'house'");
+  if (!PHONE_PAYMENT_TYPES.includes(pa.type as PhonePaymentType)) return fail("invalid_payment", "payment.type must be 'cash', 'card', 'house' or 'marketplace'");
   if (!PHONE_PAYMENT_STATUSES.includes(pa.status as PhonePaymentStatus)) return fail("invalid_payment", "payment.status must be 'paid' or 'due'");
+  // Marketplace and only marketplace, both ways: a phone order cannot be
+  // marked "paid on Uber", and an Uber order cannot ask the kitchen to collect.
+  if (marketplace !== (pa.type === "marketplace")) {
+    return fail("invalid_payment", marketplace ? `a ${source} order is paid with payment.type 'marketplace'` : "payment.type 'marketplace' is only for a marketplace source");
+  }
+  if (marketplace && pa.status !== "paid") return fail("invalid_payment", "a marketplace order is always payment.status 'paid'");
+  if (marketplace && (pa.cards != null || pa.cash_due != null || pa.last4 != null)) {
+    return fail("invalid_payment", "a marketplace order carries no card, last4 or cash_due");
+  }
   let last4: string | null = null;
   if (pa.last4 != null) {
     const s = String(pa.last4).trim();
@@ -320,6 +348,7 @@ export function parsePhoneOrder(body: unknown): PhoneOrderParse {
   return {
     ok: true,
     order: {
+      source,
       restaurant_ref: ref,
       external_id: externalId,
       order_number: orderNumber,
@@ -346,7 +375,7 @@ export function parsePhoneOrder(body: unknown): PhoneOrderParse {
  * everywhere. Every value matches TENDER_LINE_RE, which is how the ticket
  * renderer knows to print it as an instruction (asserted in the tests).
  */
-export function tenderLine(payment: PhoneOrderPayment, total: number): string {
+export function tenderLine(payment: PhoneOrderPayment, total: number, source: CrmOrderSource = "phone"): string {
   const due = `$${total.toFixed(2)}`;
   const cards = payment.cards ?? [];
   // Split payment: only the cash still owed is due, and the ticket says what the cards covered.
@@ -366,6 +395,9 @@ export function tenderLine(payment: PhoneOrderPayment, total: number): string {
       return payment.status === "paid" ? "PAID - CASH" : `CASH DUE ${due}`;
     case "house":
       return payment.status === "paid" ? "PAID - HOUSE ACCOUNT" : "HOUSE ACCOUNT - DO NOT COLLECT";
+    case "marketplace":
+      // Always paid (the parser refuses anything else): the customer paid the marketplace.
+      return `PAID - ${MARKETPLACE_LABEL[source] ?? "ONLINE"}`;
   }
 }
 
@@ -405,7 +437,7 @@ export function phoneOrderToCanonical(
   const zeroNull = (n: number) => (n === 0 ? null : n);
 
   return {
-    source: "phone",
+    source: order.source,
     externalId: order.external_id,
     restaurantId: restaurant.id,
     orderNumber: order.order_number,
@@ -425,7 +457,7 @@ export function phoneOrderToCanonical(
     discount: zeroNull(m.discount),
     surcharge: zeroNull(m.surcharge),
     customerTotal: m.total,
-    paymentType: tenderLine(order.payment, m.total),
+    paymentType: tenderLine(order.payment, m.total, order.source),
     notes: order.notes,
     rawPayload: {
       kind: "phone_order",

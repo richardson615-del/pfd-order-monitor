@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { findRestaurantByRef } from "@/lib/restaurant-ref";
 import { parseCrmReply } from "@/lib/messages";
+import { pushToRestaurantApps } from "@/lib/partner-app-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data: rows, error } = await admin
     .from("restaurant_messages")
-    .select("id, restaurant_id, kind, body, order_id, created_at, menu_changes, details")
+    .select("id, restaurant_id, kind, body, order_id, created_at, menu_changes, details, author")
     .eq("direction", "from_restaurant")
     .gte("created_at", windowStart.toISOString())
     .order("created_at", { ascending: true })
@@ -72,6 +73,8 @@ export async function GET(req: NextRequest) {
       // CRM parser's grammar by ref, changes[] }. Null for a typed menu_change.
       menu_changes: m.menu_changes ?? null,
       details: m.details ?? null,
+      // PA1: the owner's name when PFD Partner sent it; null from a tablet.
+      author: m.author ?? null,
       created_at: m.created_at,
       order: m.order_id ? byOrder.get(m.order_id as string) ?? null : null,
     };
@@ -114,5 +117,11 @@ export async function POST(req: NextRequest) {
     .select("id, restaurant_id, direction, kind, body, author, crm_ticket_no, created_at")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // PFD Partner (PA1): the owners' phones hear about the reply. Never fails the reply.
+  await pushToRestaurantApps(restaurant.id, {
+    title: parsed.author ? `Dispatch (${parsed.author})` : "Dispatch",
+    body: parsed.body,
+    data: { screen: "messages", messageId: message.id },
+  });
   return NextResponse.json({ message: { ...message, crm_restaurant_id: restaurant.crm_restaurant_id } }, { status: 201 });
 }

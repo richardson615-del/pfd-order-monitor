@@ -1457,6 +1457,10 @@ The app signs in as the restaurant's own login and then calls the tablet's
 - `POST /api/app/refresh { refresh_token }` -> `{ access_token, refresh_token, expires_at }`.
 - `GET /api/app/me` -> `{ restaurant: { id, name } }`.
 - `POST /api/app/push-token { token, platform?, owner_name? }`, `DELETE { token }`.
+- `GET /api/dashboard/orders` (PA3) -> `{ orders: [...], kitchen: { prep_minutes, timezone } }`: the
+  last 30 hours of the restaurant's orders, newest first (max 200), with the ready-timer fields
+  (`accepted_at, ready_minutes, ready_by, ready_at`). Session or Bearer, RLS as the restaurant; the app's
+  Orders tab. Writes stay on `PATCH /api/orders/:id`.
 - A session is `{ access_token, refresh_token, expires_at, restaurant: { id, name }, owner_name }`.
 
 For the CRM (`CRM_WRITE_KEY`):

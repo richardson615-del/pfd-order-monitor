@@ -1461,6 +1461,18 @@ The app signs in as the restaurant's own login and then calls the tablet's
   last 30 hours of the restaurant's orders, newest first (max 200), with the ready-timer fields
   (`accepted_at, ready_minutes, ready_by, ready_at`). Session or Bearer, RLS as the restaurant; the app's
   Orders tab. Writes stay on `PATCH /api/orders/:id`.
+- `GET /api/dashboard/sales?from=YYYY-MM-DD&to=YYYY-MM-DD` (PA6, 2026-10-27) -> `SalesReport`
+  (`lib/sales.ts`): totals in cents (`orders, food_cents, paid_cents, tax_cents, fees_cents, tip_cents,
+  discount_cents, average_cents, cancelled, to_check`), `days[]`, `channels[]`, `payments[]`,
+  `top_items[]`, `rows[]` (newest first; `day` is `YYYY-MM-DD`, first name only, `checks[]` such as
+  "No price on Ribs"), `truncated`. Restaurant's local days, inclusive, at most 366; either end
+  omitted = today. 400 `{ error }` for a bad range. Session or Bearer, RLS as the restaurant, paged
+  reads (a single read is capped at 1000 rows), at most 5000 orders.
+- `GET /api/dashboard/sales/:id` -> `{ receipt }`: items with `price_cents` and `unpriced`, the
+  money lines (zero lines omitted, discount negative), `paid_cents`, `payment`, `checks`.
+- `GET /api/dashboard/sales/export?from&to` -> `text/csv`, one line per order oldest first,
+  cancelled marked; 413 `{ error }` past 5000 orders. Never a phone or address.
+  The web dashboard's "Past week" tab is now "Sales" on the same routes.
 - A session is `{ access_token, refresh_token, expires_at, restaurant: { id, name }, owner_name }`.
 
 For the CRM (`CRM_WRITE_KEY`):

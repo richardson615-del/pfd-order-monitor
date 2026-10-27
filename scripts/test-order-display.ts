@@ -154,8 +154,8 @@ test("the dashboard's lists and counts all come from bucketOf", () => {
   // (lib/countdown.ts kitchenSort, I3); the hero reads the same list.
   assert.match(dash, /kitchenSort\(orders\.filter\(\(o\) => bucketOf\(o, now, timezone\) === "orders"\), prepMinutes, now\)/);
   assert.match(dash, /const hero = useMemo\(\(\) => heroSummary\(kitchen, prepMinutes, now, AGE_LATE_MS\)/);
-  // The tabs are the three Nick named.
-  for (const t of ["Orders", "Completed", "Past week"]) assert.ok(new RegExp(`\\n\\s+${t}\\b`).test(dash) || dash.includes(`>${t}`) || dash.includes(` ${t} `) || dash.includes(`label: "${t}"`), `tab ${t}`);
+  // The tabs Nick named; Past week became Sales (PA6, 2026-10-27: any period, not just seven days).
+  for (const t of ["Orders", "Completed", "Sales"]) assert.ok(new RegExp(`\\n\\s+${t}\\b`).test(dash) || dash.includes(`>${t}`) || dash.includes(` ${t} `) || dash.includes(`label: "${t}"`), `tab ${t}`);
 });
 
 console.log("\nthe NEW pill and the chime agree:");

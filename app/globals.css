@@ -1890,3 +1890,29 @@ table.admin-table th, table.admin-table td {
 .alert-gate-remote { margin-top: 18px; background: none; border: none; padding: 8px; color: var(--brand); font: inherit; font-size: var(--text-sm); font-weight: 600; text-decoration: underline; cursor: pointer; }
 .app-remote-note { margin: 8px 20px; padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim); font-size: var(--text-sm); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 @media (max-width: 640px) { .app-remote-note { margin: 8px 14px; padding: 8px 12px; font-size: 13px; } }
+
+/* Sales (PA6): period chips, the "needs a look" line, More detail, receipts. */
+.sales-tab .menu-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sales-periods { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 10px; scrollbar-width: none; }
+.sales-chip { flex-shrink: 0; min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text-dim); font-weight: 600; font-size: var(--text-sm); cursor: pointer; }
+.sales-chip.active { border-color: var(--text); color: var(--text); background: var(--panel-2); }
+.sales-check { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--status-warning) 45%, var(--border)); background: color-mix(in srgb, var(--status-warning) 10%, var(--card)); color: var(--status-warning-text); font-size: var(--text-sm); cursor: pointer; }
+.sales-check.active { background: color-mix(in srgb, var(--status-warning) 18%, var(--card)); }
+.sales-more { display: block; margin: 0 0 10px; padding: 6px 0; background: none; border: 0; color: var(--brand); font-weight: 600; font-size: var(--text-sm); cursor: pointer; }
+.sales-detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.sales-block { padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); display: grid; gap: 4px; }
+.sales-block h3 { margin: 0 0 4px; }
+.sales-line { display: flex; justify-content: space-between; gap: 12px; font-size: var(--text-sm); }
+.sales-line > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sales-bar-line { align-items: center; }
+.sales-day { width: 92px; flex-shrink: 0; }
+.sales-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--surface-sunken); overflow: hidden; }
+.sales-bar > span { display: block; height: 100%; background: var(--brand); border-radius: 999px; }
+.sales-row { width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.sales-row.cancelled .money-week-label, .sales-row.cancelled .money-amount { text-decoration: line-through; color: var(--text-dim); }
+.sales-flag { color: var(--status-warning-text); font-weight: 600; }
+.sales-receipt { margin: -2px 0 8px; padding: 12px 16px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 var(--radius) var(--radius); background: var(--surface-sunken); display: grid; gap: 4px; }
+.sales-item { display: grid; gap: 2px; }
+.sales-mod { padding-left: 14px; font-size: var(--text-xs); color: var(--text-dim); }
+.sales-sep { height: 1px; background: var(--border); margin: 6px 0; }
+.sales-total { font-weight: 700; font-size: var(--text-md); }

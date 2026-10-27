@@ -1436,6 +1436,31 @@ minute. It chimes once if the tablet's sound is armed, and shows "Dispatch
 replied" until the panel is opened. Opening the panel sets `read_at` on every
 reply.
 
+### PFD Partner, the owner's phone app (PA1, migration 054)
+
+The app signs in as the restaurant's own login and then calls the tablet's
+`/api/dashboard/*` routes with `Authorization: Bearer <supabase access token>`
+(`supabaseServer()` honours it; same user, same RLS). Its own routes, no CRM key:
+
+- `POST /api/app/code { phone }` -> `{ ok: true }`. Texts a 6-digit code when the phone is on
+  file for a restaurant; the same answer when it is not. 3 codes per phone per 10 minutes.
+- `POST /api/app/verify { phone, code, restaurant_id? }` -> session. `409 { choose: [{id, name}] }`
+  when the phone is on file for several restaurants.
+- `POST /api/app/login { username, password }` -> session (the tablet login).
+- `POST /api/app/refresh { refresh_token }` -> `{ access_token, refresh_token, expires_at }`.
+- `GET /api/app/me` -> `{ restaurant: { id, name } }`.
+- `POST /api/app/push-token { token, platform?, owner_name? }`, `DELETE { token }`.
+- A session is `{ access_token, refresh_token, expires_at, restaurant: { id, name }, owner_name }`.
+
+For the CRM (`CRM_WRITE_KEY`):
+
+- `GET /api/crm/restaurants/:id/owner-phones` -> `{ phones: [{ phone, name, created_at }] }`.
+- `PUT /api/crm/restaurants/:id/owner-phones { phones: [{ phone, name? }], actor? }` replaces the
+  list (US numbers, E.164 stored, at most 10).
+- `GET /api/crm/messages` rows now carry `author`: the owner's name when the app sent the
+  message, null from a tablet.
+- `POST /api/crm/messages` (a dispatcher reply) also pushes to the restaurant's signed-in phones.
+
 ## Standing rules
 
 - **Two ids, and `restaurant_id` in CRM calls is the CRM account id; the

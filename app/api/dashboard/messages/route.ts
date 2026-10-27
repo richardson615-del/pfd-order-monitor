@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, supabaseServer } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
 import { THREAD_LIMIT, overRateLimit, parseTabletMessage, unreadCount, RATE_WINDOW_MS } from "@/lib/messages";
+import { cleanOwnerName } from "@/lib/partner-app";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,8 @@ export async function POST(req: NextRequest) {
 
   const { data: message, error } = await admin
     .from("restaurant_messages")
-    .insert({ restaurant_id: s.restaurantId, direction: "from_restaurant", kind: parsed.kind, body: parsed.body, order_id: parsed.orderId })
+    // author: the owner's name when PFD Partner sends it (PA1); the tablet sends none.
+    .insert({ restaurant_id: s.restaurantId, direction: "from_restaurant", kind: parsed.kind, body: parsed.body, order_id: parsed.orderId, author: cleanOwnerName(input?.author) })
     .select("id, restaurant_id, direction, kind, body, order_id, author, crm_ticket_no, created_at, read_at")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

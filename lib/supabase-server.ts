@@ -1,10 +1,28 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { bearerToken } from "./partner-app";
 
 // Use in Server Components / Route Handlers - respects the logged-in user's session + RLS.
 // IMPORTANT: never import this file from a "use client" component.
 export function supabaseServer() {
+  // PFD Partner (PA1): the owner's phone app sends the restaurant login's
+  // access token as a Bearer header instead of cookies. Same user, same RLS;
+  // getUser() is pointed at that token so every route that asks "who is
+  // signed in" gets the same answer it would from the tablet's cookie.
+  const bearer = bearerFromRequest();
+  if (bearer) {
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        headers: { Authorization: `Bearer ${bearer}` },
+        fetch: (input: any, init?: any) => fetch(input, { ...init, cache: "no-store" }),
+      },
+    });
+    const getUser = client.auth.getUser.bind(client.auth);
+    (client.auth as any).getUser = (jwt?: string) => getUser(jwt ?? bearer);
+    return client as unknown as ReturnType<typeof createServerClient>;
+  }
   const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,4 +70,13 @@ export function supabaseAdmin() {
       },
     }
   );
+}
+
+/** The Bearer token on the current request, if any (outside a request: none). */
+function bearerFromRequest(): string | null {
+  try {
+    return bearerToken(headers().get("authorization"));
+  } catch {
+    return null;
+  }
 }

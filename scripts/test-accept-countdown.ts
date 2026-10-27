@@ -203,14 +203,14 @@ test("the card: NEW + Accept before, the countdown pill after; the ticket: Accep
   assert.match(card, /card-flag countdown \$\{cd\.phase\} num/);
   const viewer = src("components/OrderViewer.tsx");
   assert.match(viewer, /ticket-accept/);
-  assert.match(viewer, /\{busy \? "Accepting…" : "Accept"\}/);
+  assert.match(viewer, /\{busy \? "Accepting…" : `Accept · \$\{prepMinutes\} min`\}/);
   assert.match(viewer, /\{busy \? "Completing…" : "Complete"\}/);
   assert.match(viewer, /ticket-countdown num \$\{cd\.phase\}/);
   assert.doesNotMatch(viewer, /"Done"/);
   // Accept is the existing PATCH { accepted: true }, which never rewrites accepted_at.
   assert.match(src("app/api/orders/[id]/route.ts"), /\.is\("accepted_at", null\)/);
   const dash = src("components/OrderDashboard.tsx");
-  assert.match(dash, /body: JSON\.stringify\(\{ accepted: true \}\)/);
+  assert.match(dash, /minutes \? \{ accepted: true, minutes \} : \{ accepted: true \}/);
   assert.match(dash, /onAccept=\{accept\}/);
 });
 

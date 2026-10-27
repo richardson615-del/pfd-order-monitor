@@ -1115,6 +1115,36 @@ table.admin-table th, table.admin-table td {
 .card-flag.countdown.amber { background: color-mix(in oklch, var(--age-warn) 14%, transparent); color: var(--status-warning-text); }
 .card-flag.countdown.over { background: var(--age-late); color: var(--status-critical-foreground); }
 [data-display="kitchen"] .card-flag.countdown { font-size: 18px; padding: 4px 12px; }
+
+/* --- Ready timer (PA5, Matt 2026-10-26) --------------------------------- */
+/* Accept's quick picks: the restaurant's own target is outlined. READY is the
+   loud action on an accepted card; +5 / +10 sit beside it, small. */
+.card-minutes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.card-minutes-label { font-size: 15px; color: var(--muted-foreground); margin-right: 4px; }
+.card-minute { min-width: 52px; min-height: 44px; font-size: 18px; justify-content: center; }
+.card-minute.default { border-width: 2px; border-color: var(--st-done); font-weight: 700; }
+.card-ready-row { display: flex; gap: 8px; margin-top: 12px; align-items: stretch; }
+.card-ready {
+  display: flex;
+  flex: 1;
+  min-height: 56px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--st-done);
+  border-color: var(--st-done);
+  color: var(--status-online-foreground);
+  border-radius: var(--radius-md);
+  justify-content: center;
+}
+.card-late { min-width: 60px; min-height: 56px; font-size: 18px; justify-content: center; }
+[data-display="kitchen"] .card-ready { min-height: 60px; }
+.card-flag.ready { background: var(--st-done); color: var(--status-online-foreground); font-weight: 700; text-transform: uppercase; }
+[data-display="kitchen"] .card-flag.ready { font-size: 18px; padding: 4px 12px; }
+.ticket-ready-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.ticket-ready-row .ticket-late-label { font-size: 16px; }
+.ticket-minutes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 /* An over countdown carries age-late (OrderCard maps the phase to the
    tone), so it breathes through the same rule as a late unaccepted order. */
 .app-hero .hero-count.amber { color: var(--status-warning-text); }

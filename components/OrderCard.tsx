@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Order } from "@/lib/types";
 import { ageClass, elapsedLabel, itemsLine, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted } from "@/lib/countdown";
+import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 
 /**
  * One order in the kitchen list.
@@ -24,6 +25,11 @@ import { countdown, isUnaccepted } from "@/lib/countdown";
  * counting up past zero. The timer on the right always counts up from
  * arrival; the countdown is the promise, the timer is the truth.
  *
+ * PA5 (Matt 2026-10-26): Accept says how long - the quick picks (the
+ * restaurant's target highlighted, and the big Accept button uses it); an
+ * accepted order gets a big READY button, separate from COMPLETE on the
+ * ticket, and "Running late" +5 / +10. Ready shows READY in the pill.
+ *
  * `now` is passed in rather than read here so every card on the screen agrees
  * about the time, and so the timers move when the dashboard ticks instead of
  * only when the data changes.
@@ -33,15 +39,25 @@ export default function OrderCard({
   now,
   prepMinutes,
   onAccept,
+  onReady,
+  onRetime,
 }: {
   order: Order;
   now: number;
   prepMinutes: number;
-  onAccept?: (order: Order) => void;
+  onAccept?: (order: Order, minutes?: number) => void;
+  onReady?: (order: Order) => void;
+  onRetime?: (order: Order, minutes: number) => void;
 }) {
   const flag = orderFlag(order);
   const cd = countdown(order, prepMinutes, now);
   const waiting = isUnaccepted(order);
+  const ready = isReady(order);
+  const cooking = !waiting && !ready && cd !== null;
+  const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
   // An accepted order's rail follows its countdown, not its age: it has been
   // taken, and what matters now is the promise.
   const tone = cd ? `age-${cd.phase === "calm" ? "calm" : cd.phase === "amber" ? "warn" : "late"}` : ageClass(order, now);
@@ -57,7 +73,9 @@ export default function OrderCard({
           <span className="card-type">
             {order.order_type === "delivery" ? "Delivery" : "Pickup"}
           </span>
-          {cd ? (
+          {ready && order.status !== "completed" && order.status !== "cancelled" ? (
+            <span className="card-flag ready">Ready</span>
+          ) : cd ? (
             <span className={`card-flag countdown ${cd.phase} num`} aria-label={cd.phase === "over" ? `${cd.label}` : `${cd.label} left`}>
               {cd.label}
             </span>
@@ -83,17 +101,67 @@ export default function OrderCard({
       </Link>
 
       {waiting && onAccept && (
-        <button
-          type="button"
-          className="btn card-accept"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onAccept(order);
-          }}
-        >
-          Accept
-        </button>
+        <>
+          <button
+            type="button"
+            className="btn card-accept"
+            onClick={(e) => {
+              stop(e);
+              onAccept(order);
+            }}
+          >
+            Accept · {prepMinutes} min
+          </button>
+          <div className="card-minutes" role="group" aria-label="Ready in how many minutes">
+            <span className="card-minutes-label">Ready in</span>
+            {readyChoices(prepMinutes).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`btn small card-minute num${m === prepMinutes ? " default" : ""}`}
+                onClick={(e) => {
+                  stop(e);
+                  onAccept(order, m);
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {cooking && onReady && (
+        <div className="card-ready-row">
+          <button
+            type="button"
+            className="btn card-ready"
+            onClick={(e) => {
+              stop(e);
+              onReady(order);
+            }}
+          >
+            Ready
+          </button>
+          {onRetime &&
+            RUNNING_LATE_STEPS.map((add) => {
+              const minutes = runningLateMinutes(order, add, prepMinutes, now);
+              return minutes === null ? null : (
+                <button
+                  key={add}
+                  type="button"
+                  className="btn small card-late num"
+                  aria-label={`Running late, add ${add} minutes`}
+                  onClick={(e) => {
+                    stop(e);
+                    onRetime(order, minutes);
+                  }}
+                >
+                  +{add}
+                </button>
+              );
+            })}
+        </div>
       )}
     </div>
   );

@@ -13,6 +13,10 @@ import { isSettled } from "./order-display";
  * never auto-completes - an order left on the board is a problem to see,
  * not to hide. COMPLETE (was Done) ends it and records the real minutes.
  *
+ * PA5 (migration 055): when the kitchen chose the minutes at Accept the
+ * order carries ready_by, and the countdown runs to that instead; READY
+ * (ready_at) ends the countdown - the food is on the pass.
+ *
  * Computed from accepted_at + prep_minutes and the clock, never from timer
  * state, so it survives reloads and idle-time refreshes and two screens at
  * one restaurant agree to the second. Pure, like lib/kiosk.ts, for the
@@ -44,9 +48,12 @@ export interface Countdown {
   phase: CountdownPhase;
   /** "24:59", "04:59", or "+3:12 over". */
   label: string;
-  /** accepted_at + prep, as a timestamp. */
+  /** ready_by when set, else accepted_at + prep, as a timestamp. */
   dueAt: number;
 }
+
+/** The order fields the countdown reads. ready_by / ready_at are optional: rows from before 055 do not carry them. */
+export type CountdownOrder = Pick<Order, "status" | "accepted_at"> & { ready_by?: string | null; ready_at?: string | null };
 
 const mmss = (ms: number): string => {
   const total = Math.floor(ms / 1000);
@@ -56,19 +63,17 @@ const mmss = (ms: number): string => {
 };
 
 /**
- * The countdown for an accepted, unsettled order, or null when there is
- * none to show (not accepted yet, completed, cancelled, or an accepted_at
- * that cannot be read).
+ * The countdown for an accepted, unsettled, not-yet-ready order, or null
+ * when there is none to show (not accepted yet, ready, completed,
+ * cancelled, or an accepted_at that cannot be read). Runs to ready_by when
+ * the kitchen chose the minutes (PA5), else to accepted_at + prep target.
  */
-export function countdown(
-  order: Pick<Order, "status" | "accepted_at">,
-  prepMinutes: number,
-  now: number
-): Countdown | null {
-  if (isSettled(order) || !order.accepted_at) return null;
+export function countdown(order: CountdownOrder, prepMinutes: number, now: number): Countdown | null {
+  if (isSettled(order) || !order.accepted_at || order.ready_at) return null;
   const accepted = Date.parse(order.accepted_at);
   if (Number.isNaN(accepted)) return null;
-  const dueAt = accepted + prepMinutesOf(prepMinutes) * 60_000;
+  const readyBy = Date.parse(order.ready_by ?? "");
+  const dueAt = Number.isNaN(readyBy) ? accepted + prepMinutesOf(prepMinutes) * 60_000 : readyBy;
   const remainingMs = dueAt - now;
   // Zero itself is over: "red at 0:00" (Nick), and the single chime fires then.
   if (remainingMs <= 0) {
@@ -88,7 +93,7 @@ export const isUnaccepted = (order: Pick<Order, "status" | "accepted_at">): bool
  * has waited longest is the one to take next); then accepted, least time
  * remaining first (the one due soonest - or most over - is on top).
  */
-export function kitchenSort<T extends Pick<Order, "status" | "accepted_at" | "received_at">>(
+export function kitchenSort<T extends CountdownOrder & Pick<Order, "received_at">>(
   orders: T[],
   prepMinutes: number,
   now: number
@@ -116,7 +121,7 @@ export interface HeroSummary {
 }
 
 /** What the hero line says. Counts unaccepted first, then the soonest countdown. */
-export function heroSummary<T extends Pick<Order, "status" | "accepted_at" | "received_at">>(
+export function heroSummary<T extends CountdownOrder & Pick<Order, "received_at">>(
   kitchen: T[],
   prepMinutes: number,
   now: number,
@@ -157,7 +162,7 @@ export function prepTimeLabel(acceptedAt: string | null | undefined, completedAt
  * chimed for (or saw already over when it loaded, so a reload does not
  * re-announce an order that went over an hour ago); it is updated here.
  */
-export function newlyOver<T extends Pick<Order, "id" | "status" | "accepted_at">>(
+export function newlyOver<T extends CountdownOrder & Pick<Order, "id">>(
   orders: T[],
   prepMinutes: number,
   now: number,

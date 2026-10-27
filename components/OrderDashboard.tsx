@@ -232,17 +232,18 @@ export default function OrderDashboard({
   const hasNewOrders = waiting.length > 0;
 
   /**
-   * Accept, from a card. One PATCH; the row the server hands back replaces
-   * ours, so the countdown starts from the server's accepted_at and two
-   * screens at one restaurant agree to the second. A second tap is a no-op
-   * on the server (accepted_at is never rewritten) and harmless here.
+   * Accept, Ready and Running late, from a card. One PATCH each; the row the
+   * server hands back replaces ours, so the countdown runs from the
+   * server's ready_by and two screens at one restaurant agree to the
+   * second. A second Accept or Ready is a no-op on the server (accepted_at
+   * and ready_at are never rewritten) and harmless here.
    */
-  const accept = useCallback(async (order: Order) => {
+  const patchOrder = useCallback(async (order: Order, body: Record<string, unknown>) => {
     try {
       const res = await fetch(`/api/orders/${order.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accepted: true }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.order) {
@@ -250,9 +251,13 @@ export default function OrderDashboard({
         setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
       }
     } catch {
-      // The card keeps ringing; the next tap or the next poll settles it.
+      // The card keeps ringing (or counting); the next tap or the next poll settles it.
     }
   }, []);
+  // PA5: Accept carries the minutes the kitchen picked (the prep target when none).
+  const accept = useCallback((order: Order, minutes?: number) => patchOrder(order, minutes ? { accepted: true, minutes } : { accepted: true }), [patchOrder]);
+  const markReady = useCallback((order: Order) => patchOrder(order, { ready: true }), [patchOrder]);
+  const retime = useCallback((order: Order, minutes: number) => patchOrder(order, { minutes }), [patchOrder]);
 
   /**
    * One short chime the moment a countdown crosses zero - once per order,
@@ -849,7 +854,7 @@ export default function OrderDashboard({
               <div className="app-empty">Nothing in the kitchen. New orders show here and ring until they&apos;re accepted.</div>
             )}
             {kitchen.map((order) => (
-              <OrderCard key={order.id} order={order} now={now} prepMinutes={prepMinutes} onAccept={accept} />
+              <OrderCard key={order.id} order={order} now={now} prepMinutes={prepMinutes} onAccept={accept} onReady={markReady} onRetime={retime} />
             ))}
           </div>
         </>

@@ -175,6 +175,10 @@ export interface OrderRowInput {
   received_at: string;
   opened_at: string | null;
   accepted_at: string | null;
+  /** PA5 (055). Optional: absent on a row read before the migration ran. */
+  ready_minutes?: number | null;
+  ready_by?: string | null;
+  ready_at?: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   printed_at: string | null;
@@ -210,6 +214,12 @@ export interface OrderListRow {
   received_at: string;
   opened_at: string | null;
   accepted_at: string | null;
+  /** PA5: the minutes the kitchen chose at Accept; null when accepted before 055 or not yet. */
+  ready_minutes: number | null;
+  /** PA5: when the kitchen said it would be ready (moved by "Running late"); null = not set - fall back to accepted_at + prep_minutes. */
+  ready_by: string | null;
+  /** PA5: when the kitchen tapped READY; null = not yet. */
+  ready_at: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   printed_at: string | null;
@@ -255,6 +265,9 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
     received_at: o.received_at,
     opened_at: o.opened_at ?? null,
     accepted_at: o.accepted_at ?? null,
+    ready_minutes: o.ready_minutes ?? null,
+    ready_by: o.ready_by ?? null,
+    ready_at: o.ready_at ?? null,
     completed_at: o.completed_at ?? null,
     cancelled_at: o.cancelled_at ?? null,
     printed_at: o.printed_at ?? null,
@@ -348,7 +361,7 @@ export function changedSince<T extends { updated_at: string | null }>(rows: T[],
 
 export interface TimelineEntry {
   at: string;
-  event: "received" | "printed" | "opened" | "accepted" | "completed" | "cancelled" | "print_attempt";
+  event: "received" | "printed" | "opened" | "accepted" | "ready" | "completed" | "cancelled" | "print_attempt";
   detail: string | null;
 }
 
@@ -368,6 +381,7 @@ export function orderTimeline(o: OrderRowInput, jobs: PrintJobRow[]): TimelineEn
   }
   if (o.opened_at) out.push({ at: o.opened_at, event: "opened", detail: null });
   if (o.accepted_at) out.push({ at: o.accepted_at, event: "accepted", detail: null });
+  if (o.ready_at) out.push({ at: o.ready_at, event: "ready", detail: null });
   if (o.completed_at) out.push({ at: o.completed_at, event: "completed", detail: null });
   if (o.cancelled_at) out.push({ at: o.cancelled_at, event: "cancelled", detail: null });
   return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));

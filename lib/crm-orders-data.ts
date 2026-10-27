@@ -3,7 +3,7 @@ import type { PrintJobRow, RestaurantRef } from "./crm-orders";
 
 /** The columns a list row is built from. The full phone is read and reduced to its last four; raw_html is never read. */
 export const ORDER_LIST_SELECT =
-  "id, order_number, source, status, restaurant_id, received_at, opened_at, accepted_at, completed_at, cancelled_at, printed_at, updated_at, due_time, order_type, payment_type, channel_id, customer_name, customer_phone, items, customer_total";
+  "id, order_number, source, status, restaurant_id, received_at, opened_at, accepted_at, ready_minutes, ready_by, ready_at, completed_at, cancelled_at, printed_at, updated_at, due_time, order_type, payment_type, channel_id, customer_name, customer_phone, items, customer_total";
 
 /**
  * The detail adds the address, the notes, the money and the source ids.

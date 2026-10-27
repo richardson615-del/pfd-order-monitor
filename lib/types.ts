@@ -58,6 +58,12 @@ export interface Order {
    * accepting is somebody agreeing to make the food.
    */
   accepted_at: string | null;
+  /** PA5 (055): the minutes the kitchen chose at Accept (1-180); null on older orders. */
+  ready_minutes?: number | null;
+  /** PA5: when the kitchen said the food would be ready - accepted_at + ready_minutes, moved by "Running late". */
+  ready_by?: string | null;
+  /** PA5: when somebody tapped READY. Set once. Not completed: the food is on the pass, waiting to go. */
+  ready_at?: string | null;
   opened_at: string | null;
   completed_at: string | null;
   printed_at: string | null;

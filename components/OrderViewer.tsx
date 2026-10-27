@@ -6,6 +6,7 @@ import { Order } from "@/lib/types";
 import TicketBody from "./TicketBody";
 import { ageClass, elapsedLabel, isSettled, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted, prepTimeLabel } from "@/lib/countdown";
+import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 import { timeLabel } from "@/lib/local-day";
 import { useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 import { useTicking } from "@/lib/use-ticking";
@@ -18,6 +19,11 @@ import { useTicking } from "@/lib/use-ticking";
  * prep target; then COMPLETE, any time after, which marks it completed
  * and goes back to the kitchen list. Opening this page stamps opened_at
  * for the office's records and changes nothing the kitchen hears.
+ *
+ * PA5 (Matt 2026-10-26): Accept says how long (quick picks, the
+ * restaurant's target by default); then READY - the food is on the pass,
+ * the driver sees it - separate from COMPLETE; "Running late" +5 / +10
+ * moves the ready time.
  *
  * Print again sends it to the restaurant's own printer, and only there.
  * A completed or cancelled ticket is read-only: Print again still works,
@@ -53,26 +59,29 @@ export default function OrderViewer({
    * countdown runs from the server's accepted_at. Stays on the ticket -
    * the cook is reading it.
    */
-  async function accept() {
+  async function patch(body: Record<string, unknown>, failed: string) {
     setBusy(true);
     try {
       const res = await fetch(`/api/orders/${order.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accepted: true }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setPrintNote(data.error ?? "Could not accept that. Try again.");
+        setPrintNote(data.error ?? failed);
         return;
       }
       if (data.order) setOrder(data.order);
     } catch {
-      setPrintNote("Could not reach the server. The order is still waiting.");
+      setPrintNote("Could not reach the server. Nothing changed - try again.");
     } finally {
       setBusy(false);
     }
   }
+  const accept = (minutes?: number) => patch(minutes ? { accepted: true, minutes } : { accepted: true }, "Could not accept that. Try again.");
+  const markReady = () => patch({ ready: true }, "Could not mark that ready. Try again.");
+  const retime = (minutes: number) => patch({ minutes }, "Could not change the ready time. Try again.");
 
   /**
    * Complete. Marks it completed, then goes back to the list - a full
@@ -153,6 +162,8 @@ export default function OrderViewer({
   const age = cd ? (cd.phase === "calm" ? "age-calm" : cd.phase === "amber" ? "age-warn" : "age-late") : ageClass(order, now);
   const kind = order.order_type === "delivery" ? "Delivery" : "Pickup";
   const prepTaken = prepTimeLabel(order.accepted_at, order.completed_at);
+  const ready = isReady(order);
+  const cooking = !waiting && !ready && !settled && cd !== null;
 
   return (
     <div className={`app ticket-page ${age}${cd ? ` counting ${cd.phase}` : ""}`} data-display="kitchen">
@@ -228,6 +239,39 @@ export default function OrderViewer({
         </p>
       )}
 
+      {/* PA5: how long (on Accept), then READY and Running late. */}
+      {!settled && waiting && (
+        <div className="ticket-minutes no-print" role="group" aria-label="Ready in how many minutes">
+          <span className="card-minutes-label">Ready in</span>
+          {readyChoices(prepMinutes).map((m) => (
+            <button key={m} type="button" className={`btn small card-minute num${m === prepMinutes ? " default" : ""}`} disabled={busy} onClick={() => accept(m)}>
+              {m} min
+            </button>
+          ))}
+        </div>
+      )}
+      {cooking && (
+        <div className="ticket-ready-row no-print">
+          <button type="button" className="btn card-ready" disabled={busy} onClick={markReady}>
+            {busy ? "Saving…" : "Ready"}
+          </button>
+          <span className="ticket-late-label">Running late</span>
+          {RUNNING_LATE_STEPS.map((add) => {
+            const minutes = runningLateMinutes(order, add, prepMinutes, now);
+            return minutes === null ? null : (
+              <button key={add} type="button" className="btn small card-late num" disabled={busy} onClick={() => retime(minutes)}>
+                +{add} min
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {ready && !settled && order.ready_at && (
+        <p className="no-print ticket-ready-note" role="status">
+          <span className="card-flag ready">Ready</span> since <span className="num">{timeLabel(order.ready_at, timezone)}</span> - waiting for pickup
+        </p>
+      )}
+
       <div className="ticket-actions no-print">
         {/* Prints the ticket, on the restaurant's printer. It does not set
             status: 'printed' is written by the print pipeline to mean a real
@@ -246,8 +290,8 @@ export default function OrderViewer({
               : `Completed ${timeLabel(order.completed_at ?? order.received_at, timezone)}${prepTaken ? ` (${prepTaken})` : ""}`}
           </span>
         ) : waiting ? (
-          <button className="btn ticket-done ticket-accept" disabled={busy} onClick={accept}>
-            {busy ? "Accepting…" : "Accept"}
+          <button className="btn ticket-done ticket-accept" disabled={busy} onClick={() => accept()}>
+            {busy ? "Accepting…" : `Accept · ${prepMinutes} min`}
           </button>
         ) : (
           <button className="btn ticket-done" disabled={busy} onClick={markDone}>

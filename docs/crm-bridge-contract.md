@@ -603,6 +603,9 @@ Limit 2000 rows (`truncated: true` beyond).
       "received_at": "2026-09-18T23:26:00.000Z",
       "opened_at": null,
       "accepted_at": null,
+      "ready_minutes": null,
+      "ready_by": null,
+      "ready_at": null,
       "completed_at": null,
       "cancelled_at": null,
       "printed_at": null,
@@ -642,7 +645,8 @@ Limit 2000 rows (`truncated: true` beyond).
 
 - `customer.phone_last4` — the list never carries the full number.
 - `items_line` — the first three items, as the tablet card shows them; `item_count` the total.
-- `prep_minutes` — the restaurant's target; `accepted_at + prep_minutes` is the countdown the tablet shows.
+- `prep_minutes` — the restaurant's target; `accepted_at + prep_minutes` is the countdown the tablet shows when the order has no `ready_by`.
+- `ready_minutes`, `ready_by`, `ready_at` (PA5, migration 055) — the order ready timer. `ready_minutes` is what the kitchen picked on **Accept** (1–180; the prep target when it picked nothing); `ready_by` is `accepted_at + ready_minutes`, moved on by **Running late**; `ready_at` is when somebody tapped **READY** (set once, never rewritten; distinct from `completed_at`). All three `null` on orders accepted before 055 or not yet — then the clock is `accepted_at + prep_minutes`. Once `ready_at` is set there is no countdown and `flags.overtime` is false. `updated_at` moves on each change, so `since` polling picks them up.
 - `destinations` — `orderDestinations()`, same as the roster.
 - `print.state` — `printed` \| `queued` \| `held` (printer waiting for paper/cover) \| `stuck` (pending past ten minutes) \| `failed` \| `expired` (too old to print, never printed) \| `none`; `failed_reason` is the printer's sentence (E2). Paper jobs only — the tablet push is `app_delivery` on the detail.
 - `email` (ET5) — the email leg's own `print_jobs` row (`delivery = 'email'`), `null` when there is none: `{ state, job_id, sent_at, error }`. `state` is `sent` only when the job has `sent_at`; `failed` when it has `send_error` (or status `failed`); `pending` when it was owed and never confirmed. An email restaurant's order with `email: null` was never emailed - do not call it EMAILED from `destinations`, which is the restaurant's *current* config, not what happened to this order.
@@ -651,7 +655,7 @@ Limit 2000 rows (`truncated: true` beyond).
 **The detail** adds the full customer, the items with modifiers and prices
 as printed, `notes`, `money` (dollars; `variance` ≠ 0 means the components
 do not explain the total), `external_id` / `zuppler_order_uuid`, the
-`timeline` (received → print attempts → opened → accepted → completed /
+`timeline` (received → print attempts → opened → accepted → ready → completed /
 cancelled, each print attempt named by device and outcome), `print_jobs`
 (paper only) and `app_delivery` (`null` when no push row exists):
 
@@ -671,6 +675,9 @@ cancelled, each print attempt named by device and outcome), `print_jobs`
     "received_at": "2026-09-18T23:26:00.000Z",
     "opened_at": "2026-09-18T23:26:30.000Z",
     "accepted_at": "2026-09-18T23:27:00.000Z",
+    "ready_minutes": 20,
+    "ready_by": "2026-09-18T23:47:00.000Z",
+    "ready_at": null,
     "completed_at": null,
     "cancelled_at": null,
     "printed_at": "2026-09-18T23:26:12.000Z",
@@ -1460,6 +1467,25 @@ For the CRM (`CRM_WRITE_KEY`):
 - `GET /api/crm/messages` rows now carry `author`: the owner's name when the app sent the
   message, null from a tablet.
 - `POST /api/crm/messages` (a dispatcher reply) also pushes to the restaurant's signed-in phones.
+
+### The order ready timer (PA5, migration 055)
+
+Matt, 2026-10-26: the restaurant sets when the order will be ready, taps READY
+when it is, and the driver sees the same clock. The tablet and the PFD Partner
+app (Bearer) use one route, `PATCH /api/orders/:id` (restaurant session + RLS),
+one action per call:
+
+| Body | Does |
+|---|---|
+| `{ accepted: true, minutes? }` | Accept. Stamps `accepted_at` once (a second call hands back the row) and sets `ready_minutes` / `ready_by = accepted_at + minutes`. `minutes` 1–180, default the restaurant's `prep_minutes`. |
+| `{ ready: true }` | READY. Stamps `ready_at` once (also `accepted_at` if nobody accepted). `409 order_completed` / `order_cancelled`. |
+| `{ minutes }` | Re-time an accepted, not-ready order: `ready_minutes = minutes`, `ready_by = accepted_at + minutes`. `409 not_accepted` / `already_ready` / `order_completed` / `order_cancelled`. |
+| `{ status }` | unchanged (`new`, `opened`, `completed`, `printed`). |
+
+`400 invalid_minutes` for minutes outside 1–180 or not whole, `400 invalid_body`
+for `ready` with `minutes`. Every success returns `{ order }` (the full row). The
+CRM reads the result from `GET /api/crm/orders` (`ready_minutes`, `ready_by`,
+`ready_at`, above); nothing is pushed to it.
 
 ## Standing rules
 

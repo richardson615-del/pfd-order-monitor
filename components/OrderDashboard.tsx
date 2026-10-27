@@ -5,7 +5,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
 import CompletedRow from "./CompletedRow";
-import PastWeek from "./PastWeek";
+import SalesTab from "./SalesTab";
 import Scoreboard from "./Scoreboard";
 import MenuEditor from "./MenuEditor";
 import MoneyTab from "./MoneyTab";
@@ -713,7 +713,7 @@ export default function OrderDashboard({
   const navTabs: NavTab[] = [
     { key: "orders", label: "Orders", short: "Orders", count: kitchen.length },
     { key: "completed", label: "Completed", short: "Done", count: completedCounted.length },
-    { key: "past", label: "Past week", short: "Week" },
+    { key: "past", label: "Sales", short: "Sales" },
     { key: "stats", label: "Stats", short: "Stats" },
     { key: "menu", label: "Menu", short: "Menu" },
     { key: "money", label: "Money", short: "Money" },
@@ -879,7 +879,7 @@ export default function OrderDashboard({
         </>
       )}
 
-      {tab === "past" && <PastWeek timezone={timezone} />}
+      {tab === "past" && <SalesTab timezone={timezone} />}
 
       {tab === "stats" && <Scoreboard />}
 

@@ -8,6 +8,7 @@
  * never from the request body, and that a code request answers the same
  * whether or not the phone is on file.
  */
+import { partnerAppFor } from "@/lib/crm-roster";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
@@ -113,6 +114,15 @@ test("the server client honours a Bearer token and the push never fails a reply"
   const reply = src("app/api/crm/messages/route.ts");
   assert.match(reply, /pushToRestaurantApps\(/);
   assert.match(src("lib/partner-push.ts"), /Never throws: a push failing must never fail the order or the reply/);
+});
+
+test("the roster counts owner cells and ringing phones per restaurant, never numbers", () => {
+  const ctx = { ownerPhoneCount: new Map([["r1", 2]]), appPhones: new Map([["r1", { ios: 1, android: 2, other: 0 }]]) };
+  assert.deepEqual(partnerAppFor("r1", ctx), { owner_phones: 2, phones: 3, ios: 1, android: 2 });
+  assert.deepEqual(partnerAppFor("r2", ctx), { owner_phones: 0, phones: 0, ios: 0, android: 0 });
+  const roster = src("lib/crm-roster.ts");
+  assert.match(roster, /from\("app_owner_phones"\)\.select\("restaurant_id"\)/);
+  assert.match(roster, /partner_app: partnerAppFor\(r\.id, ctx\)/);
 });
 
 console.log(`${passed} passed`);

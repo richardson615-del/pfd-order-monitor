@@ -170,6 +170,7 @@ Writable on `POST /api/crm/restaurants/:id`:
 | `tablet` | the tablet's state from its own heartbeat — see below |
 | `has_active_printer` | whether an active print device exists — a fact, not an intention |
 | `destinations` | `["printer"]`, `["app"]`, `["printer","app"]`, `["email","app"]`, or `[]` |
+| `partner_app` | PFD Partner phone app (2026-10-28): `{ owner_phones, phones, ios, android }`. `owner_phones` = cells on file that may sign in (app_owner_phones); `phones` = phones signed in with alerts on (app_push_tokens), which every new order rings. Counts only, never numbers |
 
 ### The tablet object
 

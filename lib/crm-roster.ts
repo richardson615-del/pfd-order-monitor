@@ -25,6 +25,9 @@ export interface RosterContext {
   heartbeatByRestaurant: Map<string, HeartbeatRow>;
   pushCount: Map<string, number>;
   kioskByRestaurant: Map<string, KioskDeviceRow[]>;
+  /** PFD Partner (054): owner cells on file, and phones signed in that can ring, per restaurant. */
+  ownerPhoneCount: Map<string, number>;
+  appPhones: Map<string, { ios: number; android: number; other: number }>;
 }
 
 /**
@@ -39,7 +42,7 @@ export async function loadRosterContext(restaurantIds?: string[]): Promise<Roste
   const only = restaurantIds ? new Set(restaurantIds) : null;
   const keep = (id: string) => !only || only.has(id);
 
-  const [{ data: deviceRows }, { data: idRows }, { data: heartbeatRows }, { data: pushRows }, { data: kioskRows }] =
+  const [{ data: deviceRows }, { data: idRows }, { data: heartbeatRows }, { data: pushRows }, { data: kioskRows }, { data: ownerRows }, { data: appTokenRows }] =
     await Promise.all([
       // Who actually has a working printer - asked of print_devices rather
       // than of printer_expected; see orderDestinations() for why that flag
@@ -62,6 +65,10 @@ export async function loadRosterContext(restaurantIds?: string[]): Promise<Roste
         .from("kiosk_devices")
         .select("device_ref, restaurant_id, model, last_seen_at, bound_at")
         .not("restaurant_id", "is", null),
+      // PFD Partner (2026-10-28, cutover readiness): who can sign in to the
+      // phone app, and which phones are signed in and can be rung.
+      admin.from("app_owner_phones").select("restaurant_id"),
+      admin.from("app_push_tokens").select("restaurant_id, platform"),
     ]);
 
   const withPrinter = new Set<string>();
@@ -92,7 +99,27 @@ export async function loadRosterContext(restaurantIds?: string[]): Promise<Roste
     kioskByRestaurant.set(k.restaurant_id, list);
   }
 
-  return { now: Date.now(), withPrinter, idsByRestaurant, heartbeatByRestaurant, pushCount, kioskByRestaurant };
+  const ownerPhoneCount = new Map<string, number>();
+  for (const o of (ownerRows ?? []) as any[]) {
+    if (keep(o.restaurant_id)) ownerPhoneCount.set(o.restaurant_id, (ownerPhoneCount.get(o.restaurant_id) ?? 0) + 1);
+  }
+  const appPhones = new Map<string, { ios: number; android: number; other: number }>();
+  for (const t of (appTokenRows ?? []) as any[]) {
+    if (!keep(t.restaurant_id)) continue;
+    const c = appPhones.get(t.restaurant_id) ?? { ios: 0, android: 0, other: 0 };
+    if (t.platform === "ios") c.ios++;
+    else if (t.platform === "android") c.android++;
+    else c.other++;
+    appPhones.set(t.restaurant_id, c);
+  }
+
+  return { now: Date.now(), withPrinter, idsByRestaurant, heartbeatByRestaurant, pushCount, kioskByRestaurant, ownerPhoneCount, appPhones };
+}
+
+/** The PFD Partner phone app's reach for one restaurant. */
+export function partnerAppFor(id: string, ctx: Pick<RosterContext, "ownerPhoneCount" | "appPhones">): { owner_phones: number; phones: number; ios: number; android: number } {
+  const c = ctx.appPhones.get(id) ?? { ios: 0, android: 0, other: 0 };
+  return { owner_phones: ctx.ownerPhoneCount.get(id) ?? 0, phones: c.ios + c.android + c.other, ios: c.ios, android: c.android };
 }
 
 /** The tablet object alone, for callers (the issues feed) that do not need the whole row. */
@@ -142,6 +169,10 @@ export function shapeRestaurantRow(r: any, ctx: RosterContext) {
     // Computed here so the console never has to re-derive it from three
     // columns and get a different answer than the ingest does. An empty
     // list means orders arrive and nobody there is told.
+    // PFD Partner (2026-10-28): owner_phones = cells on file that may sign in;
+    // phones = phones signed in with alerts on, which every new order now rings
+    // (lib/canonical deliverToApp). Counts, never numbers.
+    partner_app: partnerAppFor(r.id, ctx),
     destinations: orderDestinations({
       print_method: r.print_method,
       app_expected: r.app_expected,

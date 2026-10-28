@@ -2,16 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DAY_KEYS, DAY_LABELS, MAX_RANGES_PER_DAY, PAUSE_CHOICES, clockLabel, dayLine, emptyWeek, time12, type PauseChoice, type WeeklyHours } from "@/lib/store";
+import { COOK_TIME_CHOICES, type KitchenAlert } from "@/lib/kitchen-alerts";
 
 /**
  * Store: the restaurant runs its own store from the app (migration 052;
- * prs-crm brief 2026-10-24 §2, A3). Two things:
+ * prs-crm brief 2026-10-24 §2, A3). Four things:
  *
  *   - Pause online orders for a while, and turn them back on. Takes effect
  *     in the CRM within a minute; dispatch is told so every ordering site
  *     is paused too.
  *   - Change the weekly hours. Sent to Premium, who apply them; the tab
  *     shows "Sent to Premium" until the new hours come back.
+ *   - KT1 (Ticket #779): the default cook time Accept pre-selects.
+ *   - KT1: this restaurant's printer and tablet alerts, in plain words
+ *     (lib/kitchen-alerts.ts). The dashboard polls them and passes them in.
  */
 
 type StoreState = {
@@ -20,6 +24,7 @@ type StoreState = {
   hours: WeeklyHours | null;
   hours_lines: string[];
   pending_hours: { sent_at: string; hours: WeeklyHours | null } | null;
+  prep_minutes: number;
 };
 
 const TIMES: string[] = (() => {
@@ -28,7 +33,16 @@ const TIMES: string[] = (() => {
   return out;
 })();
 
-export default function StoreTab({ onPauseChange }: { onPauseChange?: (pause: StoreState["pause"]) => void }) {
+export default function StoreTab({
+  onPauseChange,
+  onCookTimeChange,
+  alerts,
+}: {
+  onPauseChange?: (pause: StoreState["pause"]) => void;
+  onCookTimeChange?: (minutes: number) => void;
+  /** null = not checked yet / could not be read. */
+  alerts?: KitchenAlert[] | null;
+}) {
   const [s, setS] = useState<StoreState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -44,11 +58,12 @@ export default function StoreTab({ onPauseChange }: { onPauseChange?: (pause: St
       if (!res.ok) return setError(data?.error ?? "Could not load your store settings.");
       setS(data as StoreState);
       onPauseChange?.((data as StoreState).pause);
+      if (typeof (data as StoreState).prep_minutes === "number") onCookTimeChange?.((data as StoreState).prep_minutes);
       setError(null);
     } catch {
       setError("Could not reach the server.");
     }
-  }, [onPauseChange]);
+  }, [onPauseChange, onCookTimeChange]);
 
   useEffect(() => {
     void load();
@@ -126,6 +141,44 @@ export default function StoreTab({ onPauseChange }: { onPauseChange?: (pause: St
                 </div>
                 <input className="menu-search store-reason" placeholder="Why? (optional - busy, short staffed, equipment)" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} />
               </>
+            )}
+          </section>
+
+          <section className="store-card">
+            <h3 className="store-h">Default cook time</h3>
+            <p className="store-sub">What Accept picks unless you tap another time. Orders already accepted keep theirs.</p>
+            <div className="store-choices">
+              {COOK_TIME_CHOICES.map((m) => (
+                <button
+                  key={m}
+                  className={`btn store-choice num${m === s.prep_minutes ? " primary" : ""}`}
+                  disabled={busy !== null || m === s.prep_minutes}
+                  aria-pressed={m === s.prep_minutes}
+                  onClick={() => void post("/api/dashboard/store/cook-time", { prep_minutes: m }, `Default cook time is now ${m} minutes.`)}
+                >
+                  {m} min
+                </button>
+              ))}
+            </div>
+            {!COOK_TIME_CHOICES.includes(s.prep_minutes) && <p className="store-sub">Now: {s.prep_minutes} min (set by Premium).</p>}
+          </section>
+
+          <section className={`store-card ${alerts?.some((a) => a.severity === "critical") ? "paused" : ""}`}>
+            <h3 className="store-h">Alerts</h3>
+            {alerts === undefined || alerts === null ? (
+              <p className="store-sub">{alerts === null ? "Could not check your printer and tablet right now." : "Checking…"}</p>
+            ) : alerts.length === 0 ? (
+              <p className="store-big on">No printer or tablet problems</p>
+            ) : (
+              <ul className="store-alerts">
+                {alerts.map((a) => (
+                  <li key={a.key} className={`store-alert ${a.severity}`}>
+                    <div className="store-alert-title">{a.title}</div>
+                    <div className="store-sub">{a.detail}</div>
+                    {a.since && <div className="store-sub">Since {new Date(a.since).toLocaleString("en-US", { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}</div>}
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
 

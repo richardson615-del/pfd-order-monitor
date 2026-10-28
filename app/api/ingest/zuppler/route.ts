@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { constantTimeEquals } from "@/lib/crm-auth";
 import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
 import { recordWebhookReceipt, fingerprint } from "@/lib/webhook-receipts";
+import { zupplerWebhookDecision } from "@/lib/zuppler-webhook-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -72,8 +73,14 @@ export async function POST(req: NextRequest) {
   // constantTimeEquals rather than ===, which returns as soon as two bytes
   // differ. This one already fails closed when the secret is unset, which is
   // why the `!!secret` guard stays in front.
-  const ok = !!secret && presentedTokens.some((t) => !!t && constantTimeEquals(t, secret));
-  if (!ok) {
+  const tokenOk = !!secret && presentedTokens.some((t) => !!t && constantTimeEquals(t, secret));
+  // ZUPPLER_ACCEPT_UNSIGNED (off by default): see lib/zuppler-webhook-auth.ts.
+  const decision = zupplerWebhookDecision({ tokenOk, orderUuid: refusedOrderUuid(rawBody) });
+  const unsigned = decision === "unsigned_verify";
+  if (unsigned) {
+    console.warn("Zuppler webhook: no token; ZUPPLER_ACCEPT_UNSIGNED is on, so the order is fetched from Zuppler's API to verify it. user-agent:", userAgent ?? "(none)");
+  }
+  if (decision === "refuse") {
     // Loud. A 401 here means an order was dropped on the floor, which is
     // exactly the failure that once killed every live webhook silently while
     // Vercel held a token Zuppler did not have.
@@ -125,7 +132,8 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await ingestZupplerOrderByUuid(orderUuid);
-  const receipt = { orderUuid, rawBody, userAgent };
+  // An unsigned call's receipts say so, so the Devices page can tell them apart.
+  const receipt = { orderUuid, rawBody, userAgent, ...(unsigned ? { detail: "unsigned: no token; order fetched from Zuppler's API (ZUPPLER_ACCEPT_UNSIGNED)" } : {}) };
 
   switch (result.status) {
     case "error":

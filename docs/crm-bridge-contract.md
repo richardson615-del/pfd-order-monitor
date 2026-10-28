@@ -1347,6 +1347,29 @@ Neither kind can be sent through `POST /api/dashboard/messages`; only the
 Store routes (`/api/dashboard/store/pause`, `/api/dashboard/store/hours`)
 write them, with the restaurant from the session.
 
+**Cook time and alerts on the tablet (KT1, prs-crm Ticket #779, 2026-10-28).**
+The Store tab also sets the restaurant's default cook time and lists its own
+printer/tablet alerts. Both routes take the restaurant from the session; no
+CRM key, no new table.
+
+- `POST /api/dashboard/store/cook-time { prep_minutes }` -> `{ prep_minutes }`.
+  Writes `restaurants.prep_minutes` (migration 040), what Accept pre-selects.
+  Only an Accept quick pick (10/15/20/25/30/45); 400 `{ error }` otherwise.
+  `GET /api/dashboard/store` now also returns `prep_minutes`. **The CRM's
+  write is unchanged and already exists:** `PATCH /api/crm/restaurants/:id
+  { prep_minutes }` (1-180, 400 `invalid_prep_minutes`; see the restaurant
+  fields table), and the roster carries `prep_minutes`, so the CRM reads the
+  number the kitchen chose there. No separate prep-minutes route was added.
+- `GET /api/dashboard/alerts` -> `{ alerts: [{ key, severity, title, detail, since }], banner, checked_at }`.
+  The same evaluation as `GET /api/crm/issues`, filtered to the session's
+  restaurant and an allow-list of kinds (`device_silent`, `device_never_seen`,
+  `restaurant_no_device`, `job_stuck`, `job_failed`, `restaurant_no_app_device`),
+  in the kitchen's words (`lib/kitchen-alerts.ts`). `since` = `monitor_alerts.first_seen_at`.
+  `banner` = the first critical title (plus "and N more"), or null; the
+  tablet shows it over the orders. Evaluation cached 60 s per instance. The
+  CRM's DM1 switch does not reach this list. Nothing is texted or emailed
+  to the restaurant (Nick 2026-10-28).
+
 ### Statements on the tablet (the partner portal, A1)
 
 `PUT /api/crm/restaurants/:id/statements` (either id) replaces the restaurant's

@@ -10,6 +10,7 @@ import Scoreboard from "./Scoreboard";
 import MenuEditor from "./MenuEditor";
 import MoneyTab from "./MoneyTab";
 import StoreTab from "./StoreTab";
+import type { KitchenAlert } from "@/lib/kitchen-alerts";
 import { clockLabel as storeClock } from "@/lib/store";
 import DispatchMessages from "./DispatchMessages";
 import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
@@ -70,7 +71,7 @@ export default function OrderDashboard({
   mode,
   restaurantName,
   timezone,
-  prepMinutes,
+  prepMinutes: initialPrepMinutes,
 }: {
   initialOrders: Order[];
   restaurantId: string;
@@ -106,6 +107,32 @@ export default function OrderDashboard({
     };
     void read();
     const t = window.setInterval(read, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, []);
+  // KT1 (Ticket #779): the default cook time, changeable on the Store tab without a reload.
+  const [prepMinutes, setPrepMinutes] = useState(initialPrepMinutes);
+  // KT1: this restaurant's printer/tablet alerts, for the Store tab list and the banner over the orders. Every two minutes.
+  const [kitchenAlerts, setKitchenAlerts] = useState<KitchenAlert[] | null | undefined>(undefined);
+  const [alertBanner, setAlertBanner] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const res = await fetch("/api/dashboard/alerts", { cache: "no-store" });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok || !data) return setKitchenAlerts((a) => a ?? null);
+        setKitchenAlerts(Array.isArray(data.alerts) ? data.alerts : []);
+        setAlertBanner(typeof data.banner === "string" ? data.banner : null);
+      } catch {
+        /* keep what we have */
+      }
+    };
+    void read();
+    const t = window.setInterval(read, 120_000);
     return () => {
       cancelled = true;
       window.clearInterval(t);
@@ -747,6 +774,13 @@ export default function OrderDashboard({
         </div>
       )}
 
+      {/* KT1: a critical printer/tablet alert for this restaurant ("Printer offline - orders are not printing"); tap for the Store tab's list. */}
+      {alertBanner && !offline && (
+        <button type="button" className="kiosk-banner kiosk-critical kitchen-alert-banner" role="alert" onClick={() => setTab("store")}>
+          {alertBanner}
+        </button>
+      )}
+
       {offline && (
         <div className="offline-strip" role="alert">
           <span className="offline-text">{offlineNotice(offlineSince ? clockLabel(offlineSince, timezone) : null)}</span>
@@ -887,7 +921,7 @@ export default function OrderDashboard({
 
       {tab === "money" && <MoneyTab />}
 
-      {tab === "store" && <StoreTab onPauseChange={setStorePause} />}
+      {tab === "store" && <StoreTab onPauseChange={setStorePause} onCookTimeChange={setPrepMinutes} alerts={kitchenAlerts} />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

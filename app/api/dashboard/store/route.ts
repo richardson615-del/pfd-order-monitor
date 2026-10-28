@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { DEFAULT_ZONE, storeSession } from "@/lib/store-session";
 import { livePause, readWeek } from "@/lib/store";
+import { prepMinutesOf } from "@/lib/countdown";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/dashboard/store -> { pause, hours, hours_lines, pushed_at, pending_hours, ordering_channel, timezone }
+ * GET /api/dashboard/store -> { pause, hours, hours_lines, pushed_at, pending_hours, ordering_channel, timezone, prep_minutes }
  *
  * The Store tab's read (migration 052): the live pause (null when none or
  * over), the hours as the CRM last pushed them, and an hours change the
@@ -19,7 +20,7 @@ export async function GET() {
   if ("error" in s) return s.error;
   const admin = supabaseAdmin();
   const [r, p, sent] = await Promise.all([
-    admin.from("restaurants").select("timezone, online_paused_until, online_pause_reason, online_paused_at").eq("id", s.restaurantId).single(),
+    admin.from("restaurants").select("timezone, online_paused_until, online_pause_reason, online_paused_at, prep_minutes").eq("id", s.restaurantId).single(),
     admin.from("restaurant_profiles").select("hours, hours_lines, ordering_channel, pushed_at").eq("restaurant_id", s.restaurantId).maybeSingle(),
     admin.from("restaurant_messages").select("created_at, details").eq("restaurant_id", s.restaurantId).eq("kind", "hours_change").eq("direction", "from_restaurant").order("created_at", { ascending: false }).limit(1),
   ]);
@@ -36,6 +37,8 @@ export async function GET() {
       ordering_channel: p.data?.ordering_channel ?? null,
       pushed_at: pushedAt,
       pending_hours: pending,
+      // KT1: the default cook time Accept pre-selects (POST ./cook-time changes it).
+      prep_minutes: prepMinutesOf(r.data.prep_minutes),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

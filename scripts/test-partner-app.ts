@@ -112,7 +112,7 @@ test("the server client honours a Bearer token and the push never fails a reply"
   assert.match(src("lib/supabase-server.ts"), /bearerFromRequest\(\)/);
   const reply = src("app/api/crm/messages/route.ts");
   assert.match(reply, /pushToRestaurantApps\(/);
-  assert.match(src("lib/partner-app-server.ts"), /Never throws: a push failing must never fail the reply/);
+  assert.match(src("lib/partner-push.ts"), /Never throws: a push failing must never fail the order or the reply/);
 });
 
 console.log(`${passed} passed`);

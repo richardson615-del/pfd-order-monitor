@@ -1356,7 +1356,7 @@ CRM key, no new table.
   Writes `restaurants.prep_minutes` (migration 040), what Accept pre-selects.
   Only an Accept quick pick (10/15/20/25/30/45); 400 `{ error }` otherwise.
   `GET /api/dashboard/store` now also returns `prep_minutes`. **The CRM's
-  write is unchanged and already exists:** `PATCH /api/crm/restaurants/:id
+  write is unchanged and already exists:** `POST /api/crm/restaurants/:id
   { prep_minutes }` (1-180, 400 `invalid_prep_minutes`; see the restaurant
   fields table), and the roster carries `prep_minutes`, so the CRM reads the
   number the kitchen chose there. No separate prep-minutes route was added.

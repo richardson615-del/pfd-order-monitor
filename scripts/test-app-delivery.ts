@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { DEFAULT_THRESHOLDS, evaluateHealth, type HealthSnapshot } from "@/lib/health";
-import { appDeliveryOutcome, orderDestinations } from "@/lib/canonical";
+import { appDeliveryOutcome, combinePushResults, orderDestinations } from "@/lib/canonical";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -246,6 +246,22 @@ test("alert keys are stable, so a standing problem is not re-announced", () => {
     evaluateHealth(s, NOW).map((i) => i.key),
     evaluateHealth(s, new Date(NOW.getTime() + 3600_000)).map((i) => i.key)
   );
+});
+
+// 2026-10-28: a new order also rings every phone signed in to the PFD Partner app.
+test("an owner's phone alone counts as the order being heard", () => {
+  const r = combinePushResults({ subscriptions: 0, sent: 0, failed: 0 }, { phones: 2, sent: 2 });
+  assert.deepEqual(r, { subscriptions: 2, sent: 2, failed: 0 });
+  assert.equal(appDeliveryOutcome(r, NOW.toISOString()).status, "printed");
+});
+
+test("a broken tablet key does not hide a phone that rang, and is kept when nothing did", () => {
+  assert.equal(combinePushResults({ subscriptions: 0, sent: 0, failed: 0, error: "bad VAPID" }, { phones: 1, sent: 1 }).error, undefined);
+  assert.equal(combinePushResults({ subscriptions: 0, sent: 0, failed: 0, error: "bad VAPID" }, { phones: 0, sent: 0 }).error, "bad VAPID");
+});
+
+test("a phone Expo refused counts as a failure, alongside the tablet's", () => {
+  assert.deepEqual(combinePushResults({ subscriptions: 1, sent: 1, failed: 0 }, { phones: 2, sent: 1 }), { subscriptions: 3, sent: 2, failed: 1 });
 });
 
 console.log(`\n${passed} assertions passed.`);

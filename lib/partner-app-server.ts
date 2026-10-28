@@ -196,35 +196,6 @@ export async function removePushToken(token: string): Promise<void> {
   await supabaseAdmin().from("app_push_tokens").delete().eq("token", token);
 }
 
-/**
- * Push to every phone signed in to the restaurant's app (Expo push service).
- * Never throws: a push failing must never fail the reply that caused it.
- * Phones Expo reports as gone are forgotten.
- */
-export async function pushToRestaurantApps(restaurantId: string, msg: { title: string; body: string; data?: Record<string, unknown> }): Promise<{ sent: number }> {
-  try {
-    const { data: rows } = await supabaseAdmin().from("app_push_tokens").select("token").eq("restaurant_id", restaurantId);
-    const tokens = (rows ?? []).map((r) => r.token as string);
-    if (!tokens.length) return { sent: 0 };
-    const res = await fetch("https://exp.host/--/api/v2/push/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(tokens.map((to) => ({ to, title: msg.title, body: msg.body.slice(0, 180), data: msg.data ?? {}, sound: "default" }))),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      console.error("partner app: push failed", res.status);
-      return { sent: 0 };
-    }
-    const json = (await res.json().catch(() => null)) as { data?: Array<{ status?: string; details?: { error?: string } }> } | null;
-    let sent = 0;
-    for (const [i, t] of (json?.data ?? []).entries()) {
-      if (t.status === "ok") sent++;
-      else if (t.details?.error === "DeviceNotRegistered" && tokens[i]) await removePushToken(tokens[i]!);
-    }
-    return { sent };
-  } catch (err) {
-    console.error("partner app: push error", err instanceof Error ? err.message : err);
-    return { sent: 0 };
-  }
-}
+// pushToRestaurantApps moved to lib/partner-push.ts (2026-10-28) so order ingest can call it
+// without pulling in the sign-in code; re-exported here for the messages route.
+export { pushToRestaurantApps } from "./partner-push";

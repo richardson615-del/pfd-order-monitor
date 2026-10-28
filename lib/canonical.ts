@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant, type PushResult } from "./push";
+import { pushToRestaurantApps } from "./partner-push";
 import { resolveFooter } from "./footer-engine";
 
 /**
@@ -586,6 +587,18 @@ export function appDeliveryOutcome(
  * a mute tablet there is not a fault worth anyone's attention - the same
  * judgement printer_expected already makes for printers.
  */
+/** The tablet's web-push result plus the partner app phones, as one outcome for the app job. */
+export function combinePushResults(tablet: PushResult, phones: { phones: number; sent: number }): PushResult {
+  const sent = tablet.sent + phones.sent;
+  return {
+    subscriptions: tablet.subscriptions + phones.phones,
+    sent,
+    failed: tablet.failed + Math.max(0, phones.phones - phones.sent),
+    // A broken tablet key no longer means nobody heard it, if a phone did.
+    ...(tablet.error && sent === 0 ? { error: tablet.error } : {}),
+  };
+}
+
 export async function deliverToApp(args: {
   orderId: string;
   restaurantId: string;
@@ -618,13 +631,19 @@ export async function deliverToApp(args: {
     }
   }
 
-  const push = await notifyRestaurant(args.restaurantId, {
+  const alert = {
     title: `New Order #${args.orderNumber}`,
     body: args.customerTotal
       ? `${args.customerName || "Customer"} - $${args.customerTotal.toFixed(2)}`
       : "Tap to view the order",
-    orderId: args.orderId,
-  });
+  };
+  // The tablet (web push) and, since 2026-10-28, every phone signed in to the PFD Partner app,
+  // in parallel. Both count: a restaurant with only the owner's phone is alerted too.
+  const [tablet, phones] = await Promise.all([
+    notifyRestaurant(args.restaurantId, { ...alert, orderId: args.orderId }),
+    pushToRestaurantApps(args.restaurantId, { ...alert, data: { screen: "orders", orderId: args.orderId, kind: "new_order" } }),
+  ]);
+  const push = combinePushResults(tablet, phones);
 
   if (!jobId) return push;
 

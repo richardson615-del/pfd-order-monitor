@@ -21,6 +21,15 @@ export const maxDuration = 30;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/** For the refusal record only: did a refused body name an order? Never acted on. */
+function refusedOrderUuid(rawBody: string): string | null {
+  try {
+    return extractOrderUuid(JSON.parse(rawBody));
+  } catch {
+    return null;
+  }
+}
+
 /** Finds order_uuid anywhere reasonable in the webhook body. */
 function extractOrderUuid(body: any): string | null {
   if (!body || typeof body !== "object") return null;
@@ -83,6 +92,10 @@ export async function POST(req: NextRequest) {
       status: "unauthorized", httpStatus: 401, rawBody, userAgent,
       detail: [
         secret ? "token mismatch" : "ZUPPLER_WEBHOOK_SECRET not set",
+        // First, because the detail is cut at 500 characters and the header list is long:
+        // who called, and whether the body named an order (a real Zuppler delivery) or not (a scanner).
+        `ua=${(userAgent ?? "none").slice(0, 60)}`,
+        `order_uuid=${refusedOrderUuid(rawBody) ? "yes" : "no"}`,
         `presented=${fingerprint(presented) ?? "NO AUTH HEADER"}`,
         `expected=${fingerprint(secret) ?? "unset"}`,
         `headers=[${headerNames}]`,

@@ -1,8 +1,8 @@
 import { localDayKey } from "./local-day";
 import { isValidTimeZone } from "./clock";
 import { orderDestinations } from "./canonical";
-import { isLate, isSettled, itemsLine } from "./order-display";
-import { countdown, isUnaccepted, prepMinutesOf } from "./countdown";
+import { ageMs, isLate, isScheduled, isSettled, itemsLine } from "./order-display";
+import { byClockStart, byDue, countdown, isUnaccepted, prepMinutesOf } from "./countdown";
 import { STILL_ACTIONABLE_MS } from "./kiosk";
 import { DEFAULT_THRESHOLDS } from "./health";
 
@@ -243,7 +243,8 @@ export interface OrderListRow {
 const num = (v: unknown): number | null => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 export function orderFlags(o: OrderRowInput, prepMinutes: number, now: number): OrderFlags {
-  const age = now - Date.parse(o.received_at);
+  // SC1: the tablet's own age - from two hours before a scheduled order is due, not from its arrival a day early.
+  const age = isScheduled(o as any, now) ? NaN : (ageMs(o as any, now) ?? NaN);
   const unacceptedOpen = isUnaccepted(o as any) && Number.isFinite(age) && age < STILL_ACTIONABLE_MS;
   return {
     unaccepted_over_3m: unacceptedOpen && age >= UNACCEPTED_FLAG_MS,
@@ -318,13 +319,16 @@ export function sortOrderRows<T extends OrderListRow>(rows: T[], now: number): T
  * to kitchenSort for one restaurant in scripts/test-crm-orders.ts.
  */
 function kitchenSortMixed<T extends OrderListRow>(rows: T[], now: number): T[] {
-  const unaccepted = rows.filter((r) => isUnaccepted(r as any)).sort((a, b) => (a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0));
-  const accepted = rows
+  // SC1: scheduled orders after today's work, soonest due first - kitchenSort's rule.
+  const scheduled = rows.filter((r) => isScheduled(r as any, now)).sort(byDue);
+  const current = rows.filter((r) => !isScheduled(r as any, now));
+  const unaccepted = current.filter((r) => isUnaccepted(r as any)).sort((a, b) => byClockStart(a as any, b as any));
+  const accepted = current
     .filter((r) => !isUnaccepted(r as any))
     .map((r) => ({ r, remaining: countdown(r as any, r.prep_minutes, now)?.remainingMs ?? Infinity }))
     .sort((a, b) => a.remaining - b.remaining)
     .map((x) => x.r);
-  return [...unaccepted, ...accepted];
+  return [...unaccepted, ...accepted, ...scheduled];
 }
 
 export interface OrderCounts {

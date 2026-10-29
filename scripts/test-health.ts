@@ -506,7 +506,9 @@ test("the threshold is three minutes - before the card goes red, so the call is 
 test("the snapshot asks only about customer orders on tablet restaurants, still live, inside the chime window", () => {
   const { readFileSync } = require("node:fs") as typeof import("node:fs");
   const health = readFileSync(new URL("../lib/health.ts", import.meta.url), "utf8");
-  const q = health.slice(health.indexOf('.select("id, order_number, restaurant_id, received_at")'), health.indexOf(".limit(500)"));
+  // SC1 added due_time to the select (a scheduled order alerts as a warning).
+  const q = health.slice(health.indexOf('.select("id, order_number, restaurant_id, received_at, due_time")'), health.indexOf(".limit(500)"));
+  assert.ok(q.length > 0, "the unaccepted-orders query is where this test expects it");
   assert.match(q, /\.is\("accepted_at", null\)/);
   assert.match(q, /\.not\("status", "in", "\(cancelled,completed\)"\)/);
   assert.match(q, /\.neq\("source", "test"\)/, "a test order has no customer waiting");

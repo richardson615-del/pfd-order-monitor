@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { prepMinutesOf } from "@/lib/countdown";
 import { parseOrderPatch, readyByFor, refuseReadyChange } from "@/lib/ready-timer";
+import { isScheduled } from "@/lib/order-display";
 
 const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
   opened: "opened_at",
@@ -11,7 +12,8 @@ const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
 
 /**
  * PATCH /api/orders/:id, one action per call (lib/ready-timer.ts):
- *   { accepted: true, minutes? }  accept; minutes (1-180) default to the restaurant's prep target
+ *   { accepted: true, minutes? }  accept; minutes (1-180) default to the restaurant's prep target.
+ *                                 A scheduled order (due > 2 h out, SC1) takes no minutes: ready_by = due_time.
  *   { ready: true }               the food is ready (PA5); stamps ready_at once
  *   { minutes }                   re-time an accepted, not-ready order (minutes from Accept)
  *   { status: "opened" | "completed" | "printed" | "new" }
@@ -39,12 +41,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // of them: an order can be printed and unaccepted, or accepted and not yet
   // completed. See migration 021. PA5: it now says for how long.
   if (patch.kind === "accept") {
-    let minutes = patch.minutes;
-    if (minutes === null) {
-      const order = await current();
-      if (!order) return NextResponse.json({ error: "order not found" }, { status: 404 });
-      const { data: r } = await supabase.from("restaurants").select("prep_minutes").eq("id", order.restaurant_id).maybeSingle();
-      minutes = prepMinutesOf(r?.prep_minutes);
+    const order = await current();
+    if (!order) return NextResponse.json({ error: "order not found" }, { status: 404 });
+    let minutes: number | null = patch.minutes;
+    let readyBy: string | null;
+    if (isScheduled(order, Date.now())) {
+      // SC1: a catering order accepted a day early is acknowledged, not
+      // started. Its ready time is the hand-off itself; no minutes are
+      // chosen (the card offers none), and the countdown appears two hours
+      // before it is due (lib/countdown.ts).
+      minutes = null;
+      readyBy = new Date(order.due_time).toISOString();
+    } else {
+      if (minutes === null) {
+        const { data: r } = await supabase.from("restaurants").select("prep_minutes").eq("id", order.restaurant_id).maybeSingle();
+        minutes = prepMinutesOf(r?.prep_minutes);
+      }
+      readyBy = readyByFor(now, minutes);
     }
     const { data, error } = await supabase
       .from("orders")
@@ -56,7 +69,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       // The `is null` guard means accepted_at is never rewritten: the first
       // acceptance is the one that means something, and a second tap must not
       // move when the kitchen actually agreed to cook.
-      .update({ accepted_at: now, ready_minutes: minutes, ready_by: readyByFor(now, minutes) })
+      .update({ accepted_at: now, ready_minutes: minutes, ready_by: readyBy })
       .eq("id", params.id)
       .is("accepted_at", null)
       .select()

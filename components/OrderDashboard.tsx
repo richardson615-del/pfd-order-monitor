@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order } from "@/lib/types";
 import OrderCard from "./OrderCard";
@@ -13,7 +13,7 @@ import StoreTab from "./StoreTab";
 import type { KitchenAlert } from "@/lib/kitchen-alerts";
 import { clockLabel as storeClock } from "@/lib/store";
 import DispatchMessages from "./DispatchMessages";
-import { AGE_LATE_MS, bucketOf, type DisplayMode } from "@/lib/order-display";
+import { AGE_LATE_MS, bucketOf, isScheduled, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
@@ -887,8 +887,14 @@ export default function OrderDashboard({
             {kitchen.length === 0 && (
               <div className="app-empty">Nothing in the kitchen. New orders show here and ring until they&apos;re accepted.</div>
             )}
-            {kitchen.map((order) => (
-              <OrderCard key={order.id} order={order} now={now} prepMinutes={prepMinutes} onAccept={accept} onReady={markReady} onRetime={retime} />
+            {kitchen.map((order, i) => (
+              <Fragment key={order.id}>
+                {/* SC1: kitchenSort puts scheduled orders last; one quiet divider above the first. */}
+                {isScheduled(order, now) && (i === 0 || !isScheduled(kitchen[i - 1], now)) && (
+                  <div className="app-divider scheduled">Scheduled</div>
+                )}
+                <OrderCard order={order} now={now} timezone={timezone} prepMinutes={prepMinutes} onAccept={accept} onReady={markReady} onRetime={retime} />
+              </Fragment>
             ))}
           </div>
         </>

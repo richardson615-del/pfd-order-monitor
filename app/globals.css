@@ -1142,6 +1142,13 @@ table.admin-table th, table.admin-table td {
 [data-display="kitchen"] .card-ready { min-height: 60px; }
 .card-flag.ready { background: var(--st-done); color: var(--status-online-foreground); font-weight: 700; text-transform: uppercase; }
 [data-display="kitchen"] .card-flag.ready { font-size: 18px; padding: 4px 12px; }
+/* SC1: a scheduled (future-dated) order - calm indigo, never an urgency colour. */
+.card-flag.scheduled { background: var(--accent); color: var(--accent-foreground); }
+.card.scheduled .card-due { color: var(--accent-foreground); font-weight: 600; }
+.app-divider.scheduled {
+  margin: 8px 2px 0; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted-foreground); border-top: 1px solid var(--border); padding-top: 8px;
+}
 .ticket-ready-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .ticket-ready-row .ticket-late-label { font-size: 16px; }
 .ticket-minutes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -1250,6 +1257,7 @@ table.admin-table th, table.admin-table td {
 .ticket-timer.age-warn { color: var(--status-warning-text); }
 .ticket-timer.age-late { color: var(--age-late); }
 .ticket-timer.settled { color: var(--st-done); }
+.ticket-timer.ticket-scheduled { font-size: 28px; color: var(--accent-foreground); }
 
 /* The countdown on the ticket: bigger than the timer it replaces, and the
    time since arrival under it in small type - the promise and the truth. */

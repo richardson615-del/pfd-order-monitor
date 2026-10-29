@@ -1,6 +1,6 @@
 import type { Order } from "./types";
 import { STILL_ACTIONABLE_MS } from "./kiosk";
-import { isSettled } from "./order-display";
+import { ageMs, isScheduled, isSettled, kitchenClockStart } from "./order-display";
 
 /**
  * Accept, then a countdown (Workstream I3, Nick 2026-09-17).
@@ -52,8 +52,11 @@ export interface Countdown {
   dueAt: number;
 }
 
-/** The order fields the countdown reads. ready_by / ready_at are optional: rows from before 055 do not carry them. */
-export type CountdownOrder = Pick<Order, "status" | "accepted_at"> & { ready_by?: string | null; ready_at?: string | null };
+/**
+ * The order fields the countdown reads. ready_by / ready_at are optional: rows from before 055 do not carry them.
+ * due_time is optional too: without it an order is never scheduled (SC1).
+ */
+export type CountdownOrder = Pick<Order, "status" | "accepted_at"> & { ready_by?: string | null; ready_at?: string | null; due_time?: string | null };
 
 const mmss = (ms: number): string => {
   const total = Math.floor(ms / 1000);
@@ -67,9 +70,15 @@ const mmss = (ms: number): string => {
  * when there is none to show (not accepted yet, ready, completed,
  * cancelled, or an accepted_at that cannot be read). Runs to ready_by when
  * the kitchen chose the minutes (PA5), else to accepted_at + prep target.
+ *
+ * SC1: none while the order is scheduled - accepting a catering order a day
+ * early acknowledges it, it does not start cooking. Accept writes ready_by =
+ * due_time on a scheduled order (app/api/orders/[id]), so once it stops
+ * being scheduled this runs to the hand-off with no extra rule.
  */
 export function countdown(order: CountdownOrder, prepMinutes: number, now: number): Countdown | null {
   if (isSettled(order) || !order.accepted_at || order.ready_at) return null;
+  if (isScheduled(order, now)) return null;
   const accepted = Date.parse(order.accepted_at);
   if (Number.isNaN(accepted)) return null;
   const readyBy = Date.parse(order.ready_by ?? "");
@@ -84,6 +93,13 @@ export function countdown(order: CountdownOrder, prepMinutes: number, now: numbe
   return { remainingMs, phase: remainingMs < COUNTDOWN_AMBER_MS ? "amber" : "calm", label: mmss(remainingMs), dueAt };
 }
 
+const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+/** Soonest due first (SC1's scheduled orders). */
+export const byDue = (a: { due_time?: string | null }, b: { due_time?: string | null }) => cmp(a.due_time ?? "", b.due_time ?? "");
+/** Longest waiting first, by when the kitchen's clock started (received_at for an ordinary order). */
+export const byClockStart = (a: CountdownOrder & Pick<Order, "received_at">, b: CountdownOrder & Pick<Order, "received_at">) =>
+  cmp(kitchenClockStart(a) ?? "", kitchenClockStart(b) ?? "");
+
 /** Whether an order in the kitchen is waiting for Accept. */
 export const isUnaccepted = (order: Pick<Order, "status" | "accepted_at">): boolean =>
   !isSettled(order) && !order.accepted_at;
@@ -92,6 +108,7 @@ export const isUnaccepted = (order: Pick<Order, "status" | "accepted_at">): bool
  * The kitchen list's order: unaccepted first, oldest first (the one that
  * has waited longest is the one to take next); then accepted, least time
  * remaining first (the one due soonest - or most over - is on top).
+ * SC1: scheduled orders after all of today's work, soonest due first.
  */
 export function kitchenSort<T extends CountdownOrder & Pick<Order, "received_at">>(
   orders: T[],
@@ -99,10 +116,14 @@ export function kitchenSort<T extends CountdownOrder & Pick<Order, "received_at"
   now: number
 ): T[] {
   return [...orders].sort((a, b) => {
+    const sa = isScheduled(a, now);
+    const sb = isScheduled(b, now);
+    if (sa !== sb) return sa ? 1 : -1;
+    if (sa) return byDue(a, b);
     const ua = isUnaccepted(a);
     const ub = isUnaccepted(b);
     if (ua !== ub) return ua ? -1 : 1;
-    if (ua) return a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0;
+    if (ua) return byClockStart(a, b);
     const ra = countdown(a, prepMinutes, now)?.remainingMs ?? Infinity;
     const rb = countdown(b, prepMinutes, now)?.remainingMs ?? Infinity;
     return ra - rb;
@@ -134,9 +155,11 @@ export function heroSummary<T extends CountdownOrder & Pick<Order, "received_at"
     .filter((c): c is Countdown => c !== null)
     .sort((a, b) => a.remainingMs - b.remainingMs);
   const next = countdowns[0] ?? null;
+  // SC1: age from the kitchen's clock, so a scheduled order waiting for Accept is never "late".
   const unacceptedLate = unacceptedOrders.some((o) => {
-    const t = Date.parse(o.received_at ?? "");
-    return !Number.isNaN(t) && now - t >= lateMs && now - t < STILL_ACTIONABLE_MS;
+    if (isScheduled(o, now)) return false;
+    const age = ageMs(o, now);
+    return age !== null && age >= lateMs && age < STILL_ACTIONABLE_MS;
   });
   const anyOver = countdowns.some((c) => c.phase === "over");
   const tone: HeroSummary["tone"] = count === 0 ? "idle" : unacceptedLate || anyOver ? "late" : "busy";

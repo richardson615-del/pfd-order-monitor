@@ -28,7 +28,72 @@
  */
 import { Order } from "./types";
 import { STILL_ACTIONABLE_MS } from "./kiosk";
-import { isSameLocalDay } from "./local-day";
+import { isSameLocalDay, localDayKey, timeLabel } from "./local-day";
+import { effectiveTimeZone } from "./clock";
+
+/**
+ * Scheduled orders (SC1, Nick 2026-10-29, Willie Mae's ezCater #GJ3P08).
+ *
+ * A catering order reaches the kitchen kitchen_lead_hours (default 24 h)
+ * before it is due, and every clock on the tablet used to run from that
+ * arrival: by morning the card read red and late, and six hours in it fell
+ * off the Orders list altogether, ~18 h before anybody was meant to cook it.
+ *
+ * So an order due more than SCHEDULED_AHEAD_MS from now is SCHEDULED: it
+ * still chimes on arrival and Accept still acknowledges it, but it shows
+ * "Due Tomorrow 11:30 AM" instead of an age, is never late, has no prep
+ * countdown, sorts after today's work, and stays in Orders until it is due.
+ * SCHEDULED_AHEAD_MS before it is due it becomes an ordinary kitchen order,
+ * with its age counted from then (kitchenClockStart), not from a day ago.
+ *
+ * Any source: ezCater is the only one that sends orders this far ahead today.
+ */
+export const SCHEDULED_AHEAD_MS = 2 * 60 * 60 * 1000;
+
+type DueFields = { due_time?: string | null };
+
+const dueMsOf = (order: DueFields): number | null => {
+  const t = Date.parse(order.due_time ?? "");
+  return Number.isNaN(t) ? null : t;
+};
+
+/** It came in more than SCHEDULED_AHEAD_MS before it was due - a scheduled order, now or earlier. */
+export function arrivedAhead(order: Pick<Order, "received_at"> & DueFields): boolean {
+  const due = dueMsOf(order);
+  const received = Date.parse(order.received_at ?? "");
+  return due !== null && !Number.isNaN(received) && received < due - SCHEDULED_AHEAD_MS;
+}
+
+/** Due far enough off that nobody should be cooking it yet. Settled orders and unreadable due times never are. */
+export function isScheduled(order: Pick<Order, "status"> & DueFields, now: number): boolean {
+  if (SETTLED.has(order.status)) return false;
+  const due = dueMsOf(order);
+  return due !== null && due - now > SCHEDULED_AHEAD_MS;
+}
+
+/**
+ * When the kitchen's clock starts: received_at for an ordinary order, and
+ * SCHEDULED_AHEAD_MS before it is due for one that arrived ahead - so a
+ * catering order turns into a normal kitchen order two hours before
+ * hand-off rather than with twenty-two hours of "age".
+ */
+export function kitchenClockStart(order: Pick<Order, "received_at"> & DueFields): string | null {
+  if (!arrivedAhead(order)) return order.received_at ?? null;
+  return new Date((dueMsOf(order) as number) - SCHEDULED_AHEAD_MS).toISOString();
+}
+
+/** "Today 11:30 AM", "Tomorrow 11:30 AM", or "Fri, Oct 30 · 11:30 AM", in the restaurant's zone. "" when unreadable. */
+export function dueLabel(dueTime: string | null | undefined, now: number, timezone: string | null | undefined): string {
+  const due = Date.parse(dueTime ?? "");
+  if (Number.isNaN(due)) return "";
+  const time = timeLabel(due, timezone);
+  const key = localDayKey(due, timezone);
+  if (key === localDayKey(now, timezone)) return `Today ${time}`;
+  // 24 or 25 h on: one of them is tomorrow even across a DST change.
+  if (key === localDayKey(now + 24 * 3600_000, timezone) || key === localDayKey(now + 23 * 3600_000, timezone)) return `Tomorrow ${time}`;
+  const day = new Date(due).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: effectiveTimeZone(timezone) });
+  return `${day} · ${time}`;
+}
 
 /**
  * When an order in the kitchen starts reading as late.
@@ -85,11 +150,14 @@ export type Bucket = "orders" | "completed" | "past";
  * night is yesterday's business at 8 this morning.
  */
 export function bucketOf(
-  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
+  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at"> & DueFields,
   now: number,
   timezone: string | null | undefined
 ): Bucket {
   if (!isSettled(order)) {
+    // SC1: a scheduled order is in the kitchen from when it arrives until
+    // STILL_ACTIONABLE_MS after it is due - never aged out before its day.
+    if (arrivedAhead(order)) return now < (dueMsOf(order) as number) + STILL_ACTIONABLE_MS ? "orders" : "past";
     const age = ageMs(order, now);
     return age !== null && age < STILL_ACTIONABLE_MS ? "orders" : "past";
   }
@@ -99,13 +167,13 @@ export function bucketOf(
 }
 
 export const inKitchen = (
-  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
+  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at"> & DueFields,
   now: number,
   timezone: string | null | undefined
 ): boolean => bucketOf(order, now, timezone) === "orders";
 
 export const completedToday = (
-  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at">,
+  order: Pick<Order, "status" | "received_at" | "completed_at" | "cancelled_at"> & DueFields,
   now: number,
   timezone: string | null | undefined
 ): boolean => bucketOf(order, now, timezone) === "completed";
@@ -116,17 +184,21 @@ export const completedToday = (
  * received_at is Zuppler's own timestamp rather than when we ingested it, so
  * this is how long the CUSTOMER has been waiting, which is the number that
  * matters in a kitchen.
+ *
+ * SC1: counted from kitchenClockStart, so a scheduled order is 0 until two
+ * hours before it is due.
  */
-export function ageMs(order: Pick<Order, "received_at">, now: number): number | null {
-  if (!order.received_at) return null;
-  const t = new Date(order.received_at).getTime();
+export function ageMs(order: Pick<Order, "received_at"> & DueFields, now: number): number | null {
+  const start = kitchenClockStart(order);
+  if (!start) return null;
+  const t = new Date(start).getTime();
   if (Number.isNaN(t)) return null;
   return Math.max(0, now - t);
 }
 
-/** Whether an order in the kitchen has crossed the late line. */
-export function isLate(order: Pick<Order, "status" | "received_at">, now: number): boolean {
-  if (isSettled(order)) return false;
+/** Whether an order in the kitchen has crossed the late line. A scheduled order never has. */
+export function isLate(order: Pick<Order, "status" | "received_at"> & DueFields, now: number): boolean {
+  if (isSettled(order) || isScheduled(order, now)) return false;
   const age = ageMs(order, now);
   return age !== null && age >= AGE_LATE_MS && age < STILL_ACTIONABLE_MS;
 }
@@ -144,10 +216,11 @@ export function isLate(order: Pick<Order, "status" | "received_at">, now: number
  * background. Those go muted, with the age still on them.
  */
 export function ageClass(
-  order: Pick<Order, "status" | "received_at">,
+  order: Pick<Order, "status" | "received_at"> & DueFields,
   now: number
 ): "settled" | "age-calm" | "age-warn" | "age-late" | "age-stale" {
   if (isSettled(order)) return "settled";
+  if (isScheduled(order, now)) return "age-calm";
   const age = ageMs(order, now);
   if (age === null) return "age-calm";
   if (age >= STILL_ACTIONABLE_MS) return "age-stale";
@@ -166,7 +239,7 @@ export function ageClass(
  *
  * m:ss under an hour, because the seconds are what make it read as live.
  */
-export function elapsedLabel(order: Pick<Order, "received_at">, now: number): string {
+export function elapsedLabel(order: Pick<Order, "received_at"> & DueFields, now: number): string {
   const age = ageMs(order, now);
   if (age === null) return "";
   const totalSeconds = Math.floor(age / 1000);

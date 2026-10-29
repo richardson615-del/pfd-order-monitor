@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Order } from "@/lib/types";
-import { ageClass, elapsedLabel, itemsLine, orderFlag } from "@/lib/order-display";
+import { ageClass, dueLabel, elapsedLabel, isScheduled, itemsLine, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 
@@ -30,6 +30,11 @@ import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@
  * accepted order gets a big READY button, separate from COMPLETE on the
  * ticket, and "Running late" +5 / +10. Ready shows READY in the pill.
  *
+ * SC1 (Nick 2026-10-29): an order due more than two hours out is SCHEDULED -
+ * a calm "Scheduled" pill and "Due Tomorrow 11:30 AM" where the age would
+ * be, a plain Accept (it acknowledges; there is nothing to time yet) and no
+ * Ready or +5 / +10. Two hours before it is due it is an ordinary card.
+ *
  * `now` is passed in rather than read here so every card on the screen agrees
  * about the time, and so the timers move when the dashboard ticks instead of
  * only when the data changes.
@@ -37,6 +42,7 @@ import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@
 export default function OrderCard({
   order,
   now,
+  timezone,
   prepMinutes,
   onAccept,
   onReady,
@@ -44,6 +50,7 @@ export default function OrderCard({
 }: {
   order: Order;
   now: number;
+  timezone?: string | null;
   prepMinutes: number;
   onAccept?: (order: Order, minutes?: number) => void;
   onReady?: (order: Order) => void;
@@ -53,7 +60,8 @@ export default function OrderCard({
   const cd = countdown(order, prepMinutes, now);
   const waiting = isUnaccepted(order);
   const ready = isReady(order);
-  const cooking = !waiting && !ready && cd !== null;
+  const scheduled = isScheduled(order, now);
+  const cooking = !waiting && !ready && !scheduled && cd !== null;
   const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
     e.preventDefault();
     e.stopPropagation();
@@ -65,7 +73,7 @@ export default function OrderCard({
 
   return (
     <div
-      className={`card ${tone}${order.status === "cancelled" ? " cancelled" : ""}${waiting ? " unopened" : ""}${cd ? ` counting ${cd.phase}` : ""}`}
+      className={`card ${tone}${order.status === "cancelled" ? " cancelled" : ""}${waiting ? " unopened" : ""}${cd ? ` counting ${cd.phase}` : ""}${scheduled ? " scheduled" : ""}`}
     >
       <Link href={`/order/${order.id}`} className="card-body">
         <div className="card-top">
@@ -73,7 +81,9 @@ export default function OrderCard({
           <span className="card-type">
             {order.order_type === "delivery" ? "Delivery" : "Pickup"}
           </span>
-          {ready && order.status !== "completed" && order.status !== "cancelled" ? (
+          {scheduled ? (
+            <span className="card-flag scheduled">Scheduled</span>
+          ) : ready && order.status !== "completed" && order.status !== "cancelled" ? (
             <span className="card-flag ready">Ready</span>
           ) : cd ? (
             <span className={`card-flag countdown ${cd.phase} num`} aria-label={cd.phase === "over" ? `${cd.label}` : `${cd.label} left`}>
@@ -82,7 +92,11 @@ export default function OrderCard({
           ) : (
             flag && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>
           )}
-          <span className="card-age num">{elapsedLabel(order, now)}</span>
+          {scheduled ? (
+            <span className="card-age card-due num">Due {dueLabel(order.due_time, now, timezone)}</span>
+          ) : (
+            <span className="card-age num">{elapsedLabel(order, now)}</span>
+          )}
         </div>
 
         <div className="card-who">
@@ -110,9 +124,10 @@ export default function OrderCard({
               onAccept(order);
             }}
           >
-            Accept · {prepMinutes} min
+            {/* SC1: a scheduled order is acknowledged, not timed - no minutes. */}
+            {scheduled ? "Accept" : <>Accept · {prepMinutes} min</>}
           </button>
-          <div className="card-minutes" role="group" aria-label="Ready in how many minutes">
+          {!scheduled && <div className="card-minutes" role="group" aria-label="Ready in how many minutes">
             <span className="card-minutes-label">Ready in</span>
             {readyChoices(prepMinutes).map((m) => (
               <button
@@ -127,7 +142,7 @@ export default function OrderCard({
                 {m}
               </button>
             ))}
-          </div>
+          </div>}
         </>
       )}
 

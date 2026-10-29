@@ -161,7 +161,7 @@ export function channelLabel(source: Order["source"] | null | undefined): string
     case "phone":
       return "Phone";
     case "ezcater":
-      return "ezCater";
+      return "Catering";
     case "ubereats":
       return "Uber Eats";
     default:
@@ -173,6 +173,8 @@ export function channelLabel(source: Order["source"] | null | undefined): string
 export function paymentLabel(p: string | null | undefined): string {
   const s = (p ?? "").trim().toLowerCase();
   if (!s) return "Not given";
+  // Stored ezCater rows say "ezCater (prepaid)"; a restaurant never sees the name.
+  if (/ezcater|catering/.test(s)) return "Catering (prepaid)";
   if (/card|credit|debit|visa|master|amex|discover|stripe|helcim|braintree/.test(s)) return "Card";
   if (/cash/.test(s)) return "Cash";
   if (/check/.test(s)) return "Check";

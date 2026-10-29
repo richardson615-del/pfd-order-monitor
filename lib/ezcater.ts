@@ -149,7 +149,7 @@ export function ezCaterOrderToCanonical(order: EzCaterOrder, restaurant: { id: s
     deliveryFee: zeroNull(m.deliveryFee),
     tip: zeroNull(m.tip),
     customerTotal: m.total,
-    paymentType: "ezCater (prepaid)",
+    paymentType: "Catering (prepaid)",
     notes,
     rawPayload: { kind: "ezcater_order", order },
   };

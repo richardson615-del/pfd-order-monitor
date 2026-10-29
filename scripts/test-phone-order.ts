@@ -11,6 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { cateringText } from "../lib/catering-text";
 import {
   PHONE_ORDER_MAX_TOTAL,
   defaultOrderNumber,
@@ -424,7 +425,11 @@ test("migration 053 admits 'ubereats' and the route keys idempotency on the orde
 });
 
 test("the tablet's ticket body shows payment_type as stored, so it reads the same instruction as the paper", () => {
-  assert.ok(src("components/TicketBody.tsx").includes("{order.payment_type}"));
+  // Through cateringText, which changes only an ezCater row's wording (Nick, 2026-10-29) - a phone order's instruction is untouched.
+  const body = src("components/TicketBody.tsx");
+  assert.ok(body.includes("cateringText(order.source, order.payment_type)"));
+  assert.ok(body.includes("{paymentType}"));
+  assert.equal(cateringText("phone", "CASH DUE $42.10"), "CASH DUE $42.10");
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ", with failures" : ""}`);

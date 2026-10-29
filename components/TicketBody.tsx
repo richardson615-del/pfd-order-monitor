@@ -1,4 +1,5 @@
 import { Order } from "@/lib/types";
+import { cateringText } from "@/lib/catering-text";
 
 /**
  * The order itself: what was ordered, what it costs, what the customer
@@ -18,6 +19,8 @@ const money = (n: number | null | undefined) =>
 
 export default function TicketBody({ order }: { order: Order }) {
   const items = order.items ?? [];
+  const paymentType = cateringText(order.source, order.payment_type);
+  const notes = cateringText(order.source, order.notes);
   const money_rows: [string, string | null][] = [
     ["Items", money(order.items_total)],
     ["Tax", money(order.tax)],
@@ -61,13 +64,13 @@ export default function TicketBody({ order }: { order: Order }) {
           <span>Total</span>
           <span className="num">{money(order.customer_total) ?? "—"}</span>
         </div>
-        {order.payment_type && <div className="tk-pay">{order.payment_type}</div>}
+        {paymentType && <div className="tk-pay">{paymentType}</div>}
       </div>
 
-      {order.notes && (
+      {notes && (
         <div className="tk-note">
           <span className="tk-label">Customer note</span>
-          <p>{order.notes}</p>
+          <p>{notes}</p>
         </div>
       )}
 

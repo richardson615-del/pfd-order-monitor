@@ -174,8 +174,19 @@ function buildTicket(order, cols) {
     lines.push(L(rule));
     lines.push(L(pad("TOTAL", total, cols), { bold: true, size: "double-h" }));
   }
-  if (order.payment_type) {
-    const tender = String(order.payment_type);
+  // Same as lib/catering-text.ts: a restaurant never sees "ezCater" (stored rows still say it).
+  const catering = (t) =>
+    t == null || order.source !== "ezcater"
+      ? t
+      : String(t)
+          .replace(/\*\*\*\s*ezCATER CATERING\s*\*\*\*/gi, "*** CATERING ***")
+          .replace(/ezCATER CATERING/gi, "CATERING")
+          .replace(/ezCater #/gi, "Catering #")
+          .replace(/ezCater \(prepaid\)/gi, "Catering (prepaid)");
+  const paymentType = catering(order.payment_type);
+  const notes = catering(order.notes);
+  if (paymentType) {
+    const tender = String(paymentType);
     // Same rule as lib/ticket.ts: a phone order's payment_type is the whole
     // instruction ("PAID - CARD ****1234", "CASH DUE $42.10") and prints bold
     // as itself; every other source stores a tender name and keeps "Paid".
@@ -184,10 +195,10 @@ function buildTicket(order, cols) {
   }
 
   // --- notes ---
-  if (order.notes) {
+  if (notes) {
     lines.push(L(rule));
     lines.push(L("NOTE:", { bold: true }));
-    for (const l of wrap(order.notes, cols)) lines.push(L(l, { bold: true }));
+    for (const l of wrap(notes, cols)) lines.push(L(l, { bold: true }));
   }
 
   return lines;

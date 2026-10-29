@@ -92,7 +92,9 @@ test("channel and payment labels a restaurant reads", () => {
   assert.equal(channelLabel("zuppler"), "Online");
   assert.equal(channelLabel("email"), "Online");
   assert.equal(channelLabel("phone"), "Phone");
-  assert.equal(channelLabel("ezcater"), "ezCater");
+  assert.equal(channelLabel("ezcater"), "Catering");
+  // A restaurant never sees the name, including on a row stored before the change.
+  assert.equal(paymentLabel("ezCater (prepaid)"), "Catering (prepaid)");
   assert.equal(channelLabel("ubereats"), "Uber Eats");
   assert.equal(channelLabel(null), "Other");
   assert.equal(paymentLabel("credit_card"), "Card");

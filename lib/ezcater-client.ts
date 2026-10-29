@@ -323,7 +323,7 @@ export function mapEzCaterOrder(o: any): EzCaterOrder {
     tableware.length ? `Tableware: ${tableware.join(", ")}` : null,
     clean(o?.catererCart?.tableware?.specialInstructions),
     event.thirdPartyDeliveryPartner ? `Delivery partner: ${event.thirdPartyDeliveryPartner}` : null,
-    `ezCater #${orderNumber}`,
+    `Catering #${orderNumber}`,
   ].filter(Boolean).join("\n");
 
   return {

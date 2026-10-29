@@ -10,6 +10,12 @@ import { moneyVariance } from "../lib/canonical";
 import { buildTicket, toPlainText } from "../lib/ticket";
 import { EZCATER_TICKET_BANNER, EZCATER_UPDATED_BANNER, ezCaterFeeOf, ezCaterKitchenOrder, promotionDecision, validLeadHours } from "../lib/ezcater-promote";
 import { docsOrder } from "./lib/ezcater-docs-order";
+import { cateringText } from "../lib/catering-text";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import TicketBody from "../components/TicketBody";
+// tsconfig says jsx: "preserve", so under tsx the component needs React in scope (as scripts/build-demo.ts does).
+(globalThis as any).React = React;
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -69,7 +75,7 @@ test("source ezcater, the fee carried, the catering banner first in the notes, m
   const k = ezCaterKitchenOrder(mapEzCaterOrder(docsOrder), restaurant);
   assert.equal(k.source, "ezcater");
   assert.equal(k.ezcaterFee, 67.62);
-  assert.equal(k.paymentType, "ezCater (prepaid)");
+  assert.equal(k.paymentType, "Catering (prepaid)");
   assert.ok((k.notes ?? "").startsWith(EZCATER_TICKET_BANNER));
   assert.match(k.notes ?? "", /Headcount: 10/);
   assert.ok(Math.abs(moneyVariance(k) ?? 1) < 0.005);
@@ -82,8 +88,41 @@ test("the printed ticket shows the due date (not just a time), the banner and th
   const k = ezCaterKitchenOrder(mapEzCaterOrder(docsOrder), restaurant);
   const text = toPlainText(buildTicket({ order_number: k.orderNumber, source: "ezcater", ticket_restaurant_name: "Willie Mae's", order_type: "delivery", due_time: k.dueTime, received_at: "2025-03-26T15:00:00Z", customer_name: k.customerName, items: k.items, items_total: k.itemsTotal, tax: k.tax, delivery_fee: k.deliveryFee, customer_total: k.customerTotal, payment_type: k.paymentType, notes: k.notes }));
   assert.match(text, /DUE\s+Thu, Mar 27/);
-  assert.match(text, /ezCATER CATERING/);
+  assert.match(text, /\*\*\* CATERING \*\*\*/);
   assert.match(text, /Headcount: 10/);
+});
+
+console.log("\n\"Catering\", never \"ezCater\", where a restaurant looks (Nick, 2026-10-29):");
+const kitchenTicketText = (o: { notes?: string | null; paymentType?: string | null; orderNumber?: string | null }) =>
+  toPlainText(buildTicket({ order_number: o.orderNumber, source: "ezcater", order_type: "delivery", customer_total: 961.05, payment_type: o.paymentType, notes: o.notes }));
+test("a new ezCater order: banner, notes line and payment all say Catering, and nothing on the ticket says ezcater", () => {
+  const k = ezCaterKitchenOrder(mapEzCaterOrder(docsOrder), restaurant);
+  assert.ok((k.notes ?? "").startsWith("*** CATERING ***"));
+  assert.match(k.notes ?? "", /Catering #/);
+  assert.doesNotMatch(kitchenTicketText(k), /ezcater/i);
+});
+test("a row stored before the change is cleaned on the ticket and a reprint (no data rewrite)", () => {
+  const old = { orderNumber: "GJ3P08", paymentType: "ezCater (prepaid)", notes: "*** ezCATER CATERING ***\nHeadcount: 40\nezCater #GJ3P08" };
+  const text = kitchenTicketText(old);
+  assert.doesNotMatch(text, /ezcater/i);
+  assert.match(text, /\*\*\* CATERING \*\*\*/);
+  assert.match(text, /Catering #GJ3P08/);
+  assert.match(text, /Catering \(prepaid\)/);
+  assert.equal(cateringText("ezcater", "ezCater (prepaid)"), "Catering (prepaid)");
+});
+test("the tablet's ticket (TicketBody) renders an old ezCater row without the name", () => {
+  const html = renderToStaticMarkup(React.createElement(TicketBody, { order: { source: "ezcater", items: [], customer_total: 961.05, payment_type: "ezCater (prepaid)", notes: "*** ezCATER CATERING ***\nezCater #GJ3P08" } as any }));
+  assert.doesNotMatch(html, /ezcater/i);
+  assert.match(html, /Catering #GJ3P08/);
+});
+test("only an ezCater order is touched: another source's note that mentions ezCater prints as written", () => {
+  assert.equal(cateringText("phone", "ezCater #1"), "ezCater #1");
+  assert.equal(cateringText("ezcater", null), null);
+});
+test("the print agent's LAN/USB layout carries the same cleaning", () => {
+  const agent = src("print-agent/agent.mjs");
+  assert.match(agent, /order\.source !== "ezcater"/);
+  assert.match(agent, /Catering \(prepaid\)/);
 });
 
 console.log("\nguarantees:");

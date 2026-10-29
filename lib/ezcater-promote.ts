@@ -40,7 +40,8 @@ import { reprintBy } from "./print-policy";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export const DEFAULT_KITCHEN_LEAD_HOURS = 24;
-export const EZCATER_TICKET_BANNER = "*** ezCATER CATERING ***";
+/** A restaurant never sees "ezCater" (Nick, 2026-10-29); older rows are cleaned on display by lib/catering-text.ts. */
+export const EZCATER_TICKET_BANNER = "*** CATERING ***";
 export const EZCATER_UPDATED_BANNER = "*** UPDATED ORDER - replaces the earlier ticket ***";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

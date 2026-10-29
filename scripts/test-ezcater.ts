@@ -72,7 +72,7 @@ async function main() {
     ]);
     assert.equal(c.customerAddress, "100 Main St, Springfield, MO, 65806 | Front desk, 2nd floor");
     assert.equal(c.notes, "Headcount: 25\nPlates and napkins for 25");
-    assert.equal(c.paymentType, "ezCater (prepaid)");
+    assert.equal(c.paymentType, "Catering (prepaid)");
   });
 
   await test("the money reconciles to zero variance, the same check every source passes at ingest", () => {

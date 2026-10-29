@@ -10,6 +10,8 @@
  * must not depend on which transport happens to be in use.
  */
 
+import { cateringText } from "./catering-text";
+
 export interface TicketLine {
   text: string;
   align?: "left" | "center" | "right";
@@ -301,8 +303,11 @@ export function buildTicket(
     const totalLine = large ? pad("TOTAL", total, bigCols) : pad("TOTAL", total, cols);
     lines.push(L(totalLine, { bold: true, size: large ? "double" : "double-h" }));
   }
-  if (order.payment_type) {
-    const tender = String(order.payment_type);
+  // A restaurant never sees "ezCater"; stored rows are cleaned here so a reprint matches a new ticket.
+  const paymentType = cateringText(order.source, order.payment_type);
+  const notes = cateringText(order.source, order.notes);
+  if (paymentType) {
+    const tender = String(paymentType);
     // A phone order's payment_type is a whole instruction - "PAID - CARD
     // ****1234" or "CASH DUE $42.10" (lib/phone-order.ts) - and the one line
     // on the ticket that tells the counter whether to collect. It prints as
@@ -312,10 +317,10 @@ export function buildTicket(
     else lines.push(L(pad("Paid", tender, cols)));
   }
 
-  if (order.notes) {
+  if (notes) {
     lines.push(L(rule));
     lines.push(L("NOTE:", { bold: true }));
-    for (const l of wrap(order.notes, cols)) lines.push(L(l, { bold: true }));
+    for (const l of wrap(notes, cols)) lines.push(L(l, { bold: true }));
   }
 
   // --- Footer --------------------------------------------------------------

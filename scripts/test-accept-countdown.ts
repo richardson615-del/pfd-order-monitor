@@ -203,7 +203,8 @@ test("the card: NEW + Accept before, the countdown pill after; the ticket: Accep
   assert.match(card, /card-flag countdown \$\{cd\.phase\} num/);
   const viewer = src("components/OrderViewer.tsx");
   assert.match(viewer, /ticket-accept/);
-  assert.match(viewer, /\{busy \? "Accepting…" : `Accept · \$\{prepMinutes\} min`\}/);
+  // SC1: a scheduled order's Accept carries no minutes; every other order's is unchanged.
+  assert.match(viewer, /\{busy \? "Accepting…" : scheduled \? "Accept" : `Accept · \$\{prepMinutes\} min`\}/);
   assert.match(viewer, /\{busy \? "Completing…" : "Complete"\}/);
   assert.match(viewer, /ticket-countdown num \$\{cd\.phase\}/);
   assert.doesNotMatch(viewer, /"Done"/);

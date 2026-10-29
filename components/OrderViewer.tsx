@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Order } from "@/lib/types";
 import TicketBody from "./TicketBody";
-import { ageClass, elapsedLabel, isSettled, orderFlag } from "@/lib/order-display";
+import { ageClass, dueLabel, elapsedLabel, isScheduled, isSettled, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted, prepTimeLabel } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 import { timeLabel } from "@/lib/local-day";
@@ -163,7 +163,10 @@ export default function OrderViewer({
   const kind = order.order_type === "delivery" ? "Delivery" : "Pickup";
   const prepTaken = prepTimeLabel(order.accepted_at, order.completed_at);
   const ready = isReady(order);
-  const cooking = !waiting && !ready && !settled && cd !== null;
+  // SC1: due more than two hours out - acknowledge it, nothing to time yet.
+  const scheduled = isScheduled(order, now);
+  const cooking = !waiting && !ready && !settled && !scheduled && cd !== null;
+  const due = dueLabel(order.due_time, now, timezone);
 
   return (
     <div className={`app ticket-page ${age}${cd ? ` counting ${cd.phase}` : ""}`} data-display="kitchen">
@@ -177,7 +180,11 @@ export default function OrderViewer({
         {/* The word a person can act on, not the database's own. This used
             to render order.status raw, so a ticket said "printed" - a fact
             about the paper channel, which is independent of this screen. */}
-        {flag && !cd && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>}
+        {scheduled ? (
+          <span className="card-flag scheduled">Scheduled</span>
+        ) : (
+          flag && !cd && <span className={`card-flag ${flag.tone}`}>{flag.label}</span>
+        )}
       </div>
 
       <div className="ticket-head">
@@ -186,7 +193,9 @@ export default function OrderViewer({
             amber under five minutes, red and counting up past zero. Not yet
             accepted, or settled: the timer - how long the customer has been
             waiting, counting up, in the colour the card had. */}
-        {cd ? (
+        {scheduled ? (
+          <span className="ticket-timer ticket-scheduled num">Due {due}</span>
+        ) : cd ? (
           <span className={`ticket-timer ticket-countdown num ${cd.phase}`} aria-live="off">
             {cd.label}
             <small className="ticket-countdown-age num">waiting {elapsedLabel(order, now)}</small>
@@ -200,7 +209,16 @@ export default function OrderViewer({
         <span className="ticket-name">{order.customer_name || "Customer"}</span>
         {order.due_time && (
           <span className="ticket-due">
-            {kind} at <span className="num">{timeLabel(order.due_time, timezone)}</span>
+            {/* SC1: the date too, unless it is today - "Delivery Tomorrow 11:30 AM". */}
+            {due.startsWith("Today ") ? (
+              <>
+                {kind} at <span className="num">{timeLabel(order.due_time, timezone)}</span>
+              </>
+            ) : (
+              <>
+                {kind} <span className="num">{due}</span>
+              </>
+            )}
           </span>
         )}
       </div>
@@ -240,7 +258,7 @@ export default function OrderViewer({
       )}
 
       {/* PA5: how long (on Accept), then READY and Running late. */}
-      {!settled && waiting && (
+      {!settled && waiting && !scheduled && (
         <div className="ticket-minutes no-print" role="group" aria-label="Ready in how many minutes">
           <span className="card-minutes-label">Ready in</span>
           {readyChoices(prepMinutes).map((m) => (
@@ -291,7 +309,7 @@ export default function OrderViewer({
           </span>
         ) : waiting ? (
           <button className="btn ticket-done ticket-accept" disabled={busy} onClick={() => accept()}>
-            {busy ? "Accepting…" : `Accept · ${prepMinutes} min`}
+            {busy ? "Accepting…" : scheduled ? "Accept" : `Accept · ${prepMinutes} min`}
           </button>
         ) : (
           <button className="btn ticket-done" disabled={busy} onClick={markDone}>

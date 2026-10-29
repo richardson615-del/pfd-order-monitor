@@ -15,6 +15,7 @@
 
 import { cronIssues, staleCronJobs, type CronRunRow } from "@/lib/cron-liveness";
 import { collectRestaurantVolumes, volumeIssues, type RestaurantVolume } from "@/lib/volume-baseline";
+import { dueLabel, isScheduled } from "@/lib/order-display";
 
 export type IssueSeverity = "critical" | "warning";
 
@@ -145,6 +146,8 @@ export interface HealthSnapshot {
     restaurant_id: string;
     restaurant_name: string | null;
     received_at: string;
+    /** SC1: an order due more than two hours out is scheduled - acknowledged ahead, not a customer waiting now. */
+    due_time?: string | null;
   }[];
   tabletsNotWatching: {
     id: string;
@@ -387,6 +390,19 @@ export function evaluateHealth(
   for (const o of snap.unacceptedOrders) {
     const mins = minutesSince(o.received_at, now);
     if (mins === null || mins < thresholds.orderUnacceptedMinutes) continue;
+    // SC1: a catering order sent a day ahead is not a customer waiting - it
+    // still wants acknowledging, so it is a warning that says when it is for.
+    if (isScheduled({ status: "new", due_time: o.due_time ?? null }, now.getTime())) {
+      issues.push({
+        key: `order_unaccepted:${o.id}`,
+        restaurant_id: o.restaurant_id,
+        severity: "warning",
+        title: `Scheduled order not acknowledged: #${o.order_number ?? o.id.slice(0, 8)} at ${o.restaurant_name ?? "unknown restaurant"}`,
+        // Central (the default zone): the restaurant's own zone setting must never reach alerting (scripts/test-clock.ts).
+        detail: `Catering order for ${dueLabel(o.due_time, now.getTime(), null)} not acknowledged on the tablet at ${where(o.restaurant_name)} (arrived ${ago(mins)}).`,
+      });
+      continue;
+    }
     issues.push({
       key: `order_unaccepted:${o.id}`,
       restaurant_id: o.restaurant_id,
@@ -847,7 +863,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     // past which the tablet itself stops asking (STILL_ACTIONABLE_MS).
     const { data: openOrders } = await admin
       .from("orders")
-      .select("id, order_number, restaurant_id, received_at")
+      .select("id, order_number, restaurant_id, received_at, due_time")
       .in("restaurant_id", appRestaurants.map((r: any) => r.id))
       .is("accepted_at", null)
       .not("status", "in", "(cancelled,completed)")
@@ -862,6 +878,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
         restaurant_id: o.restaurant_id,
         restaurant_name: nameOf(o.restaurant_id),
         received_at: o.received_at,
+        due_time: o.due_time ?? null,
       });
     }
   }

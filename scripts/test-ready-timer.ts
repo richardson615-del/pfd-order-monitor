@@ -196,7 +196,9 @@ test("the feed selects the columns, the migration adds them, the route and table
   assert.match(route, /parseOrderPatch/);
   assert.match(route, /\.is\("accepted_at", null\)/, "accept still never rewrites accepted_at");
   assert.match(route, /\.is\("ready_at", null\)/, "ready is stamped once");
-  assert.match(route, /ready_by: readyByFor\(now, minutes\)/);
+  // SC1: readyBy is accepted_at + minutes, except on a scheduled order (the hand-off).
+  assert.match(route, /readyBy = readyByFor\(now, minutes\)/);
+  assert.match(route, /ready_by: readyBy\b/);
   const card = src("components/OrderCard.tsx");
   assert.match(card, /className="btn card-ready"/);
   assert.match(card, /readyChoices\(prepMinutes\)/);

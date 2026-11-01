@@ -4,6 +4,8 @@ import { buildTicket, toEposPrintXml } from "@/lib/ticket";
 import { renderHeader, renderFooter, toEposImageXml, DEFAULT_FOOTER_TEXT_MARK } from "@/lib/ticket-raster";
 import { claimDecision, expiredReason, failureTransition, isResendJob, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
 import { resentBanner } from "@/lib/crm-orders";
+import { readyByFor } from "@/lib/ready-timer";
+import { isValidPrepMinutes } from "@/lib/countdown";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -79,7 +81,19 @@ function sliceBody(lines: any[]): any[] {
   return lines.slice(start, end === -1 ? lines.length : end);
 }
 
-async function handleGetRequest(deviceKey: string) {
+/**
+ * PFD's own Eatabit firmware identifies itself in the User-Agent. Its EP-300
+ * head is slow on graphics (a logo header takes longer than the ticket is
+ * worth to a cook) and the box has no cutter, so those printers get the
+ * all-text layout at large scale, with the restaurant name typed in big
+ * letters where the raster header would have been. Epson printers are not
+ * affected.
+ */
+export function isTextOnlyPrinter(userAgent: string | null): boolean {
+  return (userAgent ?? "").startsWith("pfd-eatabit");
+}
+
+async function handleGetRequest(deviceKey: string, textOnly = false) {
   const device = await findDevice(deviceKey);
   if (!device) return empty();
 
@@ -183,7 +197,7 @@ async function handleGetRequest(deviceKey: string) {
 
         const r = job.orders?.restaurants;
         // Device setting wins; null means inherit the restaurant's default.
-        const scale = (device as any).text_scale || r?.ticket_text_scale || "normal";
+        const scale = textOnly ? "large" : ((device as any).text_scale || r?.ticket_text_scale || "normal");
         const design = {
           style: r?.ticket_design_style || "bold",
           footerText: r?.ticket_footer_text,
@@ -200,6 +214,19 @@ async function handleGetRequest(deviceKey: string) {
           : { text: r?.ticket_footer_text, url: r?.ticket_footer_url };
 
         const lines = buildTicket(job.orders, cols, footerContent, { scale });
+
+        if (textOnly) {
+          // Everything as text: the restaurant name promoted to double size
+          // so it reads as the header, and no images anywhere.
+          const name = r?.name || job.orders?.ticket_restaurant_name;
+          const textLines = lines.map((l: any) =>
+            name && l.text === name && !l.size ? { ...l, size: "double" as const, bold: true } : l
+          );
+          if (isResendJob(job.queued_by)) {
+            textLines.unshift({ text: resentBanner(job.orders?.order_number), align: "center", bold: true, reverse: true }, { text: "" });
+          }
+          return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>20000</timeout></Parameter><PrintData>${toEposPrintXml(textLines, cols)}</PrintData></ePOSPrint>`;
+        }
 
         // The raster blocks own the header and footer, so the text renderer's
         // versions are dropped rather than printed twice.
@@ -331,6 +358,41 @@ async function handleSetResponse(deviceKey: string, responseFile: string) {
   return empty();
 }
 
+/**
+ * The Eatabit's MENU button: the kitchen picks how many minutes an order
+ * needs, and the box posts it here. Same effect as Accept-with-minutes on
+ * the tablet (app/api/orders/[id] PATCH): accepted_at is stamped once,
+ * ready_minutes and ready_by are set, and the CRM shows the driver the
+ * same clock. The order is named by its order_number, which is what the
+ * ticket shows, scoped to the device's restaurant.
+ */
+async function handleSetReadyTime(deviceKey: string, orderNumber: string, minutesRaw: string) {
+  const device = await findDevice(deviceKey);
+  if (!device) return empty();
+  const minutes = Number(minutesRaw);
+  if (!orderNumber || !isValidPrepMinutes(minutes)) return new NextResponse("bad request", { status: 400 });
+  const admin = supabaseAdmin();
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, accepted_at, status, ready_at")
+    .eq("restaurant_id", device.restaurant_id)
+    .eq("order_number", orderNumber)
+    .order("received_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!order) return new NextResponse("order not found", { status: 404 });
+  if (order.status === "cancelled" || order.status === "completed") return new NextResponse(`order ${order.status}`, { status: 409 });
+  const now = new Date().toISOString();
+  const acceptedAt = order.accepted_at ?? now;
+  const readyBy = readyByFor(acceptedAt, minutes);
+  const { error } = await admin
+    .from("orders")
+    .update({ accepted_at: acceptedAt, ready_minutes: minutes, ready_by: readyBy, ready_at: null })
+    .eq("id", order.id);
+  if (error) return new NextResponse("update failed", { status: 500 });
+  return new NextResponse(`ready by ${readyBy}`, { status: 200, headers: { "Content-Type": "text/plain" } });
+}
+
 export async function POST(req: NextRequest) {
   let form: URLSearchParams;
   try {
@@ -343,7 +405,10 @@ export async function POST(req: NextRequest) {
   const deviceKey = (form.get("ID") || "").trim();
   if (!deviceKey) return empty();
 
-  if (connectionType === "GetRequest") return handleGetRequest(deviceKey);
+  if (connectionType === "GetRequest") return handleGetRequest(deviceKey, isTextOnlyPrinter(req.headers.get("user-agent")));
+  if (connectionType === "SetReadyTime") {
+    return handleSetReadyTime(deviceKey, (form.get("OrderNumber") || "").trim(), form.get("Minutes") || "");
+  }
   if (connectionType === "SetResponse") {
     return handleSetResponse(deviceKey, form.get("ResponseFile") || "");
   }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { constantTimeEquals } from "@/lib/crm-auth";
 import { ingestZupplerOrderByUuid } from "@/lib/zuppler-ingest";
 import { recordWebhookReceipt, fingerprint } from "@/lib/webhook-receipts";
-import { zupplerWebhookDecision } from "@/lib/zuppler-webhook-auth";
+import { extractOrderUuid, orderUuidFromRawBody, zupplerWebhookDecision } from "@/lib/zuppler-webhook-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -23,28 +23,7 @@ export const maxDuration = 30;
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** For the refusal record only: did a refused body name an order? Never acted on. */
-function refusedOrderUuid(rawBody: string): string | null {
-  try {
-    return extractOrderUuid(JSON.parse(rawBody));
-  } catch {
-    return null;
-  }
-}
-
-/** Finds order_uuid anywhere reasonable in the webhook body. */
-function extractOrderUuid(body: any): string | null {
-  if (!body || typeof body !== "object") return null;
-  const direct =
-    body.order_uuid ?? body.orderUuid ?? body.uuid ?? body.order?.uuid;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
-  for (const k of Object.keys(body)) {
-    const v = body[k];
-    if (v && typeof v === "object" && typeof v.order_uuid === "string") {
-      return v.order_uuid.trim();
-    }
-  }
-  return null;
-}
+const refusedOrderUuid = orderUuidFromRawBody;
 
 export async function POST(req: NextRequest) {
   // Read the body FIRST, before the auth check, so a rejected receipt is
@@ -97,6 +76,10 @@ export async function POST(req: NextRequest) {
     const headerNames = [...req.headers.keys()].sort().join(", ");
     await recordWebhookReceipt({
       status: "unauthorized", httpStatus: 401, rawBody, userAgent,
+      // Recorded so the health check can tell a refused delivery whose order
+      // arrived anyway (by a signed delivery or by email) from a lost one.
+      // Diagnostics only: nothing is fetched or created from it here.
+      orderUuid: refusedOrderUuid(rawBody),
       detail: [
         secret ? "token mismatch" : "ZUPPLER_WEBHOOK_SECRET not set",
         // First, because the detail is cut at 500 characters and the header list is long:

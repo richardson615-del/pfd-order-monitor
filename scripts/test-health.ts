@@ -431,6 +431,88 @@ test("rejected orders reach a phone", async () => {
   assert.ok(composeSmsAlert([i]), "lost orders must reach a phone");
 });
 
+// 2026-11-02: Zuppler delivered every order twice for hours - once with our
+// token, once with none - so the finding read "refusing 50% (52 of 104)" while
+// nothing was lost. A refusal whose order is in the system is a duplicate.
+const UNSIGNED = [{ label: "token mismatch | ua=req/0.5.17 | order_uuid=yes | presented=NO AUTH HEADER", count: 52 }];
+const withArrivals = (total: number, rejected: number, arrived: number, missing: string[], unnamed = 0): HealthSnapshot => {
+  const s = partial(total, rejected, UNSIGNED);
+  return { ...s, webhook: { ...s.webhook, recentRejectedArrived: arrived, recentRejectedMissing: missing, recentRejectedUnnamed: unnamed } };
+};
+
+test("refusals whose orders all arrived anyway are a warning, not a lost-order alarm", () => {
+  const issues = evaluateHealth(withArrivals(104, 52, 52, []), NOW);
+  assert.equal(issues.find((x) => x.key === "webhook_partial_rejected"), undefined, "nothing was lost");
+  const i = issues.find((x) => x.key === "webhook_refused_duplicates");
+  assert.ok(i, "still says Zuppler is sending without our token");
+  assert.equal(i!.severity, "warning");
+  assert.match(i!.detail, /no order was lost/);
+  assert.match(i!.detail, /ZUPPLER_ACCEPT_UNSIGNED/);
+});
+
+test("one refused order that never arrived is critical and named, whatever the count floor", () => {
+  const i = evaluateHealth(withArrivals(104, 52, 51, ["4be18cfa"]), NOW)
+    .find((x) => x.key === "webhook_partial_rejected");
+  assert.ok(i, "a single lost order must alert");
+  assert.equal(i!.severity, "critical");
+  assert.match(i!.title, /1 order\(s\) that never arrived/);
+  assert.match(i!.detail, /4be18cfa/);
+  assert.match(i!.detail, /51 other refusals were orders that arrived anyway/);
+});
+
+test("refusals that name no order still use the old share rule", () => {
+  // Scanners and probes: nothing to match, so judged as before.
+  const i = evaluateHealth(withArrivals(100, 40, 0, [], 40), NOW)
+    .find((x) => x.key === "webhook_partial_rejected");
+  assert.ok(i);
+  assert.equal(i!.severity, "critical");
+});
+
+test("unknown arrivals (lookup failed) fall back to treating every refusal as lost", () => {
+  const i = evaluateHealth(partial(104, 52, UNSIGNED), NOW).find((x) => x.key === "webhook_partial_rejected");
+  assert.ok(i, "an unknown must never hide a refusal");
+  assert.match(i!.title, /50%/);
+});
+
+test("splitRefusals: arrived, missing, and too fresh to call", async () => {
+  const { splitRefusals } = await import("@/lib/health");
+  const now = NOW.getTime();
+  const r = splitRefusals(
+    [
+      { uuid: "aaaaaaaa-0000-4000-8000-000000000001", at: minsAgo(30) },
+      { uuid: "bbbbbbbb-0000-4000-8000-000000000002", at: minsAgo(40) },
+      { uuid: "bbbbbbbb-0000-4000-8000-000000000002", at: minsAgo(39) },
+      { uuid: "cccccccc-0000-4000-8000-000000000003", at: minsAgo(2) },
+    ],
+    new Set(["aaaaaaaa-0000-4000-8000-000000000001"]),
+    now,
+  );
+  assert.equal(r.recentRejectedArrived, 1);
+  assert.deepEqual(r.recentRejectedMissing, ["bbbbbbbb"], "missing once, fresh one not yet called");
+});
+
+test("classifyRefusals reads the uuid from an old row's stored body, and an orders error is unknown", async () => {
+  const { classifyRefusals } = await import("@/lib/health");
+  const rows = [
+    { order_uuid: null, raw_body: JSON.stringify({ order_uuid: "dddddddd-0000-4000-8000-000000000004" }), received_at: minsAgo(30) },
+    { order_uuid: null, raw_body: "not json", received_at: minsAgo(30) },
+  ];
+  let asked: string[] = [];
+  const ok = { from: () => ({ select: () => ({ in: (_c: string, v: string[]) => { asked = v; return Promise.resolve({ data: [{ external_id: v[0] }], error: null }); } }) }) };
+  const r = await classifyRefusals(ok, rows, NOW.getTime());
+  assert.deepEqual(asked, ["dddddddd-0000-4000-8000-000000000004"]);
+  assert.deepEqual(r, { recentRejectedArrived: 1, recentRejectedMissing: [], recentRejectedUnnamed: 1 });
+  const bad = { from: () => ({ select: () => ({ in: () => Promise.resolve({ data: null, error: { message: "x" } }) }) }) };
+  assert.deepEqual(await classifyRefusals(bad, rows, NOW.getTime()), {});
+});
+
+test("a refused delivery records the order it named", () => {
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const route = readFileSync(new URL("../app/api/ingest/zuppler/route.ts", import.meta.url), "utf8");
+  const refusal = route.slice(route.indexOf('status: "unauthorized"'), route.indexOf("detail: ["));
+  assert.match(refusal, /orderUuid: refusedOrderUuid\(rawBody\)/);
+});
+
 
 console.log(
   process.exitCode

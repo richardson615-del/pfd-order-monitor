@@ -35,3 +35,29 @@ export function zupplerWebhookDecision(args: {
   if (acceptUnsignedEnabled(args.env) && isUuidShaped(args.orderUuid)) return "unsigned_verify";
   return "refuse";
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Finds order_uuid anywhere reasonable in a Zuppler webhook body. */
+export function extractOrderUuid(body: any): string | null {
+  if (!body || typeof body !== "object") return null;
+  const direct =
+    body.order_uuid ?? body.orderUuid ?? body.uuid ?? body.order?.uuid;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  for (const k of Object.keys(body)) {
+    const v = body[k];
+    if (v && typeof v === "object" && typeof v.order_uuid === "string") {
+      return v.order_uuid.trim();
+    }
+  }
+  return null;
+}
+
+/** The order a raw (possibly refused) body names, or null. Never acted on by itself. */
+export function orderUuidFromRawBody(rawBody: string | null | undefined): string | null {
+  if (!rawBody) return null;
+  try {
+    return extractOrderUuid(JSON.parse(rawBody));
+  } catch {
+    return null;
+  }
+}

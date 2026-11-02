@@ -181,6 +181,22 @@ export interface HealthSnapshot {
      * on and one that just sends them to the SQL editor.
      */
     recentRejectedSources: { label: string; count: number }[];
+    /**
+     * (2026-11-02) Of the refusals, how many named an order that is in the
+     * system anyway - another delivery of the same order was accepted, or it
+     * came in by email. Zuppler has been sending some orders twice, once with
+     * our token and once with none, so a refusal is not by itself a lost
+     * order. Absent: unknown, and every refusal is treated as lost.
+     */
+    recentRejectedArrived?: number;
+    /**
+     * Refusals that named an order which is NOT in the system: the ones that
+     * may really be lost. Short order ids (first 8 of the uuid), oldest first.
+     * Refusals that named no order at all (scanners, probes) are in neither.
+     */
+    recentRejectedMissing?: string[];
+    /** Refusals whose body named no order at all (scanners, probes). */
+    recentRejectedUnnamed?: number;
   };
   /** Last run per scheduled job (migration 031). */
   cronRuns: CronRunRow[];
@@ -512,8 +528,41 @@ export function evaluateHealth(
       // while this is already open joins the existing alert rather than
       // raising its own.
       const share = w.recentTotal > 0 ? w.recentRejected / w.recentTotal : 0;
-      if (
-        w.recentRejected >= thresholds.webhookRejectedMinCount &&
+      const known = w.recentRejectedArrived !== undefined && w.recentRejectedMissing !== undefined;
+      const missing = w.recentRejectedMissing ?? [];
+      const arrived = w.recentRejectedArrived ?? 0;
+      if (known && missing.length > 0) {
+        // A refused delivery whose order is nowhere in the system. Even one is
+        // an order nobody will cook, so no count threshold applies here.
+        const shown = missing.slice(0, 10).join(", ") + (missing.length > 10 ? ` and ${missing.length - 10} more` : "");
+        issues.push({
+          key: "webhook_partial_rejected",
+          severity: "critical",
+          title: `Order webhook refused ${missing.length} order(s) that never arrived`,
+          detail:
+            `${missing.length} refused deliveries in the last ${w.recentWindowHours}h name an order that is not in the system: ${shown}. ` +
+            (arrived > 0 ? `${arrived} other refusals were orders that arrived anyway. ` : "") +
+            (worstSources ? `Worst: ${worstSources}. ` : "") +
+            `Each missing one is a live order that will not print and will not be paid.`,
+        });
+      } else if (known && arrived >= thresholds.webhookRejectedMinCount && share >= thresholds.webhookRejectedShare) {
+        // Every refusal was a second copy of an order that got in anyway.
+        // Worth knowing (Zuppler is sending without our token), not worth a
+        // critical: nothing was lost.
+        issues.push({
+          key: "webhook_refused_duplicates",
+          severity: "warning",
+          title: `Order webhook refusing duplicate deliveries (${w.recentRejected} of ${w.recentTotal})`,
+          detail:
+            `${w.recentRejected} receipts were turned away in the last ${w.recentWindowHours}h. ${arrived} named an order that arrived anyway` +
+            ((w.recentRejectedUnnamed ?? 0) > 0 ? ` and ${w.recentRejectedUnnamed} named no order at all` : "") +
+            `, so no order was lost. ` +
+            (worstSources ? `Reason: ${worstSources}. ` : "") +
+            `Zuppler is sending these orders a second time without our token. ZUPPLER_ACCEPT_UNSIGNED=1 takes them, or Zuppler can remove the extra webhook.`,
+        });
+      } else if (
+        // Known: only refusals that named no order are left to judge here.
+        (known ? (w.recentRejectedUnnamed ?? 0) : w.recentRejected) >= thresholds.webhookRejectedMinCount &&
         share >= thresholds.webhookRejectedShare
       ) {
         issues.push({
@@ -638,6 +687,57 @@ export function sortIssues(issues: HealthIssue[]): HealthIssue[] {
 
 import { supabaseAdmin } from "./supabase-server";
 import { ACCEPTED_STATUSES } from "./webhook-receipts";
+import { orderUuidFromRawBody } from "./zuppler-webhook-auth";
+
+/** A refusal this recent may still be followed by its signed delivery. */
+const REFUSAL_GRACE_MS = 5 * 60 * 1000;
+
+/**
+ * Splits refused receipts into orders that arrived anyway and orders that are
+ * missing. Pure apart from the one orders lookup, which is passed in so the
+ * split itself is testable. Returns {} (unknown) if the lookup fails, so the
+ * finding falls back to treating every refusal as lost rather than hiding one.
+ */
+export async function classifyRefusals(
+  admin: any,
+  rejected: { order_uuid?: string | null; raw_body?: string | null; received_at?: string | null }[],
+  nowMs: number,
+): Promise<{ recentRejectedArrived?: number; recentRejectedMissing?: string[]; recentRejectedUnnamed?: number }> {
+  const named = rejected
+    .map((r) => ({ uuid: r.order_uuid || orderUuidFromRawBody(r.raw_body), at: r.received_at ?? null }))
+    .filter((r): r is { uuid: string; at: string | null } => !!r.uuid);
+  const unnamed = rejected.length - named.length;
+  if (named.length === 0) return { recentRejectedArrived: 0, recentRejectedMissing: [], recentRejectedUnnamed: unnamed };
+  const uuids = [...new Set(named.map((r) => r.uuid))];
+  try {
+    const { data, error } = await admin.from("orders").select("external_id").in("external_id", uuids);
+    if (error) return {};
+    return { ...splitRefusals(named, new Set((data ?? []).map((o: any) => String(o.external_id))), nowMs), recentRejectedUnnamed: unnamed };
+  } catch {
+    return {};
+  }
+}
+
+export function splitRefusals(
+  named: { uuid: string; at: string | null }[],
+  inSystem: Set<string>,
+  nowMs: number,
+): { recentRejectedArrived: number; recentRejectedMissing: string[] } {
+  let arrived = 0;
+  const missing: { id: string; at: string }[] = [];
+  const seenMissing = new Set<string>();
+  for (const r of named) {
+    if (inSystem.has(r.uuid)) { arrived++; continue; }
+    const atMs = r.at ? Date.parse(r.at) : NaN;
+    // Too fresh to call: the signed copy usually lands seconds later.
+    if (Number.isFinite(atMs) && nowMs - atMs < REFUSAL_GRACE_MS) continue;
+    if (seenMissing.has(r.uuid)) continue;
+    seenMissing.add(r.uuid);
+    missing.push({ id: r.uuid.slice(0, 8), at: r.at ?? "" });
+  }
+  missing.sort((a, b) => a.at.localeCompare(b.at));
+  return { recentRejectedArrived: arrived, recentRejectedMissing: missing.map((m) => m.id) };
+}
 
 /** Reads the current state of the pipeline for evaluateHealth(). */
 export async function collectSnapshot(): Promise<HealthSnapshot> {
@@ -695,12 +795,17 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
       .eq("source", "zuppler")
       .in("status", ACCEPTED_STATUSES)
       .order("received_at", { ascending: false }).limit(1),
-    admin.from("webhook_receipts").select("status, detail")
+    admin.from("webhook_receipts").select("status, detail, order_uuid, raw_body, received_at")
       .eq("source", "zuppler")
       .gte("received_at", recentSince),
   ]);
   const recent = recentRes.data ?? [];
   const rejected = recent.filter((r: any) => !ACCEPTED_STATUSES.includes(r.status));
+  // Which refusals were orders that got in anyway. The refused receipt's own
+  // order_uuid (recorded since 2026-11-02) or, for older rows, the uuid its
+  // stored body names. Matched against orders, not receipts, so an order that
+  // arrived by email counts as arrived too.
+  const rejectedArrivals = await classifyRefusals(admin, rejected, Date.now());
   // Grouped by the reason the receipt writer already recorded, so the finding
   // can name the offending listings instead of only counting them.
   const bySource = new Map<string, number>();
@@ -717,6 +822,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     recentRejectedSources: [...bySource.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count),
+    ...rejectedArrivals,
   };
 
   const { data: cronRows } = await admin

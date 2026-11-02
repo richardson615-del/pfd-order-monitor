@@ -134,6 +134,10 @@ export default function AdminPanel({
   // Shown once, right after registering. The key is not retrievable again.
   const [newKey, setNewKey] = useState<{ name: string; key: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // Pairing a printer from the code on its screen. The office never sees a key.
+  const [pairCode, setPairCode] = useState("");
+  const [pairing, setPairing] = useState(false);
+  const [pairMsg, setPairMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/print-devices")
@@ -164,6 +168,32 @@ export default function AdminPanel({
       setDeviceError(err.message);
     } finally {
       setRegistering(false);
+    }
+  }
+
+  async function pairDevice(e: React.FormEvent) {
+    e.preventDefault();
+    setPairing(true);
+    setPairMsg(null);
+    try {
+      const res = await fetch("/api/admin/print-devices/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: pairCode, restaurant_id: deviceRestaurantId, name: deviceName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not pair that printer");
+      setDevices((prev) => [
+        { id: data.device.id, name: data.device.name, restaurant_id: data.restaurant.id, is_active: true, last_seen_at: null, printer_name: null, app_version: null, created_at: new Date().toISOString() } as PrintDevice,
+        ...prev,
+      ]);
+      setPairMsg({ ok: true, text: `Paired to ${data.restaurant.name}. The printer picks it up in a few seconds and prints a PRINTER ONLINE slip.` });
+      setPairCode("");
+      setDeviceName("");
+    } catch (err: any) {
+      setPairMsg({ ok: false, text: err.message });
+    } finally {
+      setPairing(false);
     }
   }
 
@@ -547,10 +577,30 @@ export default function AdminPanel({
               onChange={(e) => setDeviceName(e.target.value)}
               placeholder="Kitchen printer"
             />
+            <label>Pair code on the printer's screen (Eatabit boxes)</label>
+            <input
+              inputMode="numeric"
+              autoComplete="off"
+              value={pairCode}
+              onChange={(e) => setPairCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+              placeholder="123456"
+            />
             {deviceError && <div className="error-text">{deviceError}</div>}
-            <button className="btn primary" disabled={registering} type="submit">
-              {registering ? "Registering..." : "Register device"}
-            </button>
+            {pairMsg && <div className={pairMsg.ok ? "" : "error-text"}>{pairMsg.text}</div>}
+            {pairCode.length > 0 ? (
+              <button
+                className="btn primary"
+                disabled={pairing || pairCode.length !== 6 || !deviceRestaurantId}
+                type="button"
+                onClick={pairDevice}
+              >
+                {pairing ? "Pairing..." : "Pair printer"}
+              </button>
+            ) : (
+              <button className="btn primary" disabled={registering} type="submit">
+                {registering ? "Registering..." : "Register device"}
+              </button>
+            )}
           </form>
 
           {newKey && (

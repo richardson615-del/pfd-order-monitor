@@ -52,3 +52,21 @@ jobs:
       # which is why this workflow needs no environment at all.
       - name: Tests
         run: npm test
+
+      # BF1 (2026-11-02): `next build` checks things tsc does not - e.g. a
+      # route file exporting anything but HTTP handlers and route config
+      # ("isTextOnlyPrinter is not a valid Route export field"), which broke
+      # every production deploy from #131 to #135 while this workflow stayed
+      # green. `npm run build` is generate-expected-migrations + next build;
+      # it never runs scripts/migrate.mjs (only `vercel-build` does), and the
+      # values below are dummies that point at no real project.
+      - name: Build (next build, dummy env, no database)
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: dummy-service-role-key
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: BDummy
+          VAPID_PRIVATE_KEY: dummy
+          VAPID_CONTACT_EMAIL: ci@example.com

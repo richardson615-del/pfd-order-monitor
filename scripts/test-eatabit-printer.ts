@@ -4,7 +4,7 @@
  * time rules match the tablet's Accept.
  */
 import assert from "node:assert/strict";
-import { isTextOnlyPrinter } from "@/app/api/print/epson/route";
+import { isTextOnlyPrinter } from "@/lib/printers/text-only";
 import { readyByFor } from "@/lib/ready-timer";
 import { isValidPrepMinutes } from "@/lib/countdown";
 

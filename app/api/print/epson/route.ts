@@ -6,6 +6,7 @@ import { claimDecision, expiredReason, failureTransition, isResendJob, printMaxA
 import { resentBanner } from "@/lib/crm-orders";
 import { readyByFor } from "@/lib/ready-timer";
 import { isValidPrepMinutes } from "@/lib/countdown";
+import { isTextOnlyPrinter } from "@/lib/printers/text-only";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -79,18 +80,6 @@ function sliceBody(lines: any[]): any[] {
   const end = lines.findIndex((l: any, i: number) => i > start && /^=+$/.test(l.text ?? ""));
   if (start === -1) return lines;
   return lines.slice(start, end === -1 ? lines.length : end);
-}
-
-/**
- * PFD's own Eatabit firmware identifies itself in the User-Agent. Its EP-300
- * head is slow on graphics (a logo header takes longer than the ticket is
- * worth to a cook) and the box has no cutter, so those printers get the
- * all-text layout at large scale, with the restaurant name typed in big
- * letters where the raster header would have been. Epson printers are not
- * affected.
- */
-export function isTextOnlyPrinter(userAgent: string | null): boolean {
-  return (userAgent ?? "").startsWith("pfd-eatabit");
 }
 
 async function handleGetRequest(deviceKey: string, textOnly = false) {

@@ -1548,3 +1548,34 @@ CRM reads the result from `GET /api/crm/orders` (`ready_minutes`, `ready_by`,
 - Large print is a per-station accessibility setting. It is the default for
   all restaurants; a station that wants standard sets `text_scale` on the
   device.
+
+### Owner login email (partner portal, 2026-11-02)
+
+`POST /api/crm/restaurants/:id/owner-invite` (either id) emails a restaurant
+owner a link to choose their own password for the partner portal, from
+info@ (the same gmail.send grant as tickets and statements).
+
+```json
+{ "email": "owner@example.com", "actor": "nick@pfdworks.com", "preview": false }
+```
+
+- No account for the address: one is created (Supabase invite link) and linked
+  to the restaurant as `restaurant_users.role = 'owner'`. Existing account: a
+  recovery link instead, so sending again fixes an expired link or a lost
+  password. An existing link keeps its role.
+- The owner login is separate from the tablet login. The tablet's username,
+  stored password and Show password are untouched.
+- The email links to `/set-password?token_hash=…&type=invite|recovery`.
+  Opening it spends nothing; the token is exchanged by `verifyOtp` when the
+  owner presses Set my password, so a mail scanner cannot burn it.
+- The response never carries the link or a password:
+  `{ ok, email, type: "invite" | "recovery", sent: true, subject, messageId }`.
+  `502` when the email failed after the login was set up (safe to retry).
+- Refused (400) for a `@tablet.pfdworks.com` address, (409) for a PFD admin.
+- `preview: true` returns `{ subject, html, text }` with a placeholder link
+  and changes nothing.
+- Clears `password_current` for that link (the owner picks the password, so a
+  copy kept from an admin "Set new password" would go stale).
+- Audited in `restaurant_login_audit` (`created` / `password_reset`, note says
+  "owner login email"), never with the link.
+- Base URL for the link: `PORTAL_BASE_URL`, else the request's own origin.

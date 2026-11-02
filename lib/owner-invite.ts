@@ -102,7 +102,7 @@ export function composeOwnerLoginEmail(input: {
     "",
     `After that, sign in at ${input.loginUrl} with ${input.email} and your new password.`,
     "",
-    "The link works once and expires. If it has stopped working, go to the sign-in page and choose \"Email me a sign-in link\", or reply to this email and we'll send a new one.",
+    "The link works once and expires. If it has stopped working, go to the sign-in page and choose \"Sign in with an email link instead\", or reply to this email and we'll send a new one.",
     "",
     "Thank you,",
     "Premium Food Delivery",
@@ -117,7 +117,7 @@ export function composeOwnerLoginEmail(input: {
     `<p>After that, sign in at <a href="${escapeHtml(input.loginUrl)}">${escapeHtml(input.loginUrl)}</a> ` +
     `with ${escapeHtml(input.email)} and your new password.</p>` +
     `<p style="color:#555;font-size:13px">The link works once and expires. If it has stopped working, ` +
-    `go to the sign-in page and choose "Email me a sign-in link", or reply to this email and we'll send a new one.</p>` +
+    `go to the sign-in page and choose "Sign in with an email link instead", or reply to this email and we'll send a new one.</p>` +
     `<p>Thank you,<br>Premium Food Delivery</p>` +
     `</div>`;
 

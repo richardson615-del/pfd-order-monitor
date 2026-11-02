@@ -71,8 +71,8 @@ function SetPasswordForm() {
           <div className="form">
             <h2 style={{ margin: 0 }}>This link has stopped working</h2>
             <p className="muted">
-              Login links work once and expire. Go to the sign-in page and choose &quot;Email me a
-              sign-in link&quot;, or ask Premium to send a new one.
+              Login links work once and expire. Go to the sign-in page and choose &quot;Sign in
+              with an email link instead&quot;, or ask Premium to send a new one.
             </p>
             <a className="btn primary" href="/login">
               Go to sign in

@@ -35,19 +35,25 @@ export const SENDER_ADDRESS = process.env.TICKET_EMAIL_FROM || "info@pfdworks.co
 export const EMAIL_TICKET_COLS = Number(process.env.TICKET_EMAIL_COLS || 32);
 
 /**
- * Large print on an emailed ticket (Torino's, Matt 2026-11-06: "restaurant
- * wants the print larger"). Plain text has no double-width, so instead of the
- * thermal path's doubled lines the WHOLE ticket is laid out at fewer columns
- * in a bigger font: 24 columns at 17px fill the same width as 32 at 13px, so
- * every character prints about a third larger and nothing runs off the edge.
+ * Emailed tickets fill the paper (Matt 2026-11-06, Torino's: "restaurant wants
+ * the print larger", "fill in the sides, don't waste space, make larger").
+ * Plain text has no double-width, so the ticket is laid out at 22 columns and
+ * the font is sized to the PAGE width (vw), not a fixed px: Courier is 0.6em
+ * a character, so 22 x 0.6 x 7.2vw = 95% of whatever paper AEM prints on.
+ * Each size has a px fallback first for a renderer without vw.
  */
-export const EMAIL_TICKET_COLS_LARGE = Math.round(EMAIL_TICKET_COLS * 0.75);
+export const EMAIL_TICKET_COLS_LARGE = 22;
 
-/** Font sizes for the emailed ticket's HTML part, per text scale. */
+/** CSS font-size declarations for the emailed ticket's HTML part. */
 export function emailTicketFonts(large: boolean) {
   return large
-    ? { body: 17, banner: 24, due: 21, total: 22 }
-    : { body: 13, banner: 19, due: 16, total: 17 };
+    ? {
+        body: "font-size:18px;font-size:7.2vw",
+        banner: "font-size:24px;font-size:8vw",
+        due: "font-size:18px;font-size:6.8vw",
+        total: "font-size:18px;font-size:7.2vw",
+      }
+    : { body: "font-size:13px", banner: "font-size:19px", due: "font-size:16px", total: "font-size:17px" };
 }
 
 /**
@@ -122,25 +128,25 @@ function wrapTicketHtmlStyled(
 ): string {
   const f = emailTicketFonts(large);
   const mono = "font-family:'Courier New',Courier,monospace";
-  const W = "max-width:34ch";
+  const W = large ? "width:100%" : "max-width:34ch";
   return (
     `<html><body style="margin:0;${mono};color:#000">` +
     // Centered on the page (Matt 2026-11-06: tickets printed hugging the left edge).
-    `<div style="${W};display:table;margin:0 auto">` +
+    `<div style="${W};margin:0 auto">` +
     // Knockout banner - the one fact that decides where the food goes.
-    `<div style="background:#000;color:#fff;font-weight:bold;font-size:${f.banner}px;` +
+    `<div style="background:#000;color:#fff;font-weight:bold;${f.banner};` +
     `text-align:center;letter-spacing:3px;padding:4px 0;margin:0 0 4px">` +
     escapeHtml(parts.banner) +
     `</div>` +
     (parts.due
-      ? `<div style="text-align:center;font-weight:bold;font-size:${f.due}px;margin:0 0 4px">` +
+      ? `<div style="text-align:center;font-weight:bold;${f.due};margin:0 0 4px">` +
         escapeHtml(parts.due) + `</div>`
       : "") +
-    `<pre style="${mono};font-size:${f.body}px;font-weight:bold;line-height:1.35;` +
+    `<pre style="${mono};${f.body};font-weight:bold;line-height:1.35;` +
     `white-space:pre;display:table;margin:0 auto">` + escapeHtml(text) + `</pre>` +
     (parts.total
       ? `<div style="border-top:2px solid #000;margin-top:4px;padding-top:4px;` +
-        `font-weight:bold;font-size:${f.total}px;white-space:pre">` +
+        `font-weight:bold;${f.total};white-space:pre;text-align:center">` +
         escapeHtml(parts.total) + `</div>`
       : "") +
     `</div></body></html>`
@@ -457,9 +463,9 @@ export async function composeBrandedTicketEmail(
     const mono = "font-family:'Courier New',Courier,monospace";
     const html =
       `<html><body style="margin:0;${mono};color:#000">` +
-      `<div style="max-width:34ch;display:table;margin:0 auto">` +
+      `<div style="${large ? "width:100%" : "max-width:34ch"};margin:0 auto">` +
       img(canvasToPng(header)) +
-      `<pre style="${mono};font-size:${emailTicketFonts(large).body}px;font-weight:bold;line-height:1.35;` +
+      `<pre style="${mono};${emailTicketFonts(large).body};font-weight:bold;line-height:1.35;` +
       `white-space:pre;display:table;margin:0 auto">` + escapeHtml(body) + `</pre>` +
       img(canvasToPng(footer)) +
       `</div></body></html>`;

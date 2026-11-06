@@ -170,11 +170,13 @@ console.log(process.exitCode ? "\nSOME TESTS FAILED" : `\nAll assertions passed 
 // Every emailed ticket prints large and centered (Torino's, Matt 2026-11-06).
 {
   const normal = composeTicketEmail(ORDER);
-  assert.equal(EMAIL_TICKET_COLS_LARGE, 24);
-  for (const l of normal.text.split("\n")) assert.ok(l.length <= EMAIL_TICKET_COLS_LARGE, `line too wide: "${l}"`);
-  assert.match(normal.html, /font-size:17px/);
+  assert.equal(EMAIL_TICKET_COLS_LARGE, 22);
+  // The DUE line is lifted out of the <pre> into its own (smaller) heading in the HTML part.
+  for (const l of normal.text.split("\n")) if (!/^\s*DUE\s/.test(l)) assert.ok(l.length <= EMAIL_TICKET_COLS_LARGE, `line too wide: "${l}"`);
+  assert.match(normal.html, /font-size:7\.2vw/);
+  assert.match(normal.html, /width:100%/);
   assert.match(normal.html, /margin:0 auto/);
   assert.equal(composeTicketEmail(ORDER, { scale: "large" }).html, normal.html);
   assert.ok(normal.subject.startsWith("PFD ORDER"), "the AEM rule matches on the subject");
-  console.log(`  ok - emailed tickets print at ${EMAIL_TICKET_COLS_LARGE} columns, 17px, centered`);
+  console.log(`  ok - emailed tickets print at ${EMAIL_TICKET_COLS_LARGE} columns, sized to the paper width`);
 }

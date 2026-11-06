@@ -55,7 +55,11 @@ function ensureMono(): string {
   }
   return GlobalFonts.has(MONO) ? `${MONO}, monospace` : "monospace";
 }
-const LINE_H = 26;
+// Tight spacing (Matt 2026-11-06, Torino's: big orders ran long on emailed
+// tickets). Glyphs are ~20px tall at 48 columns; a line needs only a little
+// air, blank separator lines need less, and doubled lines no extra padding.
+const LINE_H = 22;
+const BLANK_H = 8;
 
 function renderBody(lines: any[]): Canvas {
   const family = ensureMono();
@@ -66,7 +70,8 @@ function renderBody(lines: any[]): Canvas {
 
   const isDoubleWide = (l: any) => l.size === "double" && (l.text ?? "").length <= COLS / 2;
   const heightOf = (l: any) =>
-    isDoubleWide(l) ? LINE_H * 2 + 6 : l.size ? LINE_H + 16 : LINE_H;
+    !(l.text ?? "").trim() && !l.size ? BLANK_H
+      : isDoubleWide(l) ? LINE_H * 2 : l.size ? LINE_H + 14 : LINE_H;
 
   const h = lines.reduce((a, l) => a + heightOf(l), 0) + 12;
   const c = createCanvas(PAPER_WIDTH, h);
@@ -123,7 +128,7 @@ export async function renderTicketPreview(input: PreviewInput): Promise<Buffer> 
   });
   const body = renderBody(sliceBody(lines));
 
-  const GAP = 26;
+  const GAP = 12;
   const total = header.height + body.height + GAP + footer.height;
   const c = createCanvas(PAPER_WIDTH, total);
   const x = c.getContext("2d");

@@ -380,6 +380,12 @@ test("Samsung Internet and WebView get the Chrome line; Chrome gets nothing", ()
   assert.match(browserHostHint(webview)!, /Chrome/);
   assert.equal(browserHostHint(chrome), null);
   assert.equal(browserHostHint(null), null);
+  // iPad Safari tab: says Macintosh, has touch -> Add to Home Screen; from the Home Screen -> nothing.
+  const ipad = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+  assert.match(browserHostHint(ipad, { maxTouchPoints: 5, standalone: false })!, /Add to Home Screen/);
+  assert.equal(browserHostHint(ipad, { maxTouchPoints: 5, standalone: true }), null);
+  assert.equal(browserHostHint(ipad, { maxTouchPoints: 0 }), null); // a real Mac
+  assert.match(browserHostHint("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)")!, /Home Screen/);
 });
 
 test("both faces show it while the gate is up", () => {

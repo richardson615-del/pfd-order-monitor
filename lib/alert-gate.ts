@@ -218,8 +218,19 @@ export function settleGate(
  *
  * A Hexnode kiosk runs Chrome by policy and never sees this line.
  */
-export function browserHostHint(userAgent: string | null | undefined): string | null {
+export function browserHostHint(
+  userAgent: string | null | undefined,
+  device: { maxTouchPoints?: number; standalone?: boolean } = {}
+): string | null {
   const ua = userAgent ?? "";
+  // iPad / iPhone in a Safari tab (Matt 2026-11-06: every button greyed out on
+  // an iPad). Apple only lets a web page get alerts once it is added to the
+  // Home Screen and opened from there. iPadOS Safari says "Macintosh", so a
+  // touch screen is the tell.
+  const apple = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (device.maxTouchPoints ?? 0) > 1);
+  if (apple && !device.standalone) {
+    return "On an iPad or iPhone, alerts only work from the Home Screen: tap the Share button (square with an arrow) at the top, choose Add to Home Screen, then close Safari and open Premium from the new icon.";
+  }
   if (/SamsungBrowser\//.test(ua)) {
     return "This tablet opens Premium in Samsung Internet, which can switch alerts off. In the tablet's settings, choose default apps and set the browser to Chrome, then close Premium and open it again.";
   }

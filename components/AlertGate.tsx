@@ -36,7 +36,7 @@ export default function AlertGate({
 
   // AG3: on an unmanaged tablet running Premium outside Chrome, the gate
   // loops however many times anyone taps. Say the one thing that fixes it.
-  const hostHint = browserHostHint(typeof navigator === "undefined" ? null : navigator.userAgent);
+  const hostHint = browserHostHint(typeof navigator === "undefined" ? null : navigator.userAgent, typeof navigator === "undefined" ? {} : { maxTouchPoints: navigator.maxTouchPoints, standalone: (navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia?.("(display-mode: standalone)").matches });
 
   return (
     <div className="alert-gate" role="dialog" aria-modal="true" aria-labelledby="alert-gate-title">

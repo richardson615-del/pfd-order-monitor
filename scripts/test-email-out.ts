@@ -180,3 +180,14 @@ console.log(process.exitCode ? "\nSOME TESTS FAILED" : `\nAll assertions passed 
   assert.ok(normal.subject.startsWith("PFD ORDER"), "the AEM rule matches on the subject");
   console.log(`  ok - emailed tickets print at ${EMAIL_TICKET_COLS_LARGE} columns, sized to the paper width`);
 }
+
+// The emailed ticket is the Epson ticket as one picture (Matt 2026-11-06).
+void (async () => {
+  const { composeBrandedTicketEmail } = await import("@/lib/email-out");
+  const e = await composeBrandedTicketEmail(ORDER, { scale: "large", footer: { text: "Thanks", url: "https://pfdworks.com" } });
+  assert.match(e.html, /<img src="data:image\/png;base64,/);
+  assert.match(e.html, /width:100%/);
+  assert.ok(e.subject.startsWith("PFD ORDER"), "AEM matches on the subject");
+  assert.ok(e.text.includes("134d542b"), "plain text part still has the whole order");
+  console.log("  ok - emailed ticket is the Epson ticket as an image, full width");
+})();

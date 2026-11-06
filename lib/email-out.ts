@@ -414,66 +414,40 @@ export async function composeBrandedTicketEmail(
     logo?: Buffer | null;
     design?: { style?: string | null } | null;
     cols?: number;
-    /** The restaurant's ticket_text_scale; "large" prints the emailed ticket bigger. */
+    /** The restaurant's ticket_text_scale. Emailed tickets default to large. */
     scale?: string | null;
+    footerMode?: string | null;
+    footerImage?: Buffer | null;
   } = {}
 ): Promise<TicketEmail> {
-  const large = isLarge(opts.scale);
   const base = composeTicketEmail(order, { footer: opts.footer, cols: opts.cols, scale: opts.scale });
-  const hasBranding = Boolean(opts.logo) || Boolean(opts.footer?.url);
-  if (!hasBranding) return base;
 
+  // The Epson ticket itself, as one picture (Matt 2026-11-06: "can we not make
+  // it look like our epson tickets?"). Same renderer as the CRM's ticket
+  // preview: the raster header and footer the Epson receives, and the body
+  // drawn to the Epson's own metrics (48 columns across 576 dots, large print
+  // doubled). Shown at 100% width so it fills whatever paper AEM prints on.
   try {
-    const { renderHeader, renderFooter, canvasToPng, DEFAULT_FOOTER_TEXT_MARK } =
-      await import("./ticket-raster");
-
-    const cols = opts.cols ?? (large ? EMAIL_TICKET_COLS_LARGE : EMAIL_TICKET_COLS);
-    const lines = buildTicket(order, cols, opts.footer ?? {}, { scale: "normal" });
-    const textLines = lines.map((l) => l.text ?? "");
-
-    // The body only: the raster blocks own everything above ORDER # and
-    // everything from the heavy rule down, exactly as on the Epson path.
-    const start = textLines.findIndex((t) => /^ORDER #/.test(t));
-    const end = textLines.findIndex((t, i) => i > start && /^=+$/.test(t));
-    const body = toPlainText(
-      lines.slice(start === -1 ? 0 : start, end === -1 ? lines.length : end),
-      cols
-    );
-
-    const dueLine = textLines.find((t) => /^DUE /.test(t)) ?? null;
-    const design = { style: (opts.design?.style as any) ?? "bold" };
-
-    const header = await renderHeader({
-      restaurantName: order.ticket_restaurant_name || "PFD ORDER",
-      orderType: order.order_type || "order",
-      dueText: dueLine,
-      design,
+    const { renderTicketPreview } = await import("./ticket-preview");
+    const png = await renderTicketPreview({
+      order,
+      design: { style: (opts.design?.style as any) ?? "bold" },
+      scale: opts.scale === "normal" ? "normal" : "large",
+      footerMode: (opts.footerMode as any) ?? undefined,
+      footerText: opts.footer?.text ?? null,
+      footerUrl: opts.footer?.url ?? null,
       logo: opts.logo ?? null,
+      footerImage: opts.footerImage ?? null,
     });
-    const footer = await renderFooter({
-      text: (opts.footer?.text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
-      url: opts.footer?.url ?? null,
-      design,
-    });
-
-    const img = (png: Buffer) =>
-      `<img src="data:image/png;base64,${png.toString("base64")}" ` +
-      `style="width:100%;display:block;margin:0" alt="">`;
-
-    const mono = "font-family:'Courier New',Courier,monospace";
     const html =
-      `<html><body style="margin:0;${mono};color:#000">` +
-      `<div style="${large ? "width:100%" : "max-width:34ch"};margin:0 auto">` +
-      img(canvasToPng(header)) +
-      `<pre style="${mono};${emailTicketFonts(large).body};font-weight:bold;line-height:1.35;` +
-      `white-space:pre;display:table;margin:0 auto">` + escapeHtml(body) + `</pre>` +
-      img(canvasToPng(footer)) +
-      `</div></body></html>`;
-
+      `<html><body style="margin:0;padding:0;background:#fff">` +
+      `<img src="data:image/png;base64,${png.toString("base64")}" ` +
+      `style="width:100%;max-width:100%;display:block;margin:0 auto" alt="${escapeHtml(base.subject)}">` +
+      `</body></html>`;
     return { subject: base.subject, text: base.text, html };
   } catch (err) {
     console.error(
-      "branded ticket render failed, sending text-only:",
+      "ticket image render failed, sending the text ticket:",
       err instanceof Error ? err.message : err
     );
     return base;

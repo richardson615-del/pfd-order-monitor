@@ -1,4 +1,5 @@
-import { createCanvas, Canvas } from "@napi-rs/canvas";
+import { createCanvas, Canvas, GlobalFonts } from "@napi-rs/canvas";
+import { join } from "node:path";
 import { buildTicket, TicketOrder, TextScale } from "./ticket";
 import {
   renderHeader, renderFooter, PAPER_WIDTH, TicketDesign, FooterMode,
@@ -29,11 +30,37 @@ export interface PreviewInput {
 }
 
 const COLS = 48;
+
+/**
+ * The body is drawn in a bundled monospace face (DejaVu Sans Mono, free
+ * licence in assets/fonts). The generic "monospace" family is not monospace
+ * on every server - on one without it the columns collapsed, prices wandered
+ * and the text filled half the paper (seen 2026-11-06 rendering the emailed
+ * ticket). Registered once; if it cannot be, the generic family is the fallback.
+ */
+const MONO = "TicketMono";
+let monoReady = false;
+function ensureMono(): string {
+  if (!monoReady) {
+    monoReady = true;
+    for (const dir of [process.cwd(), join(process.cwd(), "..")]) {
+      try {
+        const ok = GlobalFonts.registerFromPath(join(dir, "assets/fonts/TicketMono-Regular.ttf"), MONO);
+        GlobalFonts.registerFromPath(join(dir, "assets/fonts/TicketMono-Bold.ttf"), MONO);
+        if (ok) break;
+      } catch {
+        // next candidate
+      }
+    }
+  }
+  return GlobalFonts.has(MONO) ? `${MONO}, monospace` : "monospace";
+}
 const LINE_H = 26;
 
 function renderBody(lines: any[]): Canvas {
+  const family = ensureMono();
   const probe = createCanvas(10, 10).getContext("2d");
-  probe.font = "20px monospace";
+  probe.font = `20px ${family}`;
   const size =
     Math.floor(20 * ((PAPER_WIDTH / COLS) / probe.measureText("M").width) * 100) / 100;
 
@@ -51,7 +78,7 @@ function renderBody(lines: any[]): Canvas {
 
   let y = 6;
   for (const l of lines) {
-    x.font = `${l.bold ? "bold " : ""}${size}px monospace`;
+    x.font = `${l.bold ? "bold " : ""}${size}px ${family}`;
     if (isDoubleWide(l)) {
       x.save(); x.translate(0, y); x.scale(2, 2); x.fillText(l.text, 0, 0); x.restore();
     } else if (l.size) {

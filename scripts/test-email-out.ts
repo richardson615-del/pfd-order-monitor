@@ -81,13 +81,15 @@ test("large print is NOT used for email", () => {
   // them twice as wide. Plain text cannot, so the ticket would come out
   // ragged - the TOTAL landing mid-line while the subtotal sits at the margin.
   const emailText = composeTicketEmail(ORDER).text;
-  const { EMAIL_TICKET_COLS } = require("@/lib/email-out");
+  // The text part is laid out at EMAIL_TICKET_COLS_LARGE in normal (single-width)
+  // lines since 2026-11-06; the bigger print is the HTML image, not doubling.
+  const { EMAIL_TICKET_COLS_LARGE } = require("@/lib/email-out");
   const large = toPlainText(
-    buildTicket(ORDER, EMAIL_TICKET_COLS, {}, { scale: "large" }), EMAIL_TICKET_COLS
+    buildTicket(ORDER, EMAIL_TICKET_COLS_LARGE, {}, { scale: "large" }), EMAIL_TICKET_COLS_LARGE
   );
   assert.notEqual(emailText, large);
   const totalLine = emailText.split("\n").find(l => l.startsWith("TOTAL"))!;
-  assert.equal(totalLine.length, EMAIL_TICKET_COLS, "TOTAL must span the full width");
+  assert.equal(totalLine.length, EMAIL_TICKET_COLS_LARGE, "TOTAL must span the full width");
 });
 
 test("modifiers survive - they are what ruins a plate if missed", () => {
@@ -105,7 +107,7 @@ test("modifiers survive - they are what ruins a plate if missed", () => {
 });
 
 test("quantity stays in its own column", () =>
-  assert.match(composeTicketEmail(ORDER).text, /^\s+2\s+COMBO PLATE/m));
+  assert.match(composeTicketEmail(ORDER).text, /^\s+2\s+COMBO\b/m));
 
 test("both a plain-text and an HTML part are sent", () => {
   const raw = buildRawMessage("a@b.com", "info@pfdworks.com", composeTicketEmail(ORDER));

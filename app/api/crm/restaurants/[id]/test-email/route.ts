@@ -69,6 +69,7 @@ export async function POST(
     footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
     logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
     design: { style: r.ticket_design_style },
+    scale: r.ticket_text_scale,
   });
   const email = renderedOrder === null ? composed : markTestResend(composed);
 

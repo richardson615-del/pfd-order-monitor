@@ -34,6 +34,31 @@ export const SENDER_ADDRESS = process.env.TICKET_EMAIL_FROM || "info@pfdworks.co
  */
 export const EMAIL_TICKET_COLS = Number(process.env.TICKET_EMAIL_COLS || 32);
 
+/**
+ * Large print on an emailed ticket (Torino's, Matt 2026-11-06: "restaurant
+ * wants the print larger"). Plain text has no double-width, so instead of the
+ * thermal path's doubled lines the WHOLE ticket is laid out at fewer columns
+ * in a bigger font: 24 columns at 17px fill the same width as 32 at 13px, so
+ * every character prints about a third larger and nothing runs off the edge.
+ */
+export const EMAIL_TICKET_COLS_LARGE = Math.round(EMAIL_TICKET_COLS * 0.75);
+
+/** Font sizes for the emailed ticket's HTML part, per text scale. */
+export function emailTicketFonts(large: boolean) {
+  return large
+    ? { body: 17, banner: 24, due: 21, total: 22 }
+    : { body: 13, banner: 19, due: 16, total: 17 };
+}
+
+/**
+ * Every emailed ticket prints large (Matt 2026-11-06: "all the emails need to
+ * be larger"). The restaurant's ticket_text_scale still drives the Epson
+ * path; on email it is accepted and ignored.
+ */
+function isLarge(_scale: string | null | undefined): boolean {
+  return true;
+}
+
 /** Base64url, as the Gmail API expects a raw RFC822 message. */
 const b64url = (s: string) =>
   Buffer.from(s, "utf8").toString("base64")
@@ -92,27 +117,30 @@ function wrapTicketHtml(text: string): string {
  */
 function wrapTicketHtmlStyled(
   text: string,
-  parts: { banner: string; due: string | null; total: string | null }
+  parts: { banner: string; due: string | null; total: string | null },
+  large = false
 ): string {
+  const f = emailTicketFonts(large);
   const mono = "font-family:'Courier New',Courier,monospace";
   const W = "max-width:34ch";
   return (
     `<html><body style="margin:0;${mono};color:#000">` +
-    `<div style="${W}">` +
+    // Centered on the page (Matt 2026-11-06: tickets printed hugging the left edge).
+    `<div style="${W};display:table;margin:0 auto">` +
     // Knockout banner - the one fact that decides where the food goes.
-    `<div style="background:#000;color:#fff;font-weight:bold;font-size:19px;` +
+    `<div style="background:#000;color:#fff;font-weight:bold;font-size:${f.banner}px;` +
     `text-align:center;letter-spacing:3px;padding:4px 0;margin:0 0 4px">` +
     escapeHtml(parts.banner) +
     `</div>` +
     (parts.due
-      ? `<div style="text-align:center;font-weight:bold;font-size:16px;margin:0 0 4px">` +
+      ? `<div style="text-align:center;font-weight:bold;font-size:${f.due}px;margin:0 0 4px">` +
         escapeHtml(parts.due) + `</div>`
       : "") +
-    `<pre style="${mono};font-size:13px;font-weight:bold;line-height:1.35;` +
-    `white-space:pre;margin:0">` + escapeHtml(text) + `</pre>` +
+    `<pre style="${mono};font-size:${f.body}px;font-weight:bold;line-height:1.35;` +
+    `white-space:pre;display:table;margin:0 auto">` + escapeHtml(text) + `</pre>` +
     (parts.total
       ? `<div style="border-top:2px solid #000;margin-top:4px;padding-top:4px;` +
-        `font-weight:bold;font-size:17px;white-space:pre">` +
+        `font-weight:bold;font-size:${f.total}px;white-space:pre">` +
         escapeHtml(parts.total) + `</div>`
       : "") +
     `</div></body></html>`
@@ -145,10 +173,12 @@ function dueLabel(order: TicketOrder): string {
  */
 export function composeTicketEmail(
   order: TicketOrder,
-  opts: { footer?: TicketFooter; cols?: number } = {}
+  opts: { footer?: TicketFooter; cols?: number; scale?: string | null } = {}
 ): TicketEmail {
-  const cols = opts.cols ?? EMAIL_TICKET_COLS;
-  // ALWAYS normal scale, whatever the restaurant's ticket_text_scale says.
+  const large = isLarge(opts.scale);
+  const cols = opts.cols ?? (large ? EMAIL_TICKET_COLS_LARGE : EMAIL_TICKET_COLS);
+  // The layout is ALWAYS normal scale: large print on email is fewer columns
+  // in a bigger font (EMAIL_TICKET_COLS_LARGE), never the thermal doubling.
   //
   // Large print lays enlarged lines out at 24 columns because the thermal
   // head renders them double-width, visually filling the same 48. Plain text
@@ -187,7 +217,7 @@ export function composeTicketEmail(
     banner: type.split("").join(" "),
     due: dueLine,
     total: totalLine,
-  });
+  }, large);
 
   return { subject, text, html };
 }
@@ -378,9 +408,12 @@ export async function composeBrandedTicketEmail(
     logo?: Buffer | null;
     design?: { style?: string | null } | null;
     cols?: number;
+    /** The restaurant's ticket_text_scale; "large" prints the emailed ticket bigger. */
+    scale?: string | null;
   } = {}
 ): Promise<TicketEmail> {
-  const base = composeTicketEmail(order, { footer: opts.footer, cols: opts.cols });
+  const large = isLarge(opts.scale);
+  const base = composeTicketEmail(order, { footer: opts.footer, cols: opts.cols, scale: opts.scale });
   const hasBranding = Boolean(opts.logo) || Boolean(opts.footer?.url);
   if (!hasBranding) return base;
 
@@ -388,7 +421,7 @@ export async function composeBrandedTicketEmail(
     const { renderHeader, renderFooter, canvasToPng, DEFAULT_FOOTER_TEXT_MARK } =
       await import("./ticket-raster");
 
-    const cols = opts.cols ?? EMAIL_TICKET_COLS;
+    const cols = opts.cols ?? (large ? EMAIL_TICKET_COLS_LARGE : EMAIL_TICKET_COLS);
     const lines = buildTicket(order, cols, opts.footer ?? {}, { scale: "normal" });
     const textLines = lines.map((l) => l.text ?? "");
 
@@ -424,10 +457,10 @@ export async function composeBrandedTicketEmail(
     const mono = "font-family:'Courier New',Courier,monospace";
     const html =
       `<html><body style="margin:0;${mono};color:#000">` +
-      `<div style="max-width:34ch">` +
+      `<div style="max-width:34ch;display:table;margin:0 auto">` +
       img(canvasToPng(header)) +
-      `<pre style="${mono};font-size:13px;font-weight:bold;line-height:1.35;` +
-      `white-space:pre;margin:0">` + escapeHtml(body) + `</pre>` +
+      `<pre style="${mono};font-size:${emailTicketFonts(large).body}px;font-weight:bold;line-height:1.35;` +
+      `white-space:pre;display:table;margin:0 auto">` + escapeHtml(body) + `</pre>` +
       img(canvasToPng(footer)) +
       `</div></body></html>`;
 

@@ -6,7 +6,7 @@
  * their kitchen printing, which is why it is asserted rather than assumed.
  */
 import assert from "node:assert/strict";
-import { composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, markResent, TEST_RESEND_BANNER } from "@/lib/email-out";
+import { EMAIL_TICKET_COLS_LARGE, composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, markResent, TEST_RESEND_BANNER } from "@/lib/email-out";
 import { readFileSync } from "node:fs";
 import { toPlainText, buildTicket } from "@/lib/ticket";
 
@@ -166,3 +166,15 @@ test("test-email marks only real orders, and only this restaurant's (ET3)", () =
 });
 
 console.log(process.exitCode ? "\nSOME TESTS FAILED" : `\nAll assertions passed (${passed} checks).`);
+
+// Every emailed ticket prints large and centered (Torino's, Matt 2026-11-06).
+{
+  const normal = composeTicketEmail(ORDER);
+  assert.equal(EMAIL_TICKET_COLS_LARGE, 24);
+  for (const l of normal.text.split("\n")) assert.ok(l.length <= EMAIL_TICKET_COLS_LARGE, `line too wide: "${l}"`);
+  assert.match(normal.html, /font-size:17px/);
+  assert.match(normal.html, /margin:0 auto/);
+  assert.equal(composeTicketEmail(ORDER, { scale: "large" }).html, normal.html);
+  assert.ok(normal.subject.startsWith("PFD ORDER"), "the AEM rule matches on the subject");
+  console.log(`  ok - emailed tickets print at ${EMAIL_TICKET_COLS_LARGE} columns, 17px, centered`);
+}

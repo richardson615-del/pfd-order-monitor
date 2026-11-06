@@ -38,7 +38,7 @@ export async function resendOrder(order: Record<string, any>, actor: string): Pr
   const admin = supabaseAdmin();
   const { data: r } = await admin
     .from("restaurants")
-    .select("id, name, print_method, app_expected, ticket_email_to, email_crm_orders_only, ticket_footer_text, ticket_footer_url, ticket_logo_b64, ticket_design_style")
+    .select("id, name, print_method, app_expected, ticket_email_to, email_crm_orders_only, ticket_footer_text, ticket_footer_url, ticket_logo_b64, ticket_design_style, ticket_text_scale")
     .eq("id", order.restaurant_id)
     .maybeSingle();
   const { data: devices } = await admin
@@ -87,6 +87,7 @@ async function resendByEmail(order: Record<string, any>, r: Record<string, any>,
     footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
     logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
     design: { style: r.ticket_design_style },
+    scale: r.ticket_text_scale,
   });
   const email = markResent(composed, resentBanner(order.order_number));
   const result = await sendTicketEmail(to, email);

@@ -6,7 +6,7 @@
  * their kitchen printing, which is why it is asserted rather than assumed.
  */
 import assert from "node:assert/strict";
-import { composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, markResent, TEST_RESEND_BANNER } from "@/lib/email-out";
+import { EMAIL_TICKET_COLS_LARGE, composeTicketEmail, composeCancellationEmail, buildRawMessage, markTestResend, markResent, TEST_RESEND_BANNER } from "@/lib/email-out";
 import { readFileSync } from "node:fs";
 import { toPlainText, buildTicket } from "@/lib/ticket";
 
@@ -81,13 +81,15 @@ test("large print is NOT used for email", () => {
   // them twice as wide. Plain text cannot, so the ticket would come out
   // ragged - the TOTAL landing mid-line while the subtotal sits at the margin.
   const emailText = composeTicketEmail(ORDER).text;
-  const { EMAIL_TICKET_COLS } = require("@/lib/email-out");
+  // The text part is laid out at EMAIL_TICKET_COLS_LARGE in normal (single-width)
+  // lines since 2026-11-06; the bigger print is the HTML image, not doubling.
+  const { EMAIL_TICKET_COLS_LARGE } = require("@/lib/email-out");
   const large = toPlainText(
-    buildTicket(ORDER, EMAIL_TICKET_COLS, {}, { scale: "large" }), EMAIL_TICKET_COLS
+    buildTicket(ORDER, EMAIL_TICKET_COLS_LARGE, {}, { scale: "large" }), EMAIL_TICKET_COLS_LARGE
   );
   assert.notEqual(emailText, large);
   const totalLine = emailText.split("\n").find(l => l.startsWith("TOTAL"))!;
-  assert.equal(totalLine.length, EMAIL_TICKET_COLS, "TOTAL must span the full width");
+  assert.equal(totalLine.length, EMAIL_TICKET_COLS_LARGE, "TOTAL must span the full width");
 });
 
 test("modifiers survive - they are what ruins a plate if missed", () => {
@@ -105,7 +107,7 @@ test("modifiers survive - they are what ruins a plate if missed", () => {
 });
 
 test("quantity stays in its own column", () =>
-  assert.match(composeTicketEmail(ORDER).text, /^\s+2\s+COMBO PLATE/m));
+  assert.match(composeTicketEmail(ORDER).text, /^\s+2\s+COMBO\b/m));
 
 test("both a plain-text and an HTML part are sent", () => {
   const raw = buildRawMessage("a@b.com", "info@pfdworks.com", composeTicketEmail(ORDER));
@@ -166,3 +168,28 @@ test("test-email marks only real orders, and only this restaurant's (ET3)", () =
 });
 
 console.log(process.exitCode ? "\nSOME TESTS FAILED" : `\nAll assertions passed (${passed} checks).`);
+
+// Every emailed ticket prints large and centered (Torino's, Matt 2026-11-06).
+{
+  const normal = composeTicketEmail(ORDER);
+  assert.equal(EMAIL_TICKET_COLS_LARGE, 22);
+  // The DUE line is lifted out of the <pre> into its own (smaller) heading in the HTML part.
+  for (const l of normal.text.split("\n")) if (!/^\s*DUE\s/.test(l)) assert.ok(l.length <= EMAIL_TICKET_COLS_LARGE, `line too wide: "${l}"`);
+  assert.match(normal.html, /font-size:7\.2vw/);
+  assert.match(normal.html, /width:100%/);
+  assert.match(normal.html, /margin:0 auto/);
+  assert.equal(composeTicketEmail(ORDER, { scale: "large" }).html, normal.html);
+  assert.ok(normal.subject.startsWith("PFD ORDER"), "the AEM rule matches on the subject");
+  console.log(`  ok - emailed tickets print at ${EMAIL_TICKET_COLS_LARGE} columns, sized to the paper width`);
+}
+
+// The emailed ticket is the Epson ticket as one picture (Matt 2026-11-06).
+void (async () => {
+  const { composeBrandedTicketEmail } = await import("@/lib/email-out");
+  const e = await composeBrandedTicketEmail(ORDER, { scale: "large", footer: { text: "Thanks", url: "https://pfdworks.com" } });
+  assert.match(e.html, /<img src="data:image\/png;base64,/);
+  assert.match(e.html, /width:100%/);
+  assert.ok(e.subject.startsWith("PFD ORDER"), "AEM matches on the subject");
+  assert.ok(e.text.includes("134d542b"), "plain text part still has the whole order");
+  console.log("  ok - emailed ticket is the Epson ticket as an image, full width");
+})();

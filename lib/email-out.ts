@@ -34,6 +34,37 @@ export const SENDER_ADDRESS = process.env.TICKET_EMAIL_FROM || "info@pfdworks.co
  */
 export const EMAIL_TICKET_COLS = Number(process.env.TICKET_EMAIL_COLS || 32);
 
+/**
+ * Emailed tickets fill the paper (Matt 2026-11-06, Torino's: "restaurant wants
+ * the print larger", "fill in the sides, don't waste space, make larger").
+ * Plain text has no double-width, so the ticket is laid out at 22 columns and
+ * the font is sized to the PAGE width (vw), not a fixed px: Courier is 0.6em
+ * a character, so 22 x 0.6 x 7.2vw = 95% of whatever paper AEM prints on.
+ * Each size has a px fallback first for a renderer without vw.
+ */
+export const EMAIL_TICKET_COLS_LARGE = 22;
+
+/** CSS font-size declarations for the emailed ticket's HTML part. */
+export function emailTicketFonts(large: boolean) {
+  return large
+    ? {
+        body: "font-size:18px;font-size:7.2vw",
+        banner: "font-size:24px;font-size:8vw",
+        due: "font-size:18px;font-size:6.8vw",
+        total: "font-size:18px;font-size:7.2vw",
+      }
+    : { body: "font-size:13px", banner: "font-size:19px", due: "font-size:16px", total: "font-size:17px" };
+}
+
+/**
+ * Every emailed ticket prints large (Matt 2026-11-06: "all the emails need to
+ * be larger"). The restaurant's ticket_text_scale still drives the Epson
+ * path; on email it is accepted and ignored.
+ */
+function isLarge(_scale: string | null | undefined): boolean {
+  return true;
+}
+
 /** Base64url, as the Gmail API expects a raw RFC822 message. */
 const b64url = (s: string) =>
   Buffer.from(s, "utf8").toString("base64")
@@ -92,27 +123,30 @@ function wrapTicketHtml(text: string): string {
  */
 function wrapTicketHtmlStyled(
   text: string,
-  parts: { banner: string; due: string | null; total: string | null }
+  parts: { banner: string; due: string | null; total: string | null },
+  large = false
 ): string {
+  const f = emailTicketFonts(large);
   const mono = "font-family:'Courier New',Courier,monospace";
-  const W = "max-width:34ch";
+  const W = large ? "width:100%" : "max-width:34ch";
   return (
     `<html><body style="margin:0;${mono};color:#000">` +
-    `<div style="${W}">` +
+    // Centered on the page (Matt 2026-11-06: tickets printed hugging the left edge).
+    `<div style="${W};margin:0 auto">` +
     // Knockout banner - the one fact that decides where the food goes.
-    `<div style="background:#000;color:#fff;font-weight:bold;font-size:19px;` +
+    `<div style="background:#000;color:#fff;font-weight:bold;${f.banner};` +
     `text-align:center;letter-spacing:3px;padding:4px 0;margin:0 0 4px">` +
     escapeHtml(parts.banner) +
     `</div>` +
     (parts.due
-      ? `<div style="text-align:center;font-weight:bold;font-size:16px;margin:0 0 4px">` +
+      ? `<div style="text-align:center;font-weight:bold;${f.due};margin:0 0 4px">` +
         escapeHtml(parts.due) + `</div>`
       : "") +
-    `<pre style="${mono};font-size:13px;font-weight:bold;line-height:1.35;` +
-    `white-space:pre;margin:0">` + escapeHtml(text) + `</pre>` +
+    `<pre style="${mono};${f.body};font-weight:bold;line-height:1.35;` +
+    `white-space:pre;display:table;margin:0 auto">` + escapeHtml(text) + `</pre>` +
     (parts.total
       ? `<div style="border-top:2px solid #000;margin-top:4px;padding-top:4px;` +
-        `font-weight:bold;font-size:17px;white-space:pre">` +
+        `font-weight:bold;${f.total};white-space:pre;text-align:center">` +
         escapeHtml(parts.total) + `</div>`
       : "") +
     `</div></body></html>`
@@ -145,10 +179,12 @@ function dueLabel(order: TicketOrder): string {
  */
 export function composeTicketEmail(
   order: TicketOrder,
-  opts: { footer?: TicketFooter; cols?: number } = {}
+  opts: { footer?: TicketFooter; cols?: number; scale?: string | null } = {}
 ): TicketEmail {
-  const cols = opts.cols ?? EMAIL_TICKET_COLS;
-  // ALWAYS normal scale, whatever the restaurant's ticket_text_scale says.
+  const large = isLarge(opts.scale);
+  const cols = opts.cols ?? (large ? EMAIL_TICKET_COLS_LARGE : EMAIL_TICKET_COLS);
+  // The layout is ALWAYS normal scale: large print on email is fewer columns
+  // in a bigger font (EMAIL_TICKET_COLS_LARGE), never the thermal doubling.
   //
   // Large print lays enlarged lines out at 24 columns because the thermal
   // head renders them double-width, visually filling the same 48. Plain text
@@ -187,7 +223,7 @@ export function composeTicketEmail(
     banner: type.split("").join(" "),
     due: dueLine,
     total: totalLine,
-  });
+  }, large);
 
   return { subject, text, html };
 }
@@ -378,63 +414,40 @@ export async function composeBrandedTicketEmail(
     logo?: Buffer | null;
     design?: { style?: string | null } | null;
     cols?: number;
+    /** The restaurant's ticket_text_scale. Emailed tickets default to large. */
+    scale?: string | null;
+    footerMode?: string | null;
+    footerImage?: Buffer | null;
   } = {}
 ): Promise<TicketEmail> {
-  const base = composeTicketEmail(order, { footer: opts.footer, cols: opts.cols });
-  const hasBranding = Boolean(opts.logo) || Boolean(opts.footer?.url);
-  if (!hasBranding) return base;
+  const base = composeTicketEmail(order, { footer: opts.footer, cols: opts.cols, scale: opts.scale });
 
+  // The Epson ticket itself, as one picture (Matt 2026-11-06: "can we not make
+  // it look like our epson tickets?"). Same renderer as the CRM's ticket
+  // preview: the raster header and footer the Epson receives, and the body
+  // drawn to the Epson's own metrics (48 columns across 576 dots, large print
+  // doubled). Shown at 100% width so it fills whatever paper AEM prints on.
   try {
-    const { renderHeader, renderFooter, canvasToPng, DEFAULT_FOOTER_TEXT_MARK } =
-      await import("./ticket-raster");
-
-    const cols = opts.cols ?? EMAIL_TICKET_COLS;
-    const lines = buildTicket(order, cols, opts.footer ?? {}, { scale: "normal" });
-    const textLines = lines.map((l) => l.text ?? "");
-
-    // The body only: the raster blocks own everything above ORDER # and
-    // everything from the heavy rule down, exactly as on the Epson path.
-    const start = textLines.findIndex((t) => /^ORDER #/.test(t));
-    const end = textLines.findIndex((t, i) => i > start && /^=+$/.test(t));
-    const body = toPlainText(
-      lines.slice(start === -1 ? 0 : start, end === -1 ? lines.length : end),
-      cols
-    );
-
-    const dueLine = textLines.find((t) => /^DUE /.test(t)) ?? null;
-    const design = { style: (opts.design?.style as any) ?? "bold" };
-
-    const header = await renderHeader({
-      restaurantName: order.ticket_restaurant_name || "PFD ORDER",
-      orderType: order.order_type || "order",
-      dueText: dueLine,
-      design,
+    const { renderTicketPreview } = await import("./ticket-preview");
+    const png = await renderTicketPreview({
+      order,
+      design: { style: (opts.design?.style as any) ?? "bold" },
+      scale: opts.scale === "normal" ? "normal" : "large",
+      footerMode: (opts.footerMode as any) ?? undefined,
+      footerText: opts.footer?.text ?? null,
+      footerUrl: opts.footer?.url ?? null,
       logo: opts.logo ?? null,
+      footerImage: opts.footerImage ?? null,
     });
-    const footer = await renderFooter({
-      text: (opts.footer?.text || "").trim() || DEFAULT_FOOTER_TEXT_MARK,
-      url: opts.footer?.url ?? null,
-      design,
-    });
-
-    const img = (png: Buffer) =>
-      `<img src="data:image/png;base64,${png.toString("base64")}" ` +
-      `style="width:100%;display:block;margin:0" alt="">`;
-
-    const mono = "font-family:'Courier New',Courier,monospace";
     const html =
-      `<html><body style="margin:0;${mono};color:#000">` +
-      `<div style="max-width:34ch">` +
-      img(canvasToPng(header)) +
-      `<pre style="${mono};font-size:13px;font-weight:bold;line-height:1.35;` +
-      `white-space:pre;margin:0">` + escapeHtml(body) + `</pre>` +
-      img(canvasToPng(footer)) +
-      `</div></body></html>`;
-
+      `<html><body style="margin:0;padding:0;background:#fff">` +
+      `<img src="data:image/png;base64,${png.toString("base64")}" ` +
+      `style="width:100%;max-width:100%;display:block;margin:0 auto" alt="${escapeHtml(base.subject)}">` +
+      `</body></html>`;
     return { subject: base.subject, text: base.text, html };
   } catch (err) {
     console.error(
-      "branded ticket render failed, sending text-only:",
+      "ticket image render failed, sending the text ticket:",
       err instanceof Error ? err.message : err
     );
     return base;

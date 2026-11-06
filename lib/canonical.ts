@@ -372,7 +372,7 @@ export async function ingestOrder(
   const { data: restaurantRow } = await admin
     .from("restaurants")
     .select(
-      "id, footer_engine, footer_template_id, footer_template_config, print_method, app_expected, ticket_email_to, email_crm_orders_only, ticket_footer_text, ticket_footer_url, ticket_text_scale"
+      "id, footer_engine, footer_template_id, footer_template_config, print_method, app_expected, ticket_email_to, email_crm_orders_only, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_logo_b64, ticket_design_style, ticket_footer_mode, ticket_footer_image_b64"
     )
     .eq("id", input.restaurantId)
     .maybeSingle();
@@ -742,6 +742,9 @@ async function deliverByEmail(args: {
     footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
     logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
     design: { style: r.ticket_design_style },
+    scale: r.ticket_text_scale,
+    footerMode: r.ticket_footer_mode,
+    footerImage: r.ticket_footer_image_b64 ? Buffer.from(r.ticket_footer_image_b64, "base64") : null,
   });
 
   const result = await sendTicketEmail(to, email);

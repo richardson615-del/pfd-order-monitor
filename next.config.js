@@ -11,6 +11,9 @@ const nextConfig = {
     // fails to register and the header rasterizes with fallback glyphs.
     outputFileTracingIncludes: {
       "/api/print/epson": ["./assets/fonts/**"],
+      // Emailed tickets are the Epson ticket drawn as a picture (2026-11-06),
+      // rendered from any route that ingests or resends an order.
+      "/api/**": ["./assets/fonts/**"],
     },
   },
   /**

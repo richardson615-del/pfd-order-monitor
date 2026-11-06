@@ -184,7 +184,8 @@ export function buildTicket(
   // number survived and the time ran off. Split instead.
   if (placed && orderLabel.length + placed.length + 1 > cols) {
     lines.push(L(orderLabel));
-    lines.push(L(placed));
+    // At 24 columns (large emailed tickets) "placed Thu, Sep 3, 5:40 PM" is itself too wide.
+    for (const l of wrap(placed, cols)) lines.push(L(l));
   } else {
     lines.push(L(pad(orderLabel, placed, cols)));
   }

@@ -40,7 +40,7 @@ export async function POST(
 
   const { data: r } = await admin
     .from("restaurants")
-    .select("id, name, print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_logo_b64, ticket_design_style")
+    .select("id, name, print_method, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_logo_b64, ticket_design_style, ticket_footer_mode, ticket_footer_image_b64")
     .or(restaurantRefFilter(params.id) ?? "id.eq.00000000-0000-0000-0000-000000000000")
     .limit(1)
     .maybeSingle();
@@ -69,6 +69,9 @@ export async function POST(
     footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
     logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
     design: { style: r.ticket_design_style },
+    scale: r.ticket_text_scale,
+    footerMode: r.ticket_footer_mode,
+    footerImage: r.ticket_footer_image_b64 ? Buffer.from(r.ticket_footer_image_b64, "base64") : null,
   });
   const email = renderedOrder === null ? composed : markTestResend(composed);
 

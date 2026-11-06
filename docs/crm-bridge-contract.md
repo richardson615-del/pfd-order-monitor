@@ -650,7 +650,7 @@ Limit 2000 rows (`truncated: true` beyond).
 - `ready_minutes`, `ready_by`, `ready_at` (PA5, migration 055) — the order ready timer. `ready_minutes` is what the kitchen picked on **Accept** (1–180; the prep target when it picked nothing); `ready_by` is `accepted_at + ready_minutes`, moved on by **Running late**; `ready_at` is when somebody tapped **READY** (set once, never rewritten; distinct from `completed_at`). All three `null` on orders accepted before 055 or not yet — then the clock is `accepted_at + prep_minutes`. Once `ready_at` is set there is no countdown and `flags.overtime` is false. `updated_at` moves on each change, so `since` polling picks them up.
 - `destinations` — `orderDestinations()`, same as the roster.
 - `print.state` — `printed` \| `queued` \| `held` (printer waiting for paper/cover) \| `stuck` (pending past ten minutes) \| `failed` \| `expired` (too old to print, never printed) \| `none`; `failed_reason` is the printer's sentence (E2). Paper jobs only — the tablet push is `app_delivery` on the detail.
-- `email` (ET5) — the email leg's own `print_jobs` row (`delivery = 'email'`), `null` when there is none: `{ state, job_id, sent_at, error }`. `state` is `sent` only when the job has `sent_at`; `failed` when it has `send_error` (or status `failed`); `pending` when it was owed and never confirmed. An email restaurant's order with `email: null` was never emailed - do not call it EMAILED from `destinations`, which is the restaurant's *current* config, not what happened to this order.
+- `email` (ET5) — the email leg's own `print_jobs` row (`delivery = 'email'`), `null` when there is none: `{ state, job_id, sent_at, error }`. `state` is `sent` only when the job has `sent_at`; `failed` when it has `send_error` (or status `failed`); `pending` when it was owed and never confirmed; `skipped` (057, `job_id: null`, with `reason`) when the restaurant's PC email is for CRM orders only and this order is not one. An email restaurant's order with `email: null` was never emailed - do not call it EMAILED from `destinations`, which is the restaurant's *current* config, not what happened to this order.
 - `flags` — computed with the tablet's own helpers: `unaccepted_over_3m` (health's `order_unaccepted` line), `late` (ten minutes, `isLate`), `overtime` (countdown past zero).
 - **Scheduled orders** (SC1, 2026-10-29): an unsettled order whose `due_time` is more than 2 h away (an ezCater order sent to the kitchen a day ahead) is *scheduled* on the tablet — no age, never `late` or `unaccepted_over_3m`, no countdown, listed after today's work by `due_time`. Two hours before `due_time` it becomes an ordinary order with its age counted from there (`kitchenClockStart` in `lib/order-display.ts`). Health's `order_unaccepted` for one is a **warning**: "Catering order for Tomorrow 11:30 AM not acknowledged on the tablet". Read `due_time` to show it; nothing new is stored.
 
@@ -1161,6 +1161,19 @@ Writable on `POST /api/crm/restaurants/:id`:
 |---|---|
 | `print_method` | `printer` (default) \| `email` |
 | `ticket_email_to` | the AEM-watched inbox; must be a valid address |
+| `email_crm_orders_only` | `true` \| `false` (default) — migration 057 |
+
+**CRM orders only** (057, Nick 2026-11-06). With `email_crm_orders_only: true`
+and `print_method: "email"`, the PC-inbox ticket goes only for CRM orders
+(`source: "phone"`, P- numbers; test orders too). A Zuppler order (`zuppler`,
+or the older `email` ingest) skips the destination: no email job is written,
+the orders feed's `email` is `{ state: "skipped", job_id: null, reason:
+"Skipped — restaurant receives Zuppler email directly" }`, Resend returns that
+channel as `{ ok: true, skipped: true, detail }`, and no cancellation email
+goes either. Any other source skips with reason "Skipped — this restaurant's
+PC email is for CRM orders only". `false` = the behaviour before 057. The rule
+is `emailSkipReason` in `lib/email-routing.ts`. Roster rows carry
+`email_crm_orders_only` (never null).
 
 `print_method: "email"` is **refused with 400** unless `ticket_email_to` is
 already set or sent in the same request. That configuration would silently

@@ -184,6 +184,19 @@ export async function POST(
     updates.ticket_email_to = v || null;
   }
 
+  // 057: the PC email for CRM orders only (Zuppler orders reach that PC by
+  // Zuppler's own email). Independent of print_method so it can be set before
+  // the switch to email; it only has an effect while print_method is email.
+  if ("email_crm_orders_only" in body) {
+    if (typeof body.email_crm_orders_only !== "boolean") {
+      return NextResponse.json(
+        { error: "email_crm_orders_only must be true or false" },
+        { status: 400 }
+      );
+    }
+    updates.email_crm_orders_only = body.email_crm_orders_only;
+  }
+
   if ("footer_engine" in body) {
     const v = String(body.footer_engine ?? "");
     if (v !== "static" && v !== "dynamic") {
@@ -287,7 +300,7 @@ export async function POST(
   }
   if (!Object.keys(updates).length) {
     return NextResponse.json(
-      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image, print_method, ticket_email_to, app_expected" },
+      { error: "send at least one of: footer_text, footer_url, footer_mode, footer_engine, footer_template_id, footer_template_config, text_scale, design_style, logo_image, footer_image, print_method, ticket_email_to, email_crm_orders_only, app_expected" },
       { status: 400 }
     );
   }
@@ -308,7 +321,7 @@ export async function POST(
     // from "saved and will not say so".
     //
     // Anything added to the writable set above belongs here too.
-    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, app_expected, display_mode, timezone")
+    .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, email_crm_orders_only, app_expected, display_mode, timezone")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

@@ -15,7 +15,7 @@ import { prepMinutesOf } from "./countdown";
 
 /** The columns every CRM-facing read selects. One string, so the three routes cannot drift. */
 export const RESTAURANT_SELECT =
-  "id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, app_expected, display_mode, timezone, prep_minutes";
+  "id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, email_crm_orders_only, app_expected, display_mode, timezone, prep_minutes";
 
 /** Everything a row needs from other tables, read once for however many rows are being shaped. */
 export interface RosterContext {
@@ -149,6 +149,8 @@ export function shapeRestaurantRow(r: any, ctx: RosterContext) {
     // Surfaced so the console can show a misconfiguration before an order
     // arrives, rather than after a ticket fails to reach anyone.
     email_delivery_ready: r.print_method !== "email" || Boolean((r.ticket_email_to ?? "").trim()),
+    // 057: never null - the column defaults to false.
+    email_crm_orders_only: Boolean(r.email_crm_orders_only),
     has_active_printer: ctx.withPrinter.has(r.id),
     // Which of the two looks their tablet is on, so the CRM can show the
     // current setting rather than guessing at a default.

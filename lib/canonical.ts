@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant, type PushResult } from "./push";
 import { pushToRestaurantApps } from "./partner-push";
 import { resolveFooter } from "./footer-engine";
+import { emailSkipReason } from "./email-routing";
 
 /**
  * The canonical order: the single contract every ingestion source must
@@ -371,7 +372,7 @@ export async function ingestOrder(
   const { data: restaurantRow } = await admin
     .from("restaurants")
     .select(
-      "id, footer_engine, footer_template_id, footer_template_config, print_method, app_expected, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_text_scale"
+      "id, footer_engine, footer_template_id, footer_template_config, print_method, app_expected, ticket_email_to, email_crm_orders_only, ticket_footer_text, ticket_footer_url, ticket_text_scale"
     )
     .eq("id", input.restaurantId)
     .maybeSingle();
@@ -416,6 +417,14 @@ export async function ingestOrder(
   // as they took. Queueing costs one insert; the printer is polling already.
   await attempt("ticket delivery", inserted.id, async () => {
     if (restaurantRow?.print_method === "email") {
+      // 057: CRM orders only - a Zuppler order already reaches this PC by
+      // Zuppler's own email. No job is written; the orders feed reports the
+      // skip from the same rule (lib/email-routing.ts).
+      const skip = emailSkipReason(restaurantRow, { source: input.source, order_number: input.orderNumber });
+      if (skip) {
+        console.log("email delivery SKIPPED", JSON.stringify({ order: inserted.id, reason: skip }));
+        return;
+      }
       await deliverByEmail({
         orderId: inserted.id,
         restaurant: restaurantRow,
@@ -765,11 +774,13 @@ export async function sendCancellationEmail(orderId: string): Promise<void> {
   const admin = supabaseAdmin();
   const { data: order } = await admin
     .from("orders")
-    .select("id, order_number, customer_name, customer_total, restaurant_id, restaurants(print_method, ticket_email_to)")
+    .select("id, order_number, source, customer_name, customer_total, restaurant_id, restaurants(print_method, ticket_email_to, email_crm_orders_only)")
     .eq("id", orderId)
     .maybeSingle();
   const r = (order as any)?.restaurants;
   if (!order || r?.print_method !== "email" || !r?.ticket_email_to) return;
+  // 057: an order whose ticket was never emailed here gets no cancellation email either.
+  if (emailSkipReason(r, order as any)) return;
 
   const { composeCancellationEmail, sendTicketEmail } = await import("./email-out");
   const result = await sendTicketEmail(r.ticket_email_to, composeCancellationEmail(order as any));

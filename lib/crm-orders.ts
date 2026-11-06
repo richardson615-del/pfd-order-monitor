@@ -5,6 +5,7 @@ import { ageMs, isLate, isScheduled, isSettled, itemsLine } from "./order-displa
 import { byClockStart, byDue, countdown, isUnaccepted, prepMinutesOf } from "./countdown";
 import { STILL_ACTIONABLE_MS } from "./kiosk";
 import { DEFAULT_THRESHOLDS } from "./health";
+import { EMAIL_SKIP_TEXT, emailSkipReason, type EmailSkipReason } from "./email-routing";
 
 /**
  * Today's orders, as the CRM sees them (Workstream M1, Nick 2026-09-18).
@@ -140,11 +141,17 @@ export function printSummary(jobs: PrintJobRow[], now: number): PrintSummary {
 }
 
 export interface EmailSummary {
-  /** `sent` only when the job has sent_at - an email that left, not one that was owed. */
-  state: "sent" | "failed" | "pending";
-  job_id: string;
+  /**
+   * `sent` only when the job has sent_at - an email that left, not one that was owed.
+   * `skipped` (057): the restaurant's PC email is for CRM orders only and this order is not one -
+   * no job was written, on purpose; `reason` says why in "Where it went"'s words.
+   */
+  state: "sent" | "failed" | "pending" | "skipped";
+  /** null only when `skipped`. */
+  job_id: string | null;
   sent_at: string | null;
   error: string | null;
+  reason?: string;
 }
 
 /**
@@ -153,9 +160,10 @@ export interface EmailSummary {
  * is written before the send, so a job with neither sent_at nor send_error
  * is an email that was owed and never confirmed - `pending`, not `sent`.
  */
-export function emailSummary(jobs: PrintJobRow[]): EmailSummary | null {
+export function emailSummary(jobs: PrintJobRow[], skip: EmailSkipReason | null = null): EmailSummary | null {
   const j = jobs.find((x) => x.delivery === "email");
-  if (!j) return null;
+  // A job that exists (sent before the toggle went on, or by a Resend) is what happened; the skip only explains its absence.
+  if (!j) return skip ? { state: "skipped", job_id: null, sent_at: null, error: null, reason: EMAIL_SKIP_TEXT[skip] } : null;
   const state = j.sent_at ? "sent" : j.send_error || j.status === "failed" ? "failed" : "pending";
   return { state, job_id: j.id, sent_at: j.sent_at ?? null, error: j.send_error ?? j.error ?? null };
 }
@@ -203,6 +211,8 @@ export interface RestaurantRef {
   print_method?: string | null;
   app_expected?: boolean | null;
   has_active_printer?: boolean;
+  /** 057: the PC email is for CRM orders only. */
+  email_crm_orders_only?: boolean | null;
 }
 
 export interface OrderListRow {
@@ -288,7 +298,8 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
       hasActivePrinter: r.has_active_printer ?? false,
     }),
     print: printSummary(jobs, now),
-    email: emailSummary(jobs),
+    // 057: the skip only applies where the email leg is in play at all.
+    email: emailSummary(jobs, r.print_method === "email" ? emailSkipReason(r, o) : null),
     flags: orderFlags(o, prep, now),
   };
 }

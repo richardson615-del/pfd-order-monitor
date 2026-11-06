@@ -4,6 +4,7 @@ import { queueOrderToPrinters } from "./print-queue";
 import { resendBy } from "./print-policy";
 import { notifyRestaurant } from "./push";
 import { resentBanner } from "./crm-orders";
+import { EMAIL_SKIP_TEXT, emailSkipReason } from "./email-routing";
 
 /**
  * RESEND from the CRM's Orders area (Nick, 2026-09-29): "we should be able
@@ -24,6 +25,8 @@ export interface ResendChannelResult {
   channel: OrderDestination;
   ok: boolean;
   detail: string;
+  /** 057: the email leg skipped this order on purpose (CRM orders only) - nothing was sent, and nothing failed. */
+  skipped?: boolean;
 }
 
 export interface ResendResult {
@@ -35,7 +38,7 @@ export async function resendOrder(order: Record<string, any>, actor: string): Pr
   const admin = supabaseAdmin();
   const { data: r } = await admin
     .from("restaurants")
-    .select("id, name, print_method, app_expected, ticket_email_to, ticket_footer_text, ticket_footer_url, ticket_logo_b64, ticket_design_style")
+    .select("id, name, print_method, app_expected, ticket_email_to, email_crm_orders_only, ticket_footer_text, ticket_footer_url, ticket_logo_b64, ticket_design_style")
     .eq("id", order.restaurant_id)
     .maybeSingle();
   const { data: devices } = await admin
@@ -72,6 +75,9 @@ async function resendToPrinters(order: Record<string, any>, by: ReturnType<typeo
 }
 
 async function resendByEmail(order: Record<string, any>, r: Record<string, any>, by: string): Promise<ResendChannelResult> {
+  // 057: Resend follows ingest's rule - a Zuppler order is not emailed to a CRM-orders-only PC.
+  const skip = emailSkipReason(r, order);
+  if (skip) return { channel: "email", ok: true, skipped: true, detail: EMAIL_SKIP_TEXT[skip] };
   const admin = supabaseAdmin();
   const to = (r.ticket_email_to ?? "").trim();
   if (!to) return { channel: "email", ok: false, detail: "print_method is 'email' but ticket_email_to is empty" };

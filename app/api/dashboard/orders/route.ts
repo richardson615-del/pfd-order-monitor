@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
+import { prepMinutesOf } from "@/lib/countdown";
+import { BUSY_SELECT, acceptMinutes, liveBusy } from "@/lib/cook-time";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,7 @@ export async function GET() {
 
   const since = new Date(Date.now() - PARTNER_ORDERS_WINDOW_MS).toISOString();
   const [{ data: restaurant }, { data: orders, error }] = await Promise.all([
-    supabase.from("restaurants").select("prep_minutes, timezone").eq("id", restaurantId).maybeSingle(),
+    supabase.from("restaurants").select(`prep_minutes, timezone, ${BUSY_SELECT}`).eq("id", restaurantId).maybeSingle(),
     supabase
       .from("orders")
       .select(ORDER_COLUMNS)
@@ -45,10 +47,17 @@ export async function GET() {
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const busy = liveBusy(restaurant, Date.now());
   return NextResponse.json(
     {
       orders: orders ?? [],
-      kitchen: { prep_minutes: restaurant?.prep_minutes ?? null, timezone: restaurant?.timezone ?? null },
+      kitchen: {
+        prep_minutes: restaurant?.prep_minutes ?? null,
+        timezone: restaurant?.timezone ?? null,
+        // BT1: what Accept pre-selects right now (default + any boost), and the boost.
+        accept_minutes: restaurant ? acceptMinutes(prepMinutesOf(restaurant.prep_minutes), busy) : null,
+        busy,
+      },
     },
     { headers: { "Cache-Control": "no-store" } }
   );

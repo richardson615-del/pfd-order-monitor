@@ -4,6 +4,7 @@ import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { ORDER_LIST_SELECT, loadOrderContext } from "@/lib/crm-orders-data";
 import { findRestaurantByRef } from "@/lib/restaurant-ref";
 import { ingestOrder } from "@/lib/canonical";
+import { logCursorOf, readActiveBusy, readCookTimeChanges } from "@/lib/cook-time-data";
 import { parsePhoneOrder, phoneOrderFingerprint, phoneOrderToCanonical, storedFingerprint } from "@/lib/phone-order";
 import {
   DEFAULT_ORDERS_TZ,
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 /**
- * GET /api/crm/orders?date=YYYY-MM-DD[&tz=][&restaurant_id=][&include_test=1][&since=<ISO>]
+ * GET /api/crm/orders?date=YYYY-MM-DD[&tz=][&restaurant_id=][&include_test=1][&since=<ISO>][&cook_after=<id>]
  *
  * One local day of orders, across every restaurant or one, in the order
  * the tablet shows them, with what each ticket said, where it went and
@@ -30,6 +31,11 @@ export const maxDuration = 30;
  * unless asked for. `since` returns only rows changed after it
  * (orders.updated_at) so the CRM can poll every twenty seconds for
  * almost nothing; the counts are always the whole day's.
+ *
+ * `cook_after` (BT1) adds `cook_time`: cook-time changes after that log id (0 =
+ * from the start) and the boosts in force, whatever `date` says, so the CRM's
+ * one-minute sync gets them with no extra call. A failed read of it is
+ * `cook_time: { error }`, never a failed order feed.
  */
 export async function GET(req: NextRequest) {
   const denied = authorizeCrmWrite(req);
@@ -44,6 +50,11 @@ export async function GET(req: NextRequest) {
       { error: "date is required as YYYY-MM-DD, and tz must be an IANA zone name", code: "invalid_date" },
       { status: 400 }
     );
+  }
+  const cookAfterRaw = q.get("cook_after");
+  const cookAfter = logCursorOf(cookAfterRaw);
+  if (cookAfterRaw !== null && cookAfter === null) {
+    return NextResponse.json({ error: "cook_after must be a whole number, the next_after of the last read", code: "invalid_cursor" }, { status: 400 });
   }
   const includeTest = ["1", "true", "yes"].includes((q.get("include_test") ?? "").toLowerCase());
   const sinceRaw = q.get("since");
@@ -80,6 +91,16 @@ export async function GET(req: NextRequest) {
   );
   const sorted = sortOrderRows(rows, now);
 
+  let cookTime: object | undefined;
+  if (cookAfter !== null) {
+    try {
+      const [read, active_busy] = await Promise.all([readCookTimeChanges(admin, { after: cookAfter, restaurantId }), readActiveBusy(admin, now, restaurantId)]);
+      cookTime = { ...read, active_busy };
+    } catch (err) {
+      cookTime = { error: err instanceof Error ? err.message : "could not read the cook-time log" };
+    }
+  }
+
   return NextResponse.json({
     date,
     tz,
@@ -91,6 +112,7 @@ export async function GET(req: NextRequest) {
     // Orders are never deleted here (a cancellation is a status), so a
     // poller has nothing to remove. Present so the shape is stable.
     deleted: [] as string[],
+    ...(cookTime ? { cook_time: cookTime } : {}),
   });
 }
 

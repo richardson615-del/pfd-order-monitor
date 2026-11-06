@@ -3,11 +3,12 @@ import { supabaseAdmin } from "@/lib/supabase-server";
 import { DEFAULT_ZONE, storeSession } from "@/lib/store-session";
 import { livePause, readWeek } from "@/lib/store";
 import { prepMinutesOf } from "@/lib/countdown";
+import { BUSY_SELECT, COOK_LIMIT_SELECT, acceptMinutes, cookLimitsOf, liveBusy } from "@/lib/cook-time";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/dashboard/store -> { pause, hours, hours_lines, pushed_at, pending_hours, ordering_channel, timezone, prep_minutes }
+ * GET /api/dashboard/store -> { pause, hours, hours_lines, pushed_at, pending_hours, ordering_channel, timezone, prep_minutes, accept_minutes, busy, cook_limits }
  *
  * The Store tab's read (migration 052): the live pause (null when none or
  * over), the hours as the CRM last pushed them, and an hours change the
@@ -20,12 +21,13 @@ export async function GET() {
   if ("error" in s) return s.error;
   const admin = supabaseAdmin();
   const [r, p, sent] = await Promise.all([
-    admin.from("restaurants").select("timezone, online_paused_until, online_pause_reason, online_paused_at, prep_minutes").eq("id", s.restaurantId).single(),
+    admin.from("restaurants").select(`timezone, online_paused_until, online_pause_reason, online_paused_at, prep_minutes, ${BUSY_SELECT}, ${COOK_LIMIT_SELECT}`).eq("id", s.restaurantId).single(),
     admin.from("restaurant_profiles").select("hours, hours_lines, ordering_channel, pushed_at").eq("restaurant_id", s.restaurantId).maybeSingle(),
     admin.from("restaurant_messages").select("created_at, details").eq("restaurant_id", s.restaurantId).eq("kind", "hours_change").eq("direction", "from_restaurant").order("created_at", { ascending: false }).limit(1),
   ]);
   if (r.error) return NextResponse.json({ error: r.error.message }, { status: 500 });
   const pushedAt = p.data?.pushed_at ?? null;
+  const busy = liveBusy(r.data, Date.now());
   const last = sent.data?.[0];
   const pending = last && (!pushedAt || last.created_at > pushedAt) ? { sent_at: last.created_at, hours: readWeek((last.details as { hours?: unknown } | null)?.hours) } : null;
   return NextResponse.json(
@@ -39,6 +41,10 @@ export async function GET() {
       pending_hours: pending,
       // KT1: the default cook time Accept pre-selects (POST ./cook-time changes it).
       prep_minutes: prepMinutesOf(r.data.prep_minutes),
+      // BT1: the boost in force, what Accept pre-selects with it, and this kitchen's limits.
+      accept_minutes: acceptMinutes(prepMinutesOf(r.data.prep_minutes), busy),
+      busy,
+      cook_limits: cookLimitsOf(r.data),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

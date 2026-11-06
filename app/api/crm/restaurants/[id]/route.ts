@@ -7,9 +7,11 @@ import { normaliseTicketImage, decodeUpload, ImageMode } from "@/lib/ticket-imag
 import { ENABLED_TEMPLATES } from "@/lib/footer-engine";
 import { orderDestinations } from "@/lib/canonical";
 import { isValidTimeZone } from "@/lib/clock";
-import { MAX_PREP_MINUTES, MIN_PREP_MINUTES, isValidPrepMinutes } from "@/lib/countdown";
+import { MAX_PREP_MINUTES, MIN_PREP_MINUTES, isValidPrepMinutes, prepMinutesOf } from "@/lib/countdown";
 import { RESTAURANT_SELECT, loadRosterContext, shapeRestaurantRow } from "@/lib/crm-roster";
 import { minShellVersion } from "@/lib/app-update";
+import { defaultChangeLog } from "@/lib/cook-time";
+import { recordCookTimeChange } from "@/lib/cook-time-data";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +67,7 @@ export async function POST(
   const admin = supabaseAdmin();
   const { data: restaurant } = await admin
     .from("restaurants")
-    .select("id, name, print_method, ticket_email_to, app_expected")
+    .select("id, name, print_method, ticket_email_to, app_expected, prep_minutes")
     .or(restaurantRefFilter(params.id) ?? "id.eq.00000000-0000-0000-0000-000000000000")
     .limit(1)
     .maybeSingle();
@@ -324,6 +326,12 @@ export async function POST(
     .select("id, name, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, footer_engine, footer_template_id, footer_template_config, print_method, ticket_email_to, email_crm_orders_only, app_expected, display_mode, timezone")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // BT1: the CRM's change goes in the same log as the kitchen's. `actor` is the CRM user, when sent.
+  if (typeof updates.prep_minutes === "number" && updates.prep_minutes !== prepMinutesOf(restaurant.prep_minutes)) {
+    const actor = typeof body.actor === "string" && body.actor.trim() ? body.actor.trim().slice(0, 120) : null;
+    await recordCookTimeChange(admin, defaultChangeLog(restaurant.id, prepMinutesOf(restaurant.prep_minutes), updates.prep_minutes, { source: "crm", actor }));
+  }
 
   const { count } = await admin
     .from("print_devices")

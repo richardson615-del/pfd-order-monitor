@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DAY_KEYS, DAY_LABELS, MAX_RANGES_PER_DAY, PAUSE_CHOICES, clockLabel, dayLine, emptyWeek, time12, type PauseChoice, type WeeklyHours } from "@/lib/store";
-import { COOK_TIME_CHOICES, type KitchenAlert } from "@/lib/kitchen-alerts";
+import type { KitchenAlert } from "@/lib/kitchen-alerts";
+import { ASK_DISPATCH, acceptMinutes, boostChoices, boostLengthChoices, busyLine, cookTimeChoices, lengthLabel, type CookLimits, type LiveBusy } from "@/lib/cook-time";
 
 /**
  * Store: the restaurant runs its own store from the app (migration 052;
@@ -14,6 +15,7 @@ import { COOK_TIME_CHOICES, type KitchenAlert } from "@/lib/kitchen-alerts";
  *   - Change the weekly hours. Sent to Premium, who apply them; the tab
  *     shows "Sent to Premium" until the new hours come back.
  *   - KT1 (Ticket #779): the default cook time Accept pre-selects.
+ *   - BT1 (Ticket #948): a Busy boost on top of it, which ends on its own.
  *   - KT1: this restaurant's printer and tablet alerts, in plain words
  *     (lib/kitchen-alerts.ts). The dashboard polls them and passes them in.
  */
@@ -25,6 +27,8 @@ type StoreState = {
   hours_lines: string[];
   pending_hours: { sent_at: string; hours: WeeklyHours | null } | null;
   prep_minutes: number;
+  busy: LiveBusy | null;
+  cook_limits: CookLimits;
 };
 
 const TIMES: string[] = (() => {
@@ -36,10 +40,12 @@ const TIMES: string[] = (() => {
 export default function StoreTab({
   onPauseChange,
   onCookTimeChange,
+  onBusyChange,
   alerts,
 }: {
   onPauseChange?: (pause: StoreState["pause"]) => void;
   onCookTimeChange?: (minutes: number) => void;
+  onBusyChange?: (busy: LiveBusy | null) => void;
   /** null = not checked yet / could not be read. */
   alerts?: KitchenAlert[] | null;
 }) {
@@ -50,6 +56,9 @@ export default function StoreTab({
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [editing, setEditing] = useState<WeeklyHours | null>(null);
   const [note, setNote] = useState("");
+  // BT1: the Busy buttons are open, and the minutes picked so far.
+  const [busyOpen, setBusyOpen] = useState(false);
+  const [boost, setBoost] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -59,11 +68,12 @@ export default function StoreTab({
       setS(data as StoreState);
       onPauseChange?.((data as StoreState).pause);
       if (typeof (data as StoreState).prep_minutes === "number") onCookTimeChange?.((data as StoreState).prep_minutes);
+      onBusyChange?.((data as StoreState).busy ?? null);
       setError(null);
     } catch {
       setError("Could not reach the server.");
     }
-  }, [onPauseChange, onCookTimeChange]);
+  }, [onPauseChange, onCookTimeChange, onBusyChange]);
 
   useEffect(() => {
     void load();
@@ -102,7 +112,16 @@ export default function StoreTab({
     }
   }
 
+  async function startBusy(minutes: number, lengthMinutes: number) {
+    const done = await post("/api/dashboard/store/busy", { minutes, length_minutes: lengthMinutes }, `Busy is on: Accept now adds ${minutes} minutes.`);
+    if (done) {
+      setBusyOpen(false);
+      setBoost(null);
+    }
+  }
+
   const zone = s?.timezone ?? "America/Chicago";
+  const cookChoices = s ? cookTimeChoices(s.cook_limits) : [];
 
   return (
     <div className="menu-tab store-tab">
@@ -148,7 +167,7 @@ export default function StoreTab({
             <h3 className="store-h">Default cook time</h3>
             <p className="store-sub">What Accept picks unless you tap another time. Orders already accepted keep theirs.</p>
             <div className="store-choices">
-              {COOK_TIME_CHOICES.map((m) => (
+              {cookChoices.map((m) => (
                 <button
                   key={m}
                   className={`btn store-choice num${m === s.prep_minutes ? " primary" : ""}`}
@@ -160,7 +179,54 @@ export default function StoreTab({
                 </button>
               ))}
             </div>
-            {!COOK_TIME_CHOICES.includes(s.prep_minutes) && <p className="store-sub">Now: {s.prep_minutes} min (set by Premium).</p>}
+            {!cookChoices.includes(s.prep_minutes) && <p className="store-sub">Now: {s.prep_minutes} min (set by Premium).</p>}
+            <p className="store-sub">
+              Your kitchen can set {s.cook_limits.band_min} to {s.cook_limits.band_max} minutes. Need something else? {ASK_DISPATCH}
+            </p>
+          </section>
+
+          <section className={`store-card ${s.busy ? "paused" : ""}`}>
+            <h3 className="store-h">Busy</h3>
+            {s.busy ? (
+              <>
+                <p className="store-big">{busyLine(s.busy, zone)}</p>
+                <p className="store-sub">Accept picks {acceptMinutes(s.prep_minutes, s.busy)} minutes until then. Orders already accepted keep theirs. Premium dispatch can see this.</p>
+                <button className="btn primary store-wide" disabled={busy !== null} onClick={() => void post("/api/dashboard/store/busy", { end: true }, "Busy is off.")}>
+                  End now
+                </button>
+              </>
+            ) : !busyOpen ? (
+              <>
+                <p className="store-sub">Slammed? Add time to every order you accept for a while. It ends on its own, and at closing. Premium dispatch can see it.</p>
+                <button className="btn store-wide" disabled={busy !== null} onClick={() => setBusyOpen(true)}>
+                  Busy
+                </button>
+              </>
+            ) : boost === null ? (
+              <>
+                <p className="store-sub">How much time to add?</p>
+                <div className="store-choices">
+                  {boostChoices(s.cook_limits).map((m) => (
+                    <button key={m} className="btn store-choice num" disabled={busy !== null} onClick={() => setBoost(m)}>
+                      +{m} min
+                    </button>
+                  ))}
+                </div>
+                <button className="btn small" onClick={() => setBusyOpen(false)}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <p className="store-sub">+{boost} minutes, for how long?</p>
+                <div className="store-choices">
+                  {boostLengthChoices(s.cook_limits).map((m) => (
+                    <button key={m} className="btn store-choice" disabled={busy !== null} onClick={() => void startBusy(boost, m)}>
+                      {lengthLabel(m)}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn small" onClick={() => setBoost(null)}>Back</button>
+              </>
+            )}
           </section>
 
           <section className={`store-card ${alerts?.some((a) => a.severity === "critical") ? "paused" : ""}`}>

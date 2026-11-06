@@ -5,6 +5,7 @@ import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
 import { recordCronRun, MONITOR_JOB } from "@/lib/cron-liveness";
 import { promoteDueEzCaterOrders } from "@/lib/ezcater-promote";
+import { sweepExpiredBusy } from "@/lib/cook-time-data";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -175,6 +176,14 @@ export async function GET(req: NextRequest) {
     ezcater = await promoteDueEzCaterOrders();
   } catch (err) {
     console.error("monitor: ezCater promotion sweep failed -", err instanceof Error ? err.message : err);
+  }
+
+  // BT1: a busy boost past its end is cleared and logged here, every minute.
+  // Readers already ignore it by the clock; this is what tells dispatch it ended.
+  try {
+    await sweepExpiredBusy(admin);
+  } catch (err) {
+    console.error("monitor: busy boost sweep failed -", err instanceof Error ? err.message : err);
   }
 
   // Stamped on COMPLETION, not on entry: a cron that fires every 15 minutes

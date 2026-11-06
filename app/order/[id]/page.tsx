@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import OrderViewer from "@/components/OrderViewer";
 import { prepMinutesOf } from "@/lib/countdown";
+import { BUSY_SELECT, acceptMinutes, liveBusy } from "@/lib/cook-time";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export default async function OrderDetailPage({
 
   const { data: restaurant } = await supabase
     .from("restaurants")
-    .select("timezone, prep_minutes")
+    .select(`timezone, prep_minutes, ${BUSY_SELECT}`)
     .eq("id", order.restaurant_id)
     .maybeSingle();
 
@@ -59,6 +60,7 @@ export default async function OrderDetailPage({
       order={order}
       timezone={restaurant?.timezone ?? null}
       prepMinutes={prepMinutesOf(restaurant?.prep_minutes)}
+      acceptMinutes={acceptMinutes(prepMinutesOf(restaurant?.prep_minutes), liveBusy(restaurant, Date.now()))}
     />
   );
 }

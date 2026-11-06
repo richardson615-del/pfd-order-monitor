@@ -243,6 +243,11 @@ export interface OrderListRow {
   item_count: number;
   total: number | null;
   prep_minutes: number;
+  /**
+   * BT1: minutes from Accept to the ready time - what a reader uses when ready_by
+   * is missing, boost included. Null until accepted. Always read ready_by first.
+   */
+  minutes_in_force: number | null;
   destinations: string[];
   print: PrintSummary;
   /** The email leg's own record (ET5): null when no email job exists. */
@@ -292,6 +297,7 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
     item_count: items.length,
     total: num(o.customer_total),
     prep_minutes: prep,
+    minutes_in_force: o.accepted_at ? (o.ready_minutes ?? prep) : null,
     destinations: orderDestinations({
       print_method: r.print_method ?? null,
       app_expected: r.app_expected ?? null,

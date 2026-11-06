@@ -44,6 +44,7 @@ export default function OrderCard({
   now,
   timezone,
   prepMinutes,
+  acceptMinutes,
   onAccept,
   onReady,
   onRetime,
@@ -52,10 +53,13 @@ export default function OrderCard({
   now: number;
   timezone?: string | null;
   prepMinutes: number;
+  /** BT1: what Accept pre-selects, default + any busy boost. The prep target when not given. */
+  acceptMinutes?: number;
   onAccept?: (order: Order, minutes?: number) => void;
   onReady?: (order: Order) => void;
   onRetime?: (order: Order, minutes: number) => void;
 }) {
+  const preselected = acceptMinutes ?? prepMinutes;
   const flag = orderFlag(order);
   const cd = countdown(order, prepMinutes, now);
   const waiting = isUnaccepted(order);
@@ -125,15 +129,15 @@ export default function OrderCard({
             }}
           >
             {/* SC1: a scheduled order is acknowledged, not timed - no minutes. */}
-            {scheduled ? "Accept" : <>Accept · {prepMinutes} min</>}
+            {scheduled ? "Accept" : <>Accept · {preselected} min</>}
           </button>
           {!scheduled && <div className="card-minutes" role="group" aria-label="Ready in how many minutes">
             <span className="card-minutes-label">Ready in</span>
-            {readyChoices(prepMinutes).map((m) => (
+            {readyChoices(preselected).map((m) => (
               <button
                 key={m}
                 type="button"
-                className={`btn small card-minute num${m === prepMinutes ? " default" : ""}`}
+                className={`btn small card-minute num${m === preselected ? " default" : ""}`}
                 onClick={(e) => {
                   stop(e);
                   onAccept(order, m);

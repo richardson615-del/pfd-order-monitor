@@ -1,5 +1,6 @@
 import type { HealthIssue, IssueSeverity } from "./health";
 import { READY_MINUTE_CHOICES } from "./ready-timer";
+import { parseKitchenCookTime } from "./cook-time";
 
 /**
  * Alerts on the restaurant's own tablet (KT1, prs-crm Ticket #779, Nick
@@ -89,10 +90,5 @@ export function kitchenAlertBanner(alerts: KitchenAlert[]): string | null {
 /** The cook-time choices on the Store tab: the same quick picks as Accept. */
 export const COOK_TIME_CHOICES: readonly number[] = READY_MINUTE_CHOICES;
 
-/** What the kitchen may store as its default cook time (restaurants.prep_minutes): one of the Accept quick picks. */
-export function parseCookTime(input: unknown): { kind: "ok"; minutes: number } | { kind: "error"; error: string } {
-  const v = (input ?? {}) as Record<string, unknown>;
-  const m = v.prep_minutes;
-  if (typeof m !== "number" || !COOK_TIME_CHOICES.includes(m)) return { kind: "error", error: `Pick a cook time: ${COOK_TIME_CHOICES.join(", ")} minutes.` };
-  return { kind: "ok", minutes: m };
-}
+/** What the kitchen may store as its default cook time (restaurants.prep_minutes), under the default limits. The route passes the restaurant's own. */
+export const parseCookTime = (input: unknown) => parseKitchenCookTime(input);

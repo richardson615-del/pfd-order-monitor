@@ -56,7 +56,7 @@ const clean = (v: unknown, max: number): string | null => {
  * Wall-clock parts of `at` in `zone`. Used to find "4 AM tomorrow" in the
  * restaurant's own time without a date library.
  */
-function zonedParts(at: Date, zone: string): { y: number; m: number; d: number; h: number; min: number } {
+export function zonedParts(at: Date, zone: string): { y: number; m: number; d: number; h: number; min: number } {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const p = Object.fromEntries(f.formatToParts(at).map((x) => [x.type, x.value]));
   return { y: Number(p.year), m: Number(p.month), d: Number(p.day), h: Number(p.hour), min: Number(p.minute) };

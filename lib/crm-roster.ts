@@ -3,6 +3,7 @@ import { DEFAULT_FOOTER_TEXT } from "./ticket";
 import { orderDestinations } from "./canonical";
 import { tabletStatus, type HeartbeatRow, type KioskDeviceRow, type TabletStatus } from "./tablet-status";
 import { prepMinutesOf } from "./countdown";
+import { BUSY_SELECT, COOK_LIMIT_SELECT, acceptMinutes, cookLimitsOf, liveBusy } from "./cook-time";
 
 /**
  * One restaurant row, as the CRM sees it - built in one place so the
@@ -15,7 +16,7 @@ import { prepMinutesOf } from "./countdown";
 
 /** The columns every CRM-facing read selects. One string, so the three routes cannot drift. */
 export const RESTAURANT_SELECT =
-  "id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, email_crm_orders_only, app_expected, display_mode, timezone, prep_minutes";
+  `id, name, is_active, zuppler_restaurant_id, crm_restaurant_id, ticket_footer_text, ticket_footer_url, ticket_text_scale, ticket_design_style, ticket_footer_mode, ticket_logo_b64, ticket_footer_image_b64, footer_engine, footer_template_id, footer_template_config, order_counter, print_method, ticket_email_to, email_crm_orders_only, app_expected, display_mode, timezone, prep_minutes, ${BUSY_SELECT}, ${COOK_LIMIT_SELECT}` as const;
 
 /** Everything a row needs from other tables, read once for however many rows are being shaped. */
 export interface RosterContext {
@@ -138,7 +139,20 @@ export function shapeRestaurantRow(r: any, ctx: RosterContext) {
   // Images are returned as presence + size, never inline. A roster call
   // that shipped every logo would be megabytes for a list view, and the
   // console only needs to know whether one is set.
-  const { ticket_logo_b64, ticket_footer_image_b64, ...rest } = r;
+  const {
+    ticket_logo_b64,
+    ticket_footer_image_b64,
+    busy_boost_minutes: _boost,
+    busy_started_at: _started,
+    busy_until: _until,
+    busy_started_by: _by,
+    cook_max_boost_minutes: _maxBoost,
+    cook_max_busy_minutes: _maxLength,
+    cook_band_min: _bandMin,
+    cook_band_max: _bandMax,
+    ...rest
+  } = r;
+  const busy = liveBusy(r, ctx.now);
   return {
     ...rest,
     has_logo: Boolean(ticket_logo_b64),
@@ -160,6 +174,10 @@ export function shapeRestaurantRow(r: any, ctx: RosterContext) {
     // How long the tablet counts down from Accept (I3). Never null: the
     // column defaults to 25 and the tablet reads it the same way.
     prep_minutes: prepMinutesOf(r.prep_minutes),
+    // BT1 (058): the boost in force or null, what Accept pre-selects with it, and the kitchen's limits.
+    busy,
+    accept_minutes: acceptMinutes(prepMinutesOf(r.prep_minutes), busy),
+    cook_limits: cookLimitsOf(r),
     // Both mapping tables, primary first. Ingest honours both.
     zuppler_ids: zupplerIdsFor(r.zuppler_restaurant_id, ctx.idsByRestaurant.get(r.id)),
     // Whether the tablet is open, hearing alerts, on which shell, and which

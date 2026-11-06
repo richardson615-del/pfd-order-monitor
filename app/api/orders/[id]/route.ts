@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase-server";
+import { supabaseAdmin, supabaseServer } from "@/lib/supabase-server";
 import { prepMinutesOf } from "@/lib/countdown";
 import { parseOrderPatch, readyByFor, refuseReadyChange } from "@/lib/ready-timer";
 import { isScheduled } from "@/lib/order-display";
+import { BUSY_SELECT, acceptMinutes, liveBusy, runningLateLog } from "@/lib/cook-time";
+import { actorOf, cookSourceOf, recordCookTimeChange } from "@/lib/cook-time-data";
+import { cleanOwnerName } from "@/lib/partner-app";
 
 const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
   opened: "opened_at",
@@ -12,10 +15,10 @@ const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
 
 /**
  * PATCH /api/orders/:id, one action per call (lib/ready-timer.ts):
- *   { accepted: true, minutes? }  accept; minutes (1-180) default to the restaurant's prep target.
+ *   { accepted: true, minutes? }  accept; minutes (1-180) default to the restaurant's prep target plus any busy boost (BT1).
  *                                 A scheduled order (due > 2 h out, SC1) takes no minutes: ready_by = due_time.
  *   { ready: true }               the food is ready (PA5); stamps ready_at once
- *   { minutes }                   re-time an accepted, not-ready order (minutes from Accept)
+ *   { minutes }                   re-time an accepted, not-ready order (minutes from Accept); a cook_time_log row (BT1)
  *   { status: "opened" | "completed" | "printed" | "new" }
  * Relies on the caller's Supabase session (cookie on the tablet, Bearer from
  * the PFD Partner app) + RLS, so a restaurant can only update its own orders.
@@ -29,7 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const parsed = parseOrderPatch(await req.json().catch(() => null));
+  const body = await req.json().catch(() => null);
+  const parsed = parseOrderPatch(body);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error, code: parsed.code }, { status: 400 });
   const patch = parsed.patch;
   const now = new Date().toISOString();
@@ -54,8 +58,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       readyBy = new Date(order.due_time).toISOString();
     } else {
       if (minutes === null) {
-        const { data: r } = await supabase.from("restaurants").select("prep_minutes").eq("id", order.restaurant_id).maybeSingle();
-        minutes = prepMinutesOf(r?.prep_minutes);
+        const { data: r } = await supabase.from("restaurants").select(`prep_minutes, ${BUSY_SELECT}`).eq("id", order.restaurant_id).maybeSingle();
+        // BT1: with nothing picked, the kitchen kept what Accept pre-selected - default + any boost.
+        minutes = acceptMinutes(prepMinutesOf(r?.prep_minutes), liveBusy(r, Date.now()));
       }
       readyBy = readyByFor(now, minutes);
     }
@@ -120,6 +125,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    // BT1: dispatch hears about it. RLS already proved the order is this
+    // restaurant's (`current` read it through the session); the log itself is service role only.
+    await recordCookTimeChange(
+      supabaseAdmin(),
+      runningLateLog(order, data.ready_by, {
+        source: cookSourceOf(req.headers.get("authorization")),
+        // PFD Partner signs in as the restaurant, so the owner's own name comes with the request (as on its messages).
+        actor: cleanOwnerName(body?.author) ?? actorOf(user),
+      })
+    );
     return NextResponse.json({ order: data });
   }
 

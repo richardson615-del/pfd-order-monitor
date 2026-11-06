@@ -12,6 +12,7 @@ import MoneyTab from "./MoneyTab";
 import StoreTab from "./StoreTab";
 import type { KitchenAlert } from "@/lib/kitchen-alerts";
 import { clockLabel as storeClock } from "@/lib/store";
+import { acceptMinutes, busyLine, liveBusy, type LiveBusy } from "@/lib/cook-time";
 import DispatchMessages from "./DispatchMessages";
 import { AGE_LATE_MS, bucketOf, isScheduled, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
@@ -93,6 +94,10 @@ export default function OrderDashboard({
   const [tab, setTab] = useState<TabKey>("orders");
   // Store tab (migration 052): the live pause, for the strip over the tabs. Polled once a minute.
   const [storePause, setStorePause] = useState<{ until: string; reason: string | null } | null>(null);
+  // BT1: the busy boost, read with the pause. The clock ends it on screen; this poll hears about one the CRM ended.
+  const [kitchenBusy, setKitchenBusy] = useState<LiveBusy | null>(null);
+  const [endingBusy, setEndingBusy] = useState(false);
+  const [busyError, setBusyError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     const read = async () => {
@@ -100,7 +105,9 @@ export default function OrderDashboard({
         const res = await fetch("/api/dashboard/store", { cache: "no-store" });
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setStorePause(data?.pause ?? null);
+        if (cancelled) return;
+        setStorePause(data?.pause ?? null);
+        setKitchenBusy(data?.busy ?? null);
       } catch {
         /* keep what we have */
       }
@@ -661,6 +668,22 @@ export default function OrderDashboard({
     };
   }, [hasNewOrders, soundArmed]);
 
+  const activeBusy = kitchenBusy && liveBusy({ busy_boost_minutes: kitchenBusy.minutes, busy_until: kitchenBusy.until }, now);
+  const preselected = acceptMinutes(prepMinutes, activeBusy);
+  const endBusyNow = async () => {
+    setEndingBusy(true);
+    setBusyError(null);
+    try {
+      const res = await fetch("/api/dashboard/store/busy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ end: true }) });
+      if (res.ok) setKitchenBusy(null);
+      else setBusyError("Could not end Busy. Try again.");
+    } catch {
+      setBusyError("Could not reach the server. Busy is still on.");
+    } finally {
+      setEndingBusy(false);
+    }
+  };
+
   const stale = isStale(lastSyncAt, now);
   const warning = kioskWarning({ connection, soundArmed, stale });
   const live = liveState({
@@ -844,6 +867,18 @@ export default function OrderDashboard({
         </p>
       )}
 
+      {activeBusy && (
+        <p className="app-paused" role="status">
+          <span>
+            {busyLine(activeBusy, timezone ?? "America/Chicago")}
+            {busyError ? ` - ${busyError}` : ""}
+          </span>
+          <button className="btn small" disabled={endingBusy} onClick={() => void endBusyNow()}>
+            End now
+          </button>
+        </p>
+      )}
+
       <div className="app-body">
       <AppNav tabs={navTabs} active={tab} onSelect={setTab} />
       <main className="app-main">
@@ -893,7 +928,7 @@ export default function OrderDashboard({
                 {isScheduled(order, now) && (i === 0 || !isScheduled(kitchen[i - 1], now)) && (
                   <div className="app-divider scheduled">Scheduled</div>
                 )}
-                <OrderCard order={order} now={now} timezone={timezone} prepMinutes={prepMinutes} onAccept={accept} onReady={markReady} onRetime={retime} />
+                <OrderCard order={order} now={now} timezone={timezone} prepMinutes={prepMinutes} acceptMinutes={preselected} onAccept={accept} onReady={markReady} onRetime={retime} />
               </Fragment>
             ))}
           </div>
@@ -927,7 +962,7 @@ export default function OrderDashboard({
 
       {tab === "money" && <MoneyTab />}
 
-      {tab === "store" && <StoreTab onPauseChange={setStorePause} onCookTimeChange={setPrepMinutes} alerts={kitchenAlerts} />}
+      {tab === "store" && <StoreTab onPauseChange={setStorePause} onCookTimeChange={setPrepMinutes} onBusyChange={setKitchenBusy} alerts={kitchenAlerts} />}
 
       {/* The orders above stay so the kitchen can finish them; this says who
           else already knows. True because the health check raises

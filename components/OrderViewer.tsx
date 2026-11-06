@@ -34,11 +34,14 @@ export default function OrderViewer({
   order: initialOrder,
   timezone,
   prepMinutes,
+  acceptMinutes,
 }: {
   order: Order;
   timezone: string | null;
   /** The restaurant's prep target, minutes - what Accept counts down from. */
   prepMinutes: number;
+  /** BT1: what Accept pre-selects, default + any busy boost. */
+  acceptMinutes: number;
 }) {
   const [order, setOrder] = useState(initialOrder);
   const [busy, setBusy] = useState(false);
@@ -261,8 +264,8 @@ export default function OrderViewer({
       {!settled && waiting && !scheduled && (
         <div className="ticket-minutes no-print" role="group" aria-label="Ready in how many minutes">
           <span className="card-minutes-label">Ready in</span>
-          {readyChoices(prepMinutes).map((m) => (
-            <button key={m} type="button" className={`btn small card-minute num${m === prepMinutes ? " default" : ""}`} disabled={busy} onClick={() => accept(m)}>
+          {readyChoices(acceptMinutes).map((m) => (
+            <button key={m} type="button" className={`btn small card-minute num${m === acceptMinutes ? " default" : ""}`} disabled={busy} onClick={() => accept(m)}>
               {m} min
             </button>
           ))}
@@ -309,7 +312,7 @@ export default function OrderViewer({
           </span>
         ) : waiting ? (
           <button className="btn ticket-done ticket-accept" disabled={busy} onClick={() => accept()}>
-            {busy ? "Accepting…" : scheduled ? "Accept" : `Accept · ${prepMinutes} min`}
+            {busy ? "Accepting…" : scheduled ? "Accept" : `Accept · ${acceptMinutes} min`}
           </button>
         ) : (
           <button className="btn ticket-done" disabled={busy} onClick={markDone}>

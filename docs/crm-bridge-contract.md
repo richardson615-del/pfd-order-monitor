@@ -157,7 +157,7 @@ Writable on `POST /api/crm/restaurants/:id`:
 | `app_expected` | `true` \| `false` — is this site meant to watch orders on the tablet? |
 | `display_mode` | `kitchen` \| `standard` — which look their tablet renders |
 | `timezone` | IANA zone (`America/New_York`) the tablet clock shows, or `null` for the device's own time. 400 for a name Intl cannot render. Presentation only (migration 032) |
-| `prep_minutes` | whole minutes the tablet counts down from **Accept** (I3, 2026-09-17, migration 040). Integer 1–180; default 25; 400 `invalid_prep_minutes` otherwise. Never null |
+| `prep_minutes` | whole minutes the tablet counts down from **Accept** (I3, 2026-09-17, migration 040). Integer 1–180; default 25; 400 `invalid_prep_minutes` otherwise. Never null. Send `actor` (the CRM user) beside it: a change writes a `cook_time_log` row (BT1) |
 
 `GET /api/crm/restaurants` adds:
 
@@ -166,6 +166,9 @@ Writable on `POST /api/crm/restaurants/:id`:
 | `app_expected` | as above |
 | `timezone` | as above, `null` when never set |
 | `prep_minutes` | as above; always a number (25 unless the CRM set it) |
+| `busy` | the boost in force (BT1), `{ minutes, started_at, until, started_by }`, or `null` |
+| `accept_minutes` | what Accept pre-selects now: `prep_minutes` + the boost, at most 180 |
+| `cook_limits` | the kitchen's limits, `{ max_boost_minutes, max_length_minutes, band_min, band_max }`, overrides already applied |
 | `zuppler_ids` | every Zuppler listing this restaurant routes, primary first |
 | `tablet` | the tablet's state from its own heartbeat — see below |
 | `has_active_printer` | whether an active print device exists — a fact, not an intention |
@@ -648,6 +651,7 @@ Limit 2000 rows (`truncated: true` beyond).
 - `items_line` — the first three items, as the tablet card shows them; `item_count` the total.
 - `prep_minutes` — the restaurant's target; `accepted_at + prep_minutes` is the countdown the tablet shows when the order has no `ready_by`.
 - `ready_minutes`, `ready_by`, `ready_at` (PA5, migration 055) — the order ready timer. `ready_minutes` is what the kitchen picked on **Accept** (1–180; the prep target when it picked nothing); `ready_by` is `accepted_at + ready_minutes`, moved on by **Running late**; `ready_at` is when somebody tapped **READY** (set once, never rewritten; distinct from `completed_at`). All three `null` on orders accepted before 055 or not yet — then the clock is `accepted_at + prep_minutes`. Once `ready_at` is set there is no countdown and `flags.overtime` is false. `updated_at` moves on each change, so `since` polling picks them up.
+- `minutes_in_force` (BT1) — minutes from Accept to the ready time, boost included: `ready_minutes`, or `prep_minutes` on an order from before 055. `null` until accepted. **Read `ready_by` first**; this is the fallback when it is missing. `prep_minutes` stays the restaurant's default and does not include a boost.
 - `destinations` — `orderDestinations()`, same as the roster.
 - `print.state` — `printed` \| `queued` \| `held` (printer waiting for paper/cover) \| `stuck` (pending past ten minutes) \| `failed` \| `expired` (too old to print, never printed) \| `none`; `failed_reason` is the printer's sentence (E2). Paper jobs only — the tablet push is `app_delivery` on the detail.
 - `email` (ET5) — the email leg's own `print_jobs` row (`delivery = 'email'`), `null` when there is none: `{ state, job_id, sent_at, error }`. `state` is `sent` only when the job has `sent_at`; `failed` when it has `send_error` (or status `failed`); `pending` when it was owed and never confirmed; `skipped` (057, `job_id: null`, with `reason`) when the restaurant's PC email is for CRM orders only and this order is not one. An email restaurant's order with `email: null` was never emailed - do not call it EMAILED from `destinations`, which is the restaurant's *current* config, not what happened to this order.
@@ -1368,7 +1372,7 @@ CRM key, no new table.
 
 - `POST /api/dashboard/store/cook-time { prep_minutes }` -> `{ prep_minutes }`.
   Writes `restaurants.prep_minutes` (migration 040), what Accept pre-selects.
-  Only an Accept quick pick (10/15/20/25/30/45); 400 `{ error }` otherwise.
+  An Accept quick pick inside the kitchen's band (BT1, below); 400 `{ error, code }` otherwise.
   `GET /api/dashboard/store` now also returns `prep_minutes`. **The CRM's
   write is unchanged and already exists:** `POST /api/crm/restaurants/:id
   { prep_minutes }` (1-180, 400 `invalid_prep_minutes`; see the restaurant
@@ -1531,7 +1535,7 @@ one action per call:
 
 | Body | Does |
 |---|---|
-| `{ accepted: true, minutes? }` | Accept. Stamps `accepted_at` once (a second call hands back the row) and sets `ready_minutes` / `ready_by = accepted_at + minutes`. `minutes` 1–180, default the restaurant's `prep_minutes`. A **scheduled** order (due more than 2 h out, SC1) takes no minutes: `ready_minutes = null`, `ready_by = due_time`. |
+| `{ accepted: true, minutes? }` | Accept. Stamps `accepted_at` once (a second call hands back the row) and sets `ready_minutes` / `ready_by = accepted_at + minutes`. `minutes` 1–180, default the restaurant's `prep_minutes` plus any busy boost (BT1). A **scheduled** order (due more than 2 h out, SC1) takes no minutes: `ready_minutes = null`, `ready_by = due_time`. |
 | `{ ready: true }` | READY. Stamps `ready_at` once (also `accepted_at` if nobody accepted). `409 order_completed` / `order_cancelled`. |
 | `{ minutes }` | Re-time an accepted, not-ready order: `ready_minutes = minutes`, `ready_by = accepted_at + minutes`. `409 not_accepted` / `already_ready` / `order_completed` / `order_cancelled`. |
 | `{ status }` | unchanged (`new`, `opened`, `completed`, `printed`). |
@@ -1540,6 +1544,88 @@ one action per call:
 for `ready` with `minutes`. Every success returns `{ order }` (the full row). The
 CRM reads the result from `GET /api/crm/orders` (`ready_minutes`, `ready_by`,
 `ready_at`, above); nothing is pushed to it.
+
+### Busy-time cook time (BT1, Ticket #948, migration 058)
+
+The kitchen adds minutes for a busy spell, within limits the bridge enforces, and
+every cook-time change from any source is a log row the CRM can read. Boost, limits
+and log live here; the CRM needs no migration.
+
+**Limits.** Defaults: boost at most **+30 min**, length at most **2 h**, the kitchen's
+own default cook time inside a **10–45 min** band. Per-restaurant overrides are written
+only by the CRM. `restaurants` has no write policy for a restaurant session, so the
+routes below are the only way in. The CRM's own `prep_minutes` write stays 1–180,
+outside the band.
+
+**Tablet routes** (restaurant from the session):
+
+| Route | Does |
+|---|---|
+| `POST /api/dashboard/store/busy { minutes, length_minutes }` | Starts a boost. Ends at that length or at closing (`restaurant_profiles.hours`), whichever is first. 400 `boost_too_big` / `busy_too_long` / `invalid_boost` / `invalid_length`; 409 `busy_already_on` (End it first; a boost cannot be stretched). Returns `{ busy, changed }`. |
+| `POST /api/dashboard/store/busy { end: true }` | Ends it. `{ busy: null, changed }`; `changed: false` when none was on. |
+| `POST /api/dashboard/store/cook-time { prep_minutes }` | 400 `outside_band` ("Ask dispatch to change it") / `invalid_cook_time`. |
+| `GET /api/dashboard/store` | Also `accept_minutes`, `busy`, `cook_limits`. |
+| `GET /api/dashboard/orders` | `kitchen` also carries `accept_minutes`, `busy` (PFD Partner). |
+
+`PATCH /api/orders/:id { minutes }` (Running late) takes an optional `author`, the
+PFD Partner owner's name, for the log.
+
+**Accept during a boost.** With no `minutes` sent, `ready_minutes` = default + boost and
+`ready_by` = `accepted_at` + that. With `minutes` sent, the kitchen's pick stands. An
+order accepted before the boost keeps its ready time; the kitchen moves those with
+Running late. Accept itself is not a log row.
+
+**CRM routes** (`CRM_WRITE_KEY`, `:id` is either id):
+
+| Route | Returns |
+|---|---|
+| `GET /api/crm/restaurants/:id/cook-time?limit=20` | `{ prep_minutes, accept_minutes, busy, limits, default_limits, log }`, `log` newest first, `limit` at most 500 |
+| `POST /api/crm/restaurants/:id/cook-time { action: "end_busy", actor? }` | `{ ok, changed, prep_minutes, accept_minutes, busy, limits, default_limits }`; `changed: false` when none was on |
+| `POST /api/crm/restaurants/:id/cook-time { action: "set_limits", limits, actor? }` | the same. `limits`: any of `max_boost_minutes` (1–120), `max_length_minutes` (1–720), `band_min`, `band_max` (1–180); `null` = back to the default. 400 `invalid_limits`. A boost already running is not cut short. No log row: audit it in the CRM |
+| `GET /api/crm/cook-time/changes?after=&since=&restaurant_id=&limit=` | `{ changes, next_after, has_more, active_busy, generated_at }`, oldest first, `limit` default 200, at most 500. 400 `invalid_cursor` / `invalid_since` |
+| `GET /api/crm/orders?date=...&cook_after=<id>` | the order feed plus `cook_time: { changes, next_after, has_more, active_busy }`, or `cook_time: { error }` when that read failed (the orders still arrive). Absent without `cook_after`. Not limited by `date`. 400 `invalid_cursor` |
+
+404 `restaurant_not_found` on any unknown id. Other errors are `{ error }`, with `code`
+where shown.
+
+**Reading "what changed".** Start at `after=0` (or `cook_after=0`) and store `next_after`
+for the next read. It stays the same when nothing is new; while `has_more` is true, read
+again. **The cursor is the id, not a time:** an expiry is dated when the boost ended and
+written by the one-minute monitor cron afterwards, so a time cursor would skip it. `since`
+(on `created_at`) is for counts such as "today" and can miss a just-written expiry.
+Expiry reaches the log within about a minute, but `busy`, `accept_minutes` and
+`active_busy` already go by the clock, so they stop at the end time exactly.
+
+A change row:
+
+```json
+{
+  "id": 42,
+  "restaurant": { "id": "<bridge uuid>", "crm_restaurant_id": "<CRM account id>", "name": "..." },
+  "kind": "running_late",
+  "source": "tablet",
+  "actor": "firecrackers",
+  "before_minutes": null, "after_minutes": null, "boost_minutes": null, "expires_at": null,
+  "order_id": "<uuid>", "order_number": "1196",
+  "before_ready_by": "2026-11-06T22:40:00+00:00", "after_ready_by": "2026-11-06T22:50:00+00:00",
+  "minutes_added": 10,
+  "created_at": "2026-11-06T22:31:00+00:00"
+}
+```
+
+| `kind` | Filled in |
+|---|---|
+| `default_change` | `before_minutes`, `after_minutes` |
+| `boost_start` | `before_minutes` (default), `after_minutes` (default + boost), `boost_minutes`, `expires_at` |
+| `boost_end` | `before_minutes` (default + boost), `after_minutes` (default), `boost_minutes`, `expires_at` (when it would have ended) |
+| `boost_expire` | as `boost_end`, `actor` null, `created_at` = when it ended |
+| `running_late` | `order_id`, `order_number`, `before_ready_by`, `after_ready_by`, `minutes_added` (null when there was no ready time before; negative if it moved earlier) |
+
+`source`: `tablet`, `partner_app`, `crm`, `system` (expiry only). `actor`: the tablet login's
+username, the PFD Partner owner's name when the app sends `author`, the CRM's `actor`, or null.
+`active_busy` rows: `{ minutes, started_at, until, started_by, restaurant }`. A default change
+that does not change the number writes no row. A failed log write is logged on the server and
+does not undo the change.
 
 ## Standing rules
 

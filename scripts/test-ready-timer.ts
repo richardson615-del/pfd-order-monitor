@@ -201,7 +201,7 @@ test("the feed selects the columns, the migration adds them, the route and table
   assert.match(route, /ready_by: readyBy\b/);
   const card = src("components/OrderCard.tsx");
   assert.match(card, /className="btn card-ready"/);
-  assert.match(card, /readyChoices\(prepMinutes\)/);
+  assert.match(card, /readyChoices\(preselected\)/);
   assert.match(card, /RUNNING_LATE_STEPS/);
   const viewer = src("components/OrderViewer.tsx");
   assert.match(viewer, /patch\(\{ ready: true \}/);

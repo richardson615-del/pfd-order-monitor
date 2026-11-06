@@ -42,7 +42,7 @@ export default function ReadyScreen({
 }) {
   const gate = useAlertGate(onSubscribedChange);
   const alertsOn = gate.state === null ? null : gate.state === "hidden";
-  const hostHint = browserHostHint(typeof navigator === "undefined" ? null : navigator.userAgent);
+  const hostHint = browserHostHint(typeof navigator === "undefined" ? null : navigator.userAgent, typeof navigator === "undefined" ? {} : { maxTouchPoints: navigator.maxTouchPoints, standalone: (navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia?.("(display-mode: standalone)").matches });
 
   const [printer, setPrinter] = useState<{ online: boolean | null } | null | undefined>(undefined);
 

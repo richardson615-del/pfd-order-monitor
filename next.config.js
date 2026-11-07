@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Security (Workstream Z, 2026-11-07): nothing in this app uses next/image,
+  // so the Image Optimization API (/_next/image) is pure attack surface - it
+  // carries unauthenticated RCE advisories (GHSA-2xp9-vwfh-vxw4,
+  // GHSA-2464-fhr4-w9xw) that have no 14.x fix. `unoptimized` makes Next
+  // answer /_next/image with a 404. Pinned by scripts/test-next-security.ts.
+  images: { unoptimized: true },
   experimental: {
     // @napi-rs/canvas is a native binary. Webpack cannot bundle a .node file,
     // and trying to fails the BUILD rather than the request - which is the

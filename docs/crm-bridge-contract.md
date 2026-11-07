@@ -1310,8 +1310,12 @@ on tablet"). It never carries an order. Two shapes:
   ```json
   {
     "menu_id": "<the CRM menu snapshot id the kitchen was looking at>",
-    "lines": ["price #1234 = 24.99", "86 #1235"],
-    "changes": [{ "ref": "1234", "action": "set_price", "item": "Rib Plate", "line": "price #1234 = 24.99", "text": "Rib Plate: $22.99 to $24.99" }]
+    "lines": ["price #1234 = 24.99", "86 #1235", "86 #1236"],
+    "changes": [
+      { "ref": "1234", "action": "set_price", "item": "Rib Plate", "line": "price #1234 = 24.99", "text": "Rib Plate: $22.99 to $24.99" },
+      { "ref": "1235", "action": "sold_out", "item": "Banana Pudding", "line": "86 #1235", "text": "Banana Pudding: sold out until 11:00 AM tomorrow", "until": "2026-11-07T11:00:00-06:00" },
+      { "ref": "1236", "action": "sold_out", "item": "Soup of the Day", "line": "86 #1236", "text": "Soup of the Day: sold out until turned back on", "until": null }
+    ]
   }
   ```
 
@@ -1325,9 +1329,30 @@ on tablet"). It never carries an order. Two shapes:
   and if one does not the parser asks, as it does today. `body` is the
   same change in words for the ticket.
 
+  **`until`** (brief 2026-11-07, MP2; additive, no migration) sits on each
+  `changes[]` entry whose `action` is `sold_out`, and only on those. `lines`
+  do not change: an 86 line is still `86 #<ref>`. The tablet asks "How long is
+  it sold out?" and the bridge works the time out from the restaurant's hours
+  (`restaurant_profiles.hours`) and `restaurants.timezone`:
+
+  | Choice on the tablet | `until` |
+  |---|---|
+  | **Rest of today** (default) | ISO 8601 with offset: the next opening on a later service day (a service day runs to 4:00 AM local), or 4:00 AM local if no opening is on file |
+  | **Back at…** (a time today or tomorrow) | ISO 8601 with offset: that time, always later than when it was sent |
+  | **Until we turn it back on** | `null` |
+
+  For the CRM's 86 op: copy a string to `payload.until`. For `null`, leave
+  `payload.until` out (the op's schema takes an optional string, not null).
+  A sold-out change with no `until` key (a message stored before this field existed) means Rest of today: work it out from the account's hours.
+  A tablet still running the old page sends no choice, and the bridge fills
+  in Rest of today itself, so newly stored sold-out changes always have the
+  key. Nothing acts on `until` yet: bringing the item back is the CRM's job
+  (brief MP2 step 3).
+
 - **Typed** (no menu pushed to that tablet yet): `menu_changes` is null and
   `body` is the restaurant's own words, one change per line ("Ribs are now
-  $24.99", "Out of banana pudding"). Parse `body` as today.
+  $24.99", "Out of banana pudding"). Parse `body` as today. There is no
+  `until` here; the words may give a time.
 
 Either way: a Menu update ticket plus a menu change set against the
 restaurant's current menu. Approval, publishing to Zuppler / DoorDash /

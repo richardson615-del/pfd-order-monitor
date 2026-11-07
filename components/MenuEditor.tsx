@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MENU_CHANGE_EXAMPLES } from "@/lib/messages";
-import { filterMenu, money, parsePriceInput, type MenuEdit, type TabletMenu, type TabletMenuItem } from "@/lib/menu-editor";
+import { SOLD_OUT_CHOICES, filterMenu, money, parsePriceInput, type BackDay, type MenuEdit, type SoldOutFor, type TabletMenu, type TabletMenuItem } from "@/lib/menu-editor";
 import { timeLabel } from "@/lib/local-day";
 
 /**
@@ -12,14 +12,15 @@ import { timeLabel } from "@/lib/local-day";
  * one change sent to Premium (POST /api/dashboard/menu/changes); the item
  * shows "Sent to Premium" until the CRM has published it and pushed the
  * menu again. Nothing here changes the menu directly - the kitchen asks,
- * Premium's menu agent does it everywhere at once.
+ * Premium's menu agent does it everywhere at once. Marking an item sold out
+ * asks how long first (Nick, 2026-11-07, brief MP2).
  *
  * With no menu pushed yet the tab falls back to words: a box that sends a
  * typed menu_change, the same way the chat's "Update menu" used to.
  */
 const REFRESH_MS = 5 * 60_000;
 
-type Loaded = { menu: TabletMenu | null; pushed_at: string | null; pending: string[] };
+type Loaded = { menu: TabletMenu | null; pushed_at: string | null; pending: string[]; rest_of_today_until: string | null };
 
 export default function MenuEditor({ timezone }: { timezone: string | null }) {
   const [data, setData] = useState<Loaded | null>(null);
@@ -38,7 +39,7 @@ export default function MenuEditor({ timezone }: { timezone: string | null }) {
         return;
       }
       setError(null);
-      setData({ menu: json.menu ?? null, pushed_at: json.pushed_at ?? null, pending: Array.isArray(json.pending) ? json.pending : [] });
+      setData({ menu: json.menu ?? null, pushed_at: json.pushed_at ?? null, pending: Array.isArray(json.pending) ? json.pending : [], rest_of_today_until: json.rest_of_today_until ?? null });
     } catch {
       setError("Could not reach the server.");
     }
@@ -138,6 +139,7 @@ export default function MenuEditor({ timezone }: { timezone: string | null }) {
         <EditSheet
           item={editing}
           pending={pending.has(editing.ref)}
+          restOfTodayUntil={data.rest_of_today_until}
           onClose={() => setEditing(null)}
           onSend={async (edit) => {
             const err = await sendEdit(edit);
@@ -153,11 +155,13 @@ export default function MenuEditor({ timezone }: { timezone: string | null }) {
 function EditSheet({
   item,
   pending,
+  restOfTodayUntil,
   onClose,
   onSend,
 }: {
   item: TabletMenuItem;
   pending: boolean;
+  restOfTodayUntil: string | null;
   onClose: () => void;
   onSend: (edit: MenuEdit) => Promise<string | null>;
 }) {
@@ -165,6 +169,10 @@ function EditSheet({
   const [name, setName] = useState(item.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [askingHowLong, setAskingHowLong] = useState(false);
+  const [soldOutFor, setSoldOutFor] = useState<SoldOutFor>("rest_of_today");
+  const [backDay, setBackDay] = useState<BackDay>("today");
+  const [backTime, setBackTime] = useState("");
 
   const run = async (edit: MenuEdit) => {
     setBusy(true);
@@ -199,8 +207,45 @@ function EditSheet({
 
           <div className="menu-sheet-section">
             <div className="menu-sheet-label">Availability</div>
-            {item.available ? (
-              <button type="button" className="btn menu-action danger" disabled={busy} onClick={() => run({ ref: item.ref, action: "sold_out" })}>
+            {item.available && askingHowLong ? (
+              <div className="menu-how-long" role="radiogroup" aria-labelledby="menu-how-long">
+                <div id="menu-how-long" className="menu-how-long-title">
+                  How long is it sold out?
+                </div>
+                {SOLD_OUT_CHOICES.map((c) => (
+                  <label key={c.key} className={`menu-choice${soldOutFor === c.key ? " on" : ""}`}>
+                    <input type="radio" name="sold-out-for" value={c.key} checked={soldOutFor === c.key} onChange={() => setSoldOutFor(c.key)} />
+                    <span>
+                      {c.label}
+                      {c.key === "rest_of_today" && <span className="menu-choice-hint">Back on at {restOfTodayUntil ?? "the next opening"}</span>}
+                    </span>
+                  </label>
+                ))}
+                {soldOutFor === "back_at" && (
+                  <div className="menu-sheet-row">
+                    <select className="menu-input" aria-label="Which day" value={backDay} onChange={(e) => setBackDay(e.target.value as BackDay)}>
+                      <option value="today">Today</option>
+                      <option value="tomorrow">Tomorrow</option>
+                    </select>
+                    <input className="menu-input num" type="time" aria-label="What time" value={backTime} onChange={(e) => setBackTime(e.target.value)} />
+                  </div>
+                )}
+                <div className="menu-sheet-row">
+                  <button type="button" className="btn menu-action" disabled={busy} onClick={() => setAskingHowLong(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn menu-action danger"
+                    disabled={busy || (soldOutFor === "back_at" && !backTime)}
+                    onClick={() => run(soldOutFor === "back_at" ? { ref: item.ref, action: "sold_out", sold_out_for: soldOutFor, back_day: backDay, back_time: backTime } : { ref: item.ref, action: "sold_out", sold_out_for: soldOutFor })}
+                  >
+                    Mark sold out
+                  </button>
+                </div>
+              </div>
+            ) : item.available ? (
+              <button type="button" className="btn menu-action danger" disabled={busy} onClick={() => setAskingHowLong(true)}>
                 Mark sold out
               </button>
             ) : (

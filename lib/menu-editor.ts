@@ -12,6 +12,7 @@
  * Pure. The routes read and write; this decides what a menu and an edit
  * may be.
  */
+import { DAY_KEYS, DAY_LABELS, clockLabel, endOfServiceDay, zonedInstant, zonedParts } from "@/lib/store";
 
 export const MAX_CATEGORIES = 200;
 export const MAX_ITEMS = 4000;
@@ -104,10 +105,23 @@ export function parseMenuPush(input: unknown): MenuPushDecision {
   return { ok: true, menu: { menu_id: menuId, source, categories }, itemCount };
 }
 
+/**
+ * "How long is it sold out?" (Nick, 2026-11-07, brief MP2): asked on every 86
+ * so a one-day sold-out cannot stay on the menu forever. Rest of today is the
+ * default.
+ */
+export const SOLD_OUT_CHOICES = [
+  { key: "rest_of_today", label: "Rest of today" },
+  { key: "back_at", label: "Back at…" },
+  { key: "until_turned_back_on", label: "Until we turn it back on" },
+] as const;
+export type SoldOutFor = (typeof SOLD_OUT_CHOICES)[number]["key"];
+export type BackDay = "today" | "tomorrow";
+
 /** What a tap on the tablet may do to one item. */
 export type MenuEdit =
   | { ref: string; action: "set_price"; price_cents: number }
-  | { ref: string; action: "sold_out" }
+  | { ref: string; action: "sold_out"; sold_out_for?: SoldOutFor; back_day?: BackDay; back_time?: string }
   | { ref: string; action: "back_on" }
   | { ref: string; action: "rename"; name: string };
 
@@ -121,6 +135,8 @@ export interface MenuChangeRecord {
   line: string;
   /** What a person reads. */
   text: string;
+  /** Sold out only: back on at this time (ISO with the restaurant's offset); null = until someone turns it back on. */
+  until?: string | null;
 }
 
 export interface MenuChanges {
@@ -131,7 +147,81 @@ export interface MenuChanges {
 
 export type MenuEditsDecision = { ok: true; body: string; menuChanges: MenuChanges } | { ok: false; error: string };
 
+/** What the route knows that the tablet may not: the time and the restaurant's own hours. */
+export interface SoldOutContext {
+  now: Date;
+  zone: string;
+  hours: unknown;
+}
+
 export const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+
+const HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** "2026-11-07T11:00:00-06:00": the instant as the restaurant's clock reads it. */
+export function isoWithOffset(at: Date, zone: string): string {
+  const p = zonedParts(at, zone);
+  const offset = Math.round((Date.UTC(p.y, p.m - 1, p.d, p.h, p.min) - at.getTime()) / 60_000);
+  const abs = Math.abs(offset);
+  return `${p.y}-${pad(p.m)}-${pad(p.d)}T${pad(p.h)}:${pad(p.min)}:00${offset < 0 ? "-" : "+"}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
+/**
+ * When a Rest of today sold-out ends: the restaurant's next opening on a later
+ * service day, or 4:00 AM local when no opening is on file. A service day runs
+ * to 4 AM (lib/store.ts), so at 1 AM a bar is still on last night's shift and
+ * comes back at today's opening, while noon between lunch and dinner, or 9 AM
+ * before the doors open, waits for tomorrow: "the rest of today" has to cover
+ * today's service.
+ */
+export function restOfTodayUntil(hours: unknown, now: Date, zone: string): Date {
+  const week = (hours && typeof hours === "object" ? hours : {}) as Record<string, unknown>;
+  const p = zonedParts(now, zone);
+  const serviceDay = Date.UTC(p.y, p.m - 1, p.d) - (p.h < 4 ? 86_400_000 : 0);
+  // Eight days: before 4 AM the first day looked at is today, whose opening may have passed.
+  for (let offset = 1; offset <= 8; offset++) {
+    const day = new Date(serviceDay + offset * 86_400_000);
+    const ranges = week[DAY_KEYS[day.getUTCDay()]!];
+    if (!Array.isArray(ranges)) continue;
+    const opens = (ranges as { open?: unknown }[]).map((r) => r?.open).filter((o): o is string => typeof o === "string" && HHMM.test(o)).sort();
+    for (const open of opens) {
+      const at = zonedInstant(zone, day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), Number(open.slice(0, 2)), Number(open.slice(3, 5)));
+      if (at > now) return at;
+    }
+  }
+  return endOfServiceDay(now, zone);
+}
+
+/** "5:30 PM today", "11:00 AM tomorrow", "11:00 AM Monday". */
+export function untilLabel(until: string, now: Date, zone: string): string {
+  const at = new Date(until);
+  const dayOf = (d: Date) => {
+    const p = zonedParts(d, zone);
+    return Date.UTC(p.y, p.m - 1, p.d);
+  };
+  const days = Math.round((dayOf(at) - dayOf(now)) / 86_400_000);
+  const day = days === 0 ? "today" : days === 1 ? "tomorrow" : DAY_LABELS[DAY_KEYS[new Date(dayOf(at)).getUTCDay()]!];
+  return `${clockLabel(at, zone)} ${day}`;
+}
+
+/**
+ * The choice on one sold-out edit, as `until`. A tablet still running the old
+ * page sends no choice, which means Rest of today.
+ */
+function soldOutUntil(e: Record<string, unknown>, ctx: SoldOutContext): { until: string | null } | { error: string } {
+  const choice = e.sold_out_for ?? "rest_of_today";
+  if (choice === "until_turned_back_on") return { until: null };
+  if (choice === "rest_of_today") return { until: isoWithOffset(restOfTodayUntil(ctx.hours, ctx.now, ctx.zone), ctx.zone) };
+  if (choice !== "back_at") return { error: "pick how long it is sold out" };
+  if (e.back_day !== "today" && e.back_day !== "tomorrow") return { error: "pick today or tomorrow" };
+  if (typeof e.back_time !== "string" || !HHMM.test(e.back_time)) return { error: "Pick a time" };
+  const p = zonedParts(ctx.now, ctx.zone);
+  const day = new Date(Date.UTC(p.y, p.m - 1, p.d) + (e.back_day === "tomorrow" ? 86_400_000 : 0));
+  const at = zonedInstant(ctx.zone, day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), Number(e.back_time.slice(0, 2)), Number(e.back_time.slice(3, 5)));
+  if (at <= ctx.now) return { error: "pick a time later than now" };
+  return { until: isoWithOffset(at, ctx.zone) };
+}
 
 export function findMenuItem(menu: TabletMenu, ref: string): { item: TabletMenuItem; category: TabletMenuCategory } | null {
   for (const category of menu.categories) {
@@ -158,9 +248,10 @@ export function parsePriceInput(raw: string): number | null {
  *   rename #<ref> -> <new name>
  *
  * A ref that is not on this menu is refused: the kitchen is looking at a
- * menu the CRM has since replaced, and the tablet reloads it.
+ * menu the CRM has since replaced, and the tablet reloads it. A sold-out edit
+ * also carries `until` beside its line; the line itself does not change.
  */
-export function parseMenuEdits(input: unknown, menu: TabletMenu): MenuEditsDecision {
+export function parseMenuEdits(input: unknown, menu: TabletMenu, ctx: SoldOutContext): MenuEditsDecision {
   const list = Array.isArray(input) ? input : [input];
   if (list.length === 0) return { ok: false, error: "nothing to change" };
   if (list.length > MAX_EDITS) return { ok: false, error: `too many changes at once (${MAX_EDITS} max)` };
@@ -179,10 +270,14 @@ export function parseMenuEdits(input: unknown, menu: TabletMenu): MenuEditsDecis
         changes.push({ ref, action: "set_price", item: item.name, line: `price #${ref} = ${(price / 100).toFixed(2)}`, text: `${item.name}: ${money(item.price_cents)} to ${money(price)}` });
         break;
       }
-      case "sold_out":
+      case "sold_out": {
         if (!item.available) return { ok: false, error: `${item.name} is already marked sold out` };
-        changes.push({ ref, action: "sold_out", item: item.name, line: `86 #${ref}`, text: `${item.name}: sold out` });
+        const sold = soldOutUntil(e, ctx);
+        if ("error" in sold) return { ok: false, error: `${item.name}: ${sold.error}` };
+        const words = sold.until ? untilLabel(sold.until, ctx.now, ctx.zone) : "turned back on";
+        changes.push({ ref, action: "sold_out", item: item.name, line: `86 #${ref}`, text: `${item.name}: sold out until ${words}`, until: sold.until });
         break;
+      }
       case "back_on":
         if (item.available) return { ok: false, error: `${item.name} is already on the menu` };
         changes.push({ ref, action: "back_on", item: item.name, line: `un-86 #${ref}`, text: `${item.name}: back on the menu` });

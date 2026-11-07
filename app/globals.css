@@ -1728,6 +1728,12 @@ table.admin-table th, table.admin-table td {
 .menu-action:disabled { opacity: 0.5; }
 .menu-field-err { margin: 0; color: var(--status-critical); font-size: var(--text-sm); }
 .menu-sheet-foot { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.menu-how-long { display: grid; gap: 8px; }
+.menu-how-long-title { font-size: var(--text-lg); font-weight: 600; color: var(--text); }
+.menu-choice { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--text); font-size: var(--text-md); cursor: pointer; }
+.menu-choice.on { border-color: var(--brand); outline: 1px solid var(--brand); }
+.menu-choice input { width: 22px; height: 22px; flex: none; accent-color: var(--brand); }
+.menu-choice-hint { display: block; color: var(--text-dim); font-size: var(--text-sm); }
 
 .menu-words { display: grid; gap: 10px; max-width: 640px; }
 .menu-words textarea { width: 100%; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); font: inherit; font-size: var(--text-md); color: var(--text); resize: vertical; }

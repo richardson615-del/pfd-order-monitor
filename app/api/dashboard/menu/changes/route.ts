@@ -3,18 +3,20 @@ import { supabaseAdmin, supabaseServer } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
 import { RATE_WINDOW_MS, overRateLimit } from "@/lib/messages";
 import { parseMenuEdits, type TabletMenu } from "@/lib/menu-editor";
+import { DEFAULT_ZONE } from "@/lib/store-session";
 
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/dashboard/menu/changes  { edits: [{ ref, action, price_cents?, name? }] } -> { message }
+ * POST /api/dashboard/menu/changes  { edits: [{ ref, action, price_cents?, name?, sold_out_for?, back_day?, back_time? }] } -> { message }
  *
  * A change made on the Menu tab (migration 049). Validated against the menu
  * this restaurant's tablet is showing - a ref the CRM has since replaced is
  * refused (409) and the tab reloads. Stored as a menu_change message with
  * `menu_changes` filled, so dispatch sees it in the same thread as every
  * other message and the CRM gets exact parser lines. The same send limit as
- * typed messages.
+ * typed messages. A sold-out change's `until` is worked out here from the
+ * restaurant's own hours and timezone, not the tablet's clock.
  */
 export async function POST(req: NextRequest) {
   const supabase = supabaseServer();
@@ -36,7 +38,13 @@ export async function POST(req: NextRequest) {
   if (typeof input.menu_id === "string" && input.menu_id !== menu.menu_id) {
     return NextResponse.json({ error: "the menu changed since this screen loaded", code: "stale_menu" }, { status: 409 });
   }
-  const parsed = parseMenuEdits(input.edits, menu);
+  const [restaurant, profile] = await Promise.all([
+    admin.from("restaurants").select("timezone").eq("id", restaurantId).single(),
+    admin.from("restaurant_profiles").select("hours").eq("restaurant_id", restaurantId).maybeSingle(),
+  ]);
+  const readErr = restaurant.error ?? profile.error;
+  if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
+  const parsed = parseMenuEdits(input.edits, menu, { now: new Date(), zone: restaurant.data?.timezone ?? DEFAULT_ZONE, hours: profile.data?.hours });
   if ("error" in parsed) return NextResponse.json({ error: parsed.error, code: "invalid" }, { status: 400 });
 
   const now = Date.now();

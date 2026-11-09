@@ -316,7 +316,7 @@ export default function OrderViewer({
           </button>
         ) : (
           <button className="btn ticket-done" disabled={busy} onClick={markDone}>
-            {busy ? "Completing…" : "Complete"}
+            {busy ? "Completing…" : order.order_type === "delivery" ? "Complete" : "Picked up"}
           </button>
         )}
       </div>

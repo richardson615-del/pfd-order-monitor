@@ -5,8 +5,8 @@ import { queueOrderToPrinters } from "@/lib/print-queue";
 import { reprintBy } from "@/lib/print-policy";
 import { appDeliveryOutcome } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, resendRefusal } from "@/lib/crm-orders";
-import { cancelOrderForCrm } from "@/lib/order-cancel";
+import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, resendRefusal } from "@/lib/crm-orders";
+import { cancelOrderForCrm, completeOrderOnPickup } from "@/lib/order-cancel";
 import { resendOrder } from "@/lib/order-resend";
 import { isValidTimeZone } from "@/lib/clock";
 import { UUID_RE } from "@/lib/restaurant-ref";
@@ -44,6 +44,11 @@ export const dynamic = "force-dynamic";
  *               was_printed so the CRM knows whether the kitchen may have
  *               started it. 409 for any other source, or a cancelled /
  *               completed order. The CRM removes Shipday and refunds.
+ *
+ *   picked_up   (2026-11-09, Matt: "remove when driver picks up") the CRM
+ *               saw the driver pick it up: status completed, so it leaves
+ *               the tablet's list for Completed today. Any source. Already
+ *               completed answers { ok, already: true }; 409 order_cancelled.
  *
  * reprint / resend_app: 409 on a cancelled or completed order: the food is
  * not to be made, or already was. The actor is the CRM session's email,
@@ -95,6 +100,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       channels: result.channels,
       note: result.channels.map((c) => `${c.channel}: ${c.detail}`).join(" "),
     });
+  }
+
+  if (action === "picked_up") {
+    const refusal = pickedUpRefusal(order);
+    if (refusal) return NextResponse.json(refusal, { status: 409 });
+    if (order.status === "completed") return NextResponse.json({ ok: true, action, already: true });
+    const done = await completeOrderOnPickup(order.id);
+    return NextResponse.json({ ok: true, action, already: !done.completed, completed_at: done.completed_at });
   }
 
   if (order.status === "cancelled" || order.status === "completed") {

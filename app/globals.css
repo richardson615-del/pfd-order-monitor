@@ -1124,6 +1124,9 @@ table.admin-table th, table.admin-table td {
 .card-minute { min-width: 52px; min-height: 44px; font-size: 18px; justify-content: center; }
 .card-minute.default { border-width: 2px; border-color: var(--st-done); font-weight: 700; }
 .card-ready-row { display: flex; gap: 8px; margin-top: 12px; align-items: stretch; }
+/* 2026-11-09: a pickup order the customer collected. Full width, below Ready. */
+.card-pickedup { width: 100%; margin-top: 10px; min-height: 52px; font-size: 1.1rem; font-weight: 800; }
+[data-display="kitchen"] .card-pickedup { min-height: 60px; }
 .card-ready {
   display: flex;
   flex: 1;

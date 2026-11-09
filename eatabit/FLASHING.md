@@ -1,4 +1,4 @@
-# Flashing a PFD Eatabit printer (firmware 2.7.0)
+# Flashing a PFD Eatabit printer (firmware 2.8.0)
 
 One-time USB flash per box. After this, updates go over WiFi from the printer's own page.
 
@@ -7,7 +7,7 @@ One-time USB flash per box. After this, updates go over WiFi from the printer's 
 - USB-serial adapter set to **3.3V** (FTDI FT232R is what we used; never 5V)
 - 3 jumper wires, a multimeter with beep mode
 - Chrome on a computer
-- `pfd-eatabit-2.7.0-full.bin` (this folder)
+- `pfd-eatabit-2.8.0-full.bin` (this folder)
 
 ## 1. Open the box and find the programming pads
 - Do **not** use the 6-pin socket marked GND/5V0/NC/NC/RXD/TXD. That is the printer's port, not the ESP32's.
@@ -29,7 +29,7 @@ One-time USB flash per box. After this, updates go over WiFi from the printer's 
 3. Set **Baudrate to 115200** (faster speeds fail with "serial noise" on jumper wires).
 4. Put the board in flash mode: hold **SW2**, press and release **SW1**, then let go of SW2. To confirm, the Console section at 115200 shows "waiting for download" after this.
 5. Click **Connect**, pick the adapter (FT232R USB UART / usbserial / CP210x / CH340). It should report ESP32-D0WD and 4MB flash. If it fails, redo step 4 releasing SW2 first, or swap TX/RX.
-6. Flash address **0x0**, choose `pfd-eatabit-2.7.0-full.bin`, tick **Erase flash**, click **Program**. About 2 minutes. Keep the wires still.
+6. Flash address **0x0**, choose `pfd-eatabit-2.8.0-full.bin`, tick **Erase flash**, click **Program**. About 2 minutes. Keep the wires still.
 7. Disconnect, remove the wires, unplug power for 5 seconds and plug back in.
 
 ## 4. Put it on WiFi
@@ -45,7 +45,7 @@ Then open the printer in Equipment and press **Test print**.
 ## Two board versions
 There are two Eatabit boards. The firmware detects which one on first boot and sets everything itself.
 - **Board A** (red): screen on 17/16/0/2, reset via GPIO 15; buttons on 14/33/27/32.
-- **Board B** (black, TCA9534 chip by the buzzer): screen SCLK 15, MOSI 23, CS 4, A0 2, RST 0; buttons through the TCA9534 at I2C 0x20 (SDA 14, SCL 27).
+- **Board B** (black, TCA9534 chip by the buzzer): screen SCLK 15, MOSI 23, CS 4, A0 2, RST 0; buttons through the TCA9534 at I2C 0x20 (SDA 14, SCL 27); ring is addressable LEDs on GPIO 12. All detected and set on first boot.
 If the screen stays white after flashing, unplug the power for 5 seconds and plug back in.
 
 ## Notes

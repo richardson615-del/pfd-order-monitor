@@ -16,6 +16,7 @@ import {
   UNACCEPTED_FLAG_MS,
   appDelivery,
   cancelRefusal,
+  pickedUpRefusal,
   cancelledPush,
   changedSince,
   emailSummary,
@@ -333,3 +334,17 @@ test("cancel: only a phone order, never twice, never a completed one; the push s
 });
 
 console.log(`\n${passed} assertions passed.`);
+
+test("picked_up: the driver has it, so the order leaves the tablet for Completed (2026-11-09)", () => {
+  assert.ok(isOrderAction("picked_up"));
+  assert.equal(pickedUpRefusal({ status: "new" }), null);
+  assert.equal(pickedUpRefusal({ status: "printed" }), null);
+  assert.equal(pickedUpRefusal({ status: "completed" }), null, "already done is an answer, not an error");
+  assert.equal(pickedUpRefusal({ status: "cancelled" })?.code, "order_cancelled");
+  const route = src("app/api/crm/orders/[id]/actions/route.ts");
+  assert.match(route, /pickedUpRefusal\(order\)[\s\S]*?completeOrderOnPickup\(order\.id\)/, "refusal first, then the one write in lib/order-cancel.ts");
+  const lib = src("lib/order-cancel.ts");
+  assert.match(lib, /update\(\{ status: "completed", completed_at: now \}\)[\s\S]*?\.not\("status", "in", "\(completed,cancelled\)"\)/, "never overwrites a cancel or an earlier Done");
+  const doc = src("docs/crm-bridge-contract.md");
+  assert.match(doc, /picked_up/);
+});

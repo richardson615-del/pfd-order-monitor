@@ -30,3 +30,24 @@ export async function cancelOrderForCrm(order: { id: string; restaurant_id: stri
   }
   return { was_printed: Boolean(before?.printed_at), jobs_pulled: pulled?.length ?? 0, pushed: push.sent ?? 0 };
 }
+
+/**
+ * The driver picked the order up (CRM action picked_up, 2026-11-09): completed,
+ * as if the kitchen tapped Done. Guarded on status so a cancel or the
+ * kitchen's own Done in between is never overwritten; completed_at keeps the
+ * first stamp. Nothing printed is pulled - the food is already in the car.
+ */
+export async function completeOrderOnPickup(orderId: string): Promise<{ completed: boolean; completed_at: string | null }> {
+  const admin = supabaseAdmin();
+  const now = new Date().toISOString();
+  const { data } = await admin
+    .from("orders")
+    .update({ status: "completed", completed_at: now })
+    .eq("id", orderId)
+    .not("status", "in", "(completed,cancelled)")
+    .select("completed_at")
+    .maybeSingle();
+  if (data) return { completed: true, completed_at: data.completed_at ?? now };
+  const { data: row } = await admin.from("orders").select("completed_at").eq("id", orderId).maybeSingle();
+  return { completed: false, completed_at: row?.completed_at ?? null };
+}

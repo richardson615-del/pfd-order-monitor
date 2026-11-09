@@ -428,8 +428,20 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up"];
+
+/**
+ * picked_up (Matt, 2026-11-09: "remove when driver picks up"): the CRM saw the
+ * driver pick the order up, so the kitchen's part is done and the order leaves
+ * the tablet's list for Completed today. Any source. Already completed is not
+ * an error (a second sweep, or the kitchen tapped Done first): the answer says
+ * so and nothing changes. A cancelled order stays cancelled.
+ */
+export function pickedUpRefusal(o: { status: string | null }): { code: "order_cancelled"; error: string } | null {
+  if (o.status === "cancelled") return { code: "order_cancelled", error: "this order is cancelled; it can't be marked picked up" };
+  return null;
+}
 
 /**
  * Whether the CRM may cancel an order (Matt, 2026-10-07: a phone customer

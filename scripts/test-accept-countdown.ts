@@ -205,7 +205,9 @@ test("the card: NEW + Accept before, the countdown pill after; the ticket: Accep
   assert.match(viewer, /ticket-accept/);
   // SC1: a scheduled order's Accept carries no minutes; every other order's is unchanged.
   assert.match(viewer, /\{busy \? "Accepting…" : scheduled \? "Accept" : `Accept · \$\{acceptMinutes\} min`\}/);
-  assert.match(viewer, /\{busy \? "Completing…" : "Complete"\}/);
+  assert.match(viewer, /\{busy \? "Completing…" : order\.order_type === "delivery" \? "Complete" : "Picked up"\}/, "a pickup order says Picked up (2026-11-09)");
+  assert.match(src("components/OrderCard.tsx"), /pickupDone && onPickedUp[\s\S]*?Picked up/, "and the card has its own Picked up");
+  assert.match(src("components/OrderDashboard.tsx"), /patchOrder\(order, \{ status: "completed" \}\)/);
   assert.match(viewer, /ticket-countdown num \$\{cd\.phase\}/);
   assert.doesNotMatch(viewer, /"Done"/);
   // Accept is the existing PATCH { accepted: true }, which never rewrites accepted_at.

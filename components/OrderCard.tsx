@@ -48,6 +48,7 @@ export default function OrderCard({
   onAccept,
   onReady,
   onRetime,
+  onPickedUp,
 }: {
   order: Order;
   now: number;
@@ -58,6 +59,8 @@ export default function OrderCard({
   onAccept?: (order: Order, minutes?: number) => void;
   onReady?: (order: Order) => void;
   onRetime?: (order: Order, minutes: number) => void;
+  /** 2026-11-09 (Matt): a pickup order the customer collected - Picked up on the card ends it. Deliveries end when the driver picks up (CRM picked_up). */
+  onPickedUp?: (order: Order) => void;
 }) {
   const preselected = acceptMinutes ?? prepMinutes;
   const flag = orderFlag(order);
@@ -74,6 +77,7 @@ export default function OrderCard({
   // taken, and what matters now is the promise.
   const tone = cd ? `age-${cd.phase === "calm" ? "calm" : cd.phase === "amber" ? "warn" : "late"}` : ageClass(order, now);
   const items = itemsLine(order.items);
+  const pickupDone = order.order_type !== "delivery" && !waiting && !scheduled && order.status !== "completed" && order.status !== "cancelled";
 
   return (
     <div
@@ -181,6 +185,19 @@ export default function OrderCard({
               );
             })}
         </div>
+      )}
+
+      {pickupDone && onPickedUp && (
+        <button
+          type="button"
+          className="btn card-pickedup"
+          onClick={(e) => {
+            stop(e);
+            onPickedUp(order);
+          }}
+        >
+          Picked up
+        </button>
       )}
     </div>
   );

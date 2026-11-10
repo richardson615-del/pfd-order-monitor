@@ -554,7 +554,7 @@ the tablet said about itself, never identity. Assigning one = bind.
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
-| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up", actor, tz? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed`; 400 `invalid_action` |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen", actor, tz? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old`; 400 `invalid_action` |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`
@@ -830,6 +830,16 @@ the bridge cannot know it otherwise. Refused with 409 on a completed or
 cancelled order, and `resend_app` with 409 `app_not_expected` when the
 restaurant is not on the tablet. Neither edits or cancels an order; there is
 no such endpoint.
+
+**`reopen`** (2026-11-10, Matt: "need way to uncomplete orders that are
+accidentally completed"): a `completed` order received in the last 24 hours
+goes back to the furthest step it had reached before Done: `opened` when it
+was accepted or opened, else `printed`, else `new`. `completed_at` is
+cleared; `printed_at`, `accepted_at` and `ready_at` are kept. The write is
+guarded on `status = completed`, so a double click or a cancel in between
+changes nothing (`reopened: false`). The tablet is pushed
+"REOPENED - Order #n". 409 `order_not_completed` for any other status,
+`too_old` past 24 hours.
 
 **`picked_up`** (2026-11-09, Matt: "remove when driver picks up"): the CRM
 saw the driver pick the order up, in Shipday or the PFD Driver app. The

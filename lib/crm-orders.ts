@@ -199,6 +199,43 @@ export interface OrderRowInput {
   customer_phone: string | null;
   items: { name: string; price: string | null; modifiers: string[] }[] | null;
   customer_total: number | string | null;
+  /** When the row was written: the moment the order reached us (2026-11-10 arrival). Optional for older callers. */
+  created_at?: string | null;
+}
+
+/** An order that reached us this many minutes after it was placed is flagged as arriving late (Matt, 2026-11-10). */
+export const LATE_ARRIVAL_MINUTES = 10;
+
+/** How the order reached us, and how long after it was placed (2026-11-10, Matt: "we received order at 11:30 but didn't send order in until 12"). */
+export interface OrderArrival {
+  /** When the customer placed it (Zuppler's createdAt for a Zuppler order). */
+  placed_at: string;
+  /** When it reached us - the row's created_at - and so when it could first go to the kitchen. */
+  reached_us_at: string | null;
+  /** webhook: Zuppler's webhook brought it. email: the order email did (no webhook first, or a later one). crm: a CRM phone / marketplace order. Else the source. */
+  via: "webhook" | "email" | "crm" | string;
+  /** Zuppler's first accepted webhook for this order, when there was one. */
+  webhook_at: string | null;
+  minutes_late: number | null;
+  late: boolean;
+}
+
+/** Pure: the order's arrival. A webhook counts as how it came when it landed within a minute of the row. */
+export function orderArrival(o: { source: string | null; received_at: string; created_at?: string | null }, webhookAt: string | null): OrderArrival {
+  const placed = Date.parse(o.received_at);
+  const reached = o.created_at ? Date.parse(o.created_at) : NaN;
+  const minutes = Number.isFinite(placed) && Number.isFinite(reached) ? Math.max(0, Math.round((reached - placed) / 60_000)) : null;
+  let via: string = o.source ?? "unknown";
+  if (o.source === "zuppler") via = webhookAt && Number.isFinite(reached) && Date.parse(webhookAt) <= reached + 60_000 ? "webhook" : "email";
+  else if (o.source === "phone" || o.source === "ubereats") via = "crm";
+  return {
+    placed_at: o.received_at,
+    reached_us_at: o.created_at ?? null,
+    via,
+    webhook_at: webhookAt,
+    minutes_late: minutes,
+    late: minutes != null && minutes >= LATE_ARRIVAL_MINUTES,
+  };
 }
 
 export interface RestaurantRef {
@@ -253,6 +290,9 @@ export interface OrderListRow {
   /** The email leg's own record (ET5): null when no email job exists. */
   email: EmailSummary | null;
   flags: OrderFlags;
+  /** When it reached us, and how many minutes after it was placed (2026-11-10). Null on a row without created_at. */
+  reached_us_at: string | null;
+  arrival_minutes: number | null;
 }
 
 const num = (v: unknown): number | null => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
@@ -307,6 +347,8 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
     // 057: the skip only applies where the email leg is in play at all.
     email: emailSummary(jobs, r.print_method === "email" ? emailSkipReason(r, o) : null),
     flags: orderFlags(o, prep, now),
+    reached_us_at: o.created_at ?? null,
+    arrival_minutes: orderArrival(o, null).minutes_late,
   };
 }
 

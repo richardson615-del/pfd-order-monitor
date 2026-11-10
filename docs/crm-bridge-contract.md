@@ -831,6 +831,8 @@ cancelled order, and `resend_app` with 409 `app_not_expected` when the
 restaurant is not on the tablet. Neither edits or cancels an order; there is
 no such endpoint.
 
+**Arrival** (2026-11-10, Matt: "we received order at 1130 but didnt send order in until 12"). Every order row now carries two fields. `reached_us_at` is the row's `created_at`: when the order reached the bridge, and so the earliest it could go to the kitchen. `arrival_minutes` is the whole minutes between `received_at` (when the customer placed it) and `reached_us_at`. The order detail also carries `arrival { placed_at, reached_us_at, via, webhook_at, minutes_late, late }`. `via` is `webhook` when Zuppler's first accepted webhook (`webhook_receipts`) landed within a minute of the row, `email` for any other Zuppler order, and `crm` for a phone or Uber Eats order. `late` means 10 minutes or more (`LATE_ARRIVAL_MINUTES`). Delivery to the kitchen happens at ingest, so a late `reached_us_at` means the order reached us late, not that we sent it late.
+
 **`reopen`** (2026-11-10, Matt: "need way to uncomplete orders that are
 accidentally completed"): a `completed` order received in the last 24 hours
 goes back to the furthest step it had reached before Done: `opened` when it

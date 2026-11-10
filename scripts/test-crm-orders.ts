@@ -18,6 +18,8 @@ import {
   cancelRefusal,
   pickedUpRefusal,
   reopenRefusal,
+  orderArrival,
+  LATE_ARRIVAL_MINUTES,
   reopenedStatus,
   reopenedPush,
   cancelledPush,
@@ -370,5 +372,23 @@ test("reopen: a completed order goes back on the tablet, today's only (2026-11-1
   const lib = src("lib/order-cancel.ts");
   assert.match(lib, /update\(\{ status, completed_at: null \}\)[\s\S]*?\.eq\("status", "completed"\)/, "only a still-completed order is reopened");
   assert.match(src("docs/crm-bridge-contract.md"), /\*\*`reopen`\*\*/);
+});
+
+test("arrival: how the order reached us and how late (2026-11-10)", () => {
+  const z = { source: "zuppler", received_at: "2026-11-10T17:31:42Z", created_at: "2026-11-10T18:03:12Z" };
+  const late = orderArrival(z, null);
+  assert.equal(late.minutes_late, 32);
+  assert.equal(late.late, true);
+  assert.equal(late.via, "email", "no webhook first: the email brought it");
+  assert.equal(orderArrival(z, "2026-11-10T18:03:11Z").via, "webhook");
+  assert.equal(orderArrival(z, "2026-11-10T18:20:00Z").via, "email", "a webhook after the row is not how it came");
+  const fast = orderArrival({ source: "zuppler", received_at: "2026-11-10T17:31:42Z", created_at: "2026-11-10T17:32:00Z" }, "2026-11-10T17:31:59Z");
+  assert.equal(fast.minutes_late, 0);
+  assert.equal(fast.late, false);
+  assert.equal(LATE_ARRIVAL_MINUTES, 10);
+  assert.equal(orderArrival({ source: "phone", received_at: "2026-11-10T17:00:00Z", created_at: "2026-11-10T17:00:01Z" }, null).via, "crm");
+  assert.equal(orderArrival({ source: "zuppler", received_at: "2026-11-10T17:00:00Z", created_at: null }, null).minutes_late, null);
+  assert.match(src("app/api/crm/orders/[id]/route.ts"), /arrival: orderArrival\(row, webhookAt\)/);
+  assert.match(src("lib/crm-orders-data.ts"), /customer_total, created_at"/);
 });
 

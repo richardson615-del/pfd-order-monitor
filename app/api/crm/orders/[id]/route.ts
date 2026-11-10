@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { ORDER_DETAIL_SELECT, loadOrderContext } from "@/lib/crm-orders-data";
-import { appDelivery, orderTimeline, shapeOrderRow, type OrderRowInput } from "@/lib/crm-orders";
+import { appDelivery, orderArrival, orderTimeline, shapeOrderRow, type OrderRowInput } from "@/lib/crm-orders";
+import { ACCEPTED_STATUSES } from "@/lib/webhook-receipts";
 import { UUID_RE } from "@/lib/restaurant-ref";
 import { zupplerLinkFor, zupplerListId, zupplerUrlTemplate } from "@/lib/zuppler-link";
 
@@ -35,6 +36,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const restaurant = ctx.restaurants.get(row.restaurant_id) ?? { id: row.restaurant_id, crm_restaurant_id: null, name: null };
   const list = shapeOrderRow(row, restaurant, jobs, now);
   const num = (v: unknown) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+  // 2026-11-10 arrival: Zuppler's first accepted webhook for this order, so the CRM can say whether
+  // Zuppler sent it late or we were slow. Best-effort: no receipt (or a failed read) reads as "email".
+  let webhookAt: string | null = null;
+  if (row.source === "zuppler" && row.external_id) {
+    const { data: rec } = await supabaseAdmin()
+      .from("webhook_receipts")
+      .select("received_at")
+      .eq("order_uuid", row.external_id)
+      .in("status", ACCEPTED_STATUSES)
+      .order("received_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    webhookAt = (rec as { received_at?: string } | null)?.received_at ?? null;
+  }
 
   return NextResponse.json({
     generated_at: new Date(now).toISOString(),
@@ -67,6 +82,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         variance: num(row.money_variance),
       },
       timeline: orderTimeline(row, jobs),
+      arrival: orderArrival(row, webhookAt),
       print_jobs: jobs
         .filter((j) => (j.delivery ?? "epson") === "epson")
         .map((j) => ({

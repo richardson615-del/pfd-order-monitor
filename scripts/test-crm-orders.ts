@@ -8,6 +8,8 @@
  * own helpers raise, the tablet's sort applied across restaurants, and
  * the two actions the office may take because the primitives existed.
  */
+import { readyByFor, refuseReadyChange } from "../lib/ready-timer";
+import { runningLateLog } from "../lib/cook-time";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
@@ -36,7 +38,7 @@ import {
   sortOrderRows,
   type OrderRowInput,
   type PrintJobRow,
-} from "../lib/crm-orders";
+ setReadyMinutes } from "../lib/crm-orders";
 import { kitchenSort } from "../lib/countdown";
 import { localDayKey } from "../lib/local-day";
 
@@ -372,3 +374,35 @@ test("reopen: a completed order goes back on the tablet, today's only (2026-11-1
   assert.match(src("docs/crm-bridge-contract.md"), /\*\*`reopen`\*\*/);
 });
 
+test("set_ready: dispatch re-times one accepted order from the CRM, by the tablet's own rules (CRM Ticket #1447, 2026-11-10)", () => {
+  assert.ok(isOrderAction("set_ready"));
+  assert.equal(setReadyMinutes(25), 25);
+  assert.equal(setReadyMinutes(1), 1);
+  assert.equal(setReadyMinutes(180), 180);
+  for (const bad of [0, 181, -5, 12.5, "25", null, undefined, Number.NaN]) assert.equal(setReadyMinutes(bad), null, `refuses ${String(bad)}`);
+  // The same guard the tablet's Running late uses, so the CRM can't re-time what the kitchen can't.
+  const accepted = { status: "printed", accepted_at: "2026-11-10T18:00:00.000Z", ready_by: "2026-11-10T18:20:00.000Z", ready_at: null };
+  assert.equal(refuseReadyChange(accepted, "retime"), null);
+  assert.equal(refuseReadyChange({ ...accepted, accepted_at: null }, "retime")?.code, "not_accepted");
+  assert.equal(refuseReadyChange({ ...accepted, ready_at: "2026-11-10T18:19:00.000Z" }, "retime")?.code, "already_ready");
+  assert.equal(refuseReadyChange({ ...accepted, status: "cancelled" }, "retime")?.code, "order_cancelled");
+  assert.equal(refuseReadyChange({ ...accepted, status: "completed" }, "retime")?.code, "order_completed");
+  // Minutes count from Accept, as on the tablet.
+  assert.equal(readyByFor(accepted.accepted_at, 35), "2026-11-10T18:35:00.000Z");
+  // The log row is the tablet's Running late row, marked as the CRM's, with the dispatcher's email.
+  const row = runningLateLog({ id: "o1", restaurant_id: "r1", order_number: "P-1", ready_by: accepted.ready_by }, "2026-11-10T18:35:00.000Z", { source: "crm", actor: "dispatcher@example.com" });
+  assert.equal(row.kind, "running_late");
+  assert.equal(row.source, "crm");
+  assert.equal(row.actor, "dispatcher@example.com");
+  assert.equal(row.before_ready_by, accepted.ready_by);
+  assert.equal(row.after_ready_by, "2026-11-10T18:35:00.000Z");
+  const route = src("app/api/crm/orders/[id]/actions/route.ts");
+  assert.match(route, /setReadyMinutes\(body\?\.minutes\)[\s\S]*?retimeOrderForCrm\(order\.id, minutes, actor\)/, "minutes checked first, then the one write in lib/order-retime.ts");
+  const lib = src("lib/order-retime.ts");
+  assert.match(lib, /refuseReadyChange\(timed, "retime"\)[\s\S]*?\.is\("ready_at", null\)[\s\S]*?runningLateLog\(timed, after\.ready_by, \{ source: "crm", actor \}\)/, "guard, then a write that can't overwrite READY, then the audit row");
+  const doc = src("docs/crm-bridge-contract.md");
+  assert.match(doc, /set_ready/);
+  assert.match(doc, /invalid_minutes/);
+});
+
+console.log(`\n${passed} assertions passed (with set_ready).`);

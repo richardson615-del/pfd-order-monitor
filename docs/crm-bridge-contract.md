@@ -554,7 +554,7 @@ the tablet said about itself, never identity. Assigning one = bind.
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
-| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen", actor, tz? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old`; 400 `invalid_action` |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen" \| "set_ready", actor, tz?, minutes? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old`; 400 `invalid_action` |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`
@@ -1062,6 +1062,20 @@ with `source: "ubereats"`:
 - `money` is Uber's. It is **not** refused for `money_mismatch`: Uber
   computed it, not the CRM, so the order is stored and `money_variance`
   records any difference.
+- `POST /api/crm/orders/:id/actions` **`set_ready`** (2026-11-10, CRM Ticket
+  #1447): dispatch re-times one accepted order. Request
+  `{ "action": "set_ready", "minutes": 35, "actor": "dispatcher@pfdworks.com" }`.
+  `minutes` is a whole number 1-180 **counted from Accept** (the tablet's own
+  `{ minutes }`), so `ready_by` becomes `accepted_at + minutes`; anything else
+  is 400 `invalid_minutes`. Same refusals as the tablet's Running late, all
+  409: `not_accepted`, `already_ready`, `order_cancelled`, `order_completed`.
+  Answers `{ ok: true, action: "set_ready", ready_by, ready_minutes,
+  before_ready_by }`. It writes the cook-time log row a tablet Running late
+  writes (`kind: "running_late"`, `source: "crm"`, `actor` = the CRM user,
+  `order_id`, `before_ready_by`, `after_ready_by`, `minutes_added`), so the
+  CRM's cook-time feed shows it. Nothing is pushed: the tablet and Partner
+  app show the new time on their next poll. A bridge older than this answers
+  400 `invalid_action`, which the CRM should read as "not available yet".
 - `POST /api/crm/orders/:id/actions` `cancel` accepts a `ubereats` order as
   it does a phone order (the CRM cancels it when Uber does).
 - The CRM's payout engine does not pay these out until a payout rule is

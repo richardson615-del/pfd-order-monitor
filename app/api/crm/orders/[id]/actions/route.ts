@@ -5,7 +5,8 @@ import { queueOrderToPrinters } from "@/lib/print-queue";
 import { reprintBy } from "@/lib/print-policy";
 import { appDeliveryOutcome } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, reopenRefusal, resendRefusal } from "@/lib/crm-orders";
+import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, reopenRefusal, resendRefusal, SET_READY_MAX, SET_READY_MIN, setReadyMinutes } from "@/lib/crm-orders";
+import { retimeOrderForCrm } from "@/lib/order-retime";
 import { cancelOrderForCrm, completeOrderOnPickup, reopenCompletedOrder } from "@/lib/order-cancel";
 import { resendOrder } from "@/lib/order-resend";
 import { isValidTimeZone } from "@/lib/clock";
@@ -55,6 +56,16 @@ export const dynamic = "force-dynamic";
  *               back to the furthest step it reached (opened / printed / new),
  *               completed_at cleared, the tablet pushed "REOPENED - Order #n".
  *               409 order_not_completed / too_old. Answers { ok, action, reopened, status, pushed }.
+ *
+ *   set_ready   (2026-11-10, CRM Ticket #1447) dispatch re-times one
+ *               accepted order: body { minutes } (1-180, counted from
+ *               Accept, the tablet's own meaning). ready_by becomes
+ *               accepted_at + minutes; the tablet and Partner app show it
+ *               on their next poll. Same refusals as the tablet's Running
+ *               late (409 not_accepted, already_ready, order_cancelled,
+ *               order_completed), 400 invalid_minutes. Writes the same
+ *               cook-time log row, source "crm", actor = the CRM user.
+ *               Answers { ok, action, ready_by, ready_minutes, before_ready_by }.
  *
  * reprint / resend_app: 409 on a cancelled or completed order: the food is
  * not to be made, or already was. The actor is the CRM session's email,
@@ -106,6 +117,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       channels: result.channels,
       note: result.channels.map((c) => `${c.channel}: ${c.detail}`).join(" "),
     });
+  }
+
+  if (action === "set_ready") {
+    const minutes = setReadyMinutes(body?.minutes);
+    if (minutes === null) {
+      return NextResponse.json({ error: `minutes must be a whole number from ${SET_READY_MIN} to ${SET_READY_MAX}, counted from Accept`, code: "invalid_minutes" }, { status: 400 });
+    }
+    // The one write lives in lib/order-retime.ts, with the tablet's own guard and audit row.
+    const result = await retimeOrderForCrm(order.id, minutes, actor);
+    if ("error" in result) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+    return NextResponse.json({ ok: true, action, ready_by: result.ready_by, ready_minutes: result.ready_minutes, before_ready_by: result.before_ready_by });
   }
 
   if (action === "picked_up") {

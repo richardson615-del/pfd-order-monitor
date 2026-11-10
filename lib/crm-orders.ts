@@ -428,8 +428,21 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready"];
+
+/**
+ * set_ready (CRM Ticket #1447, 2026-11-10): dispatch re-times ONE accepted
+ * order from the CRM - the same change the tablet's Running late makes, with
+ * the same rules (refuseReadyChange "retime": accepted, not ready, not
+ * cancelled or completed) and the same cook-time log row, source "crm".
+ * `minutes` is counted from Accept, exactly as the tablet's { minutes } is.
+ */
+export const SET_READY_MIN = 1;
+export const SET_READY_MAX = 180;
+export function setReadyMinutes(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= SET_READY_MIN && v <= SET_READY_MAX ? v : null;
+}
 
 /** A completed order may be reopened this long after it was received (Matt, 2026-11-10). */
 export const REOPEN_MAX_AGE_HOURS = 24;

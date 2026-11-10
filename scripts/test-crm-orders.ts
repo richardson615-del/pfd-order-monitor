@@ -17,6 +17,9 @@ import {
   appDelivery,
   cancelRefusal,
   pickedUpRefusal,
+  reopenRefusal,
+  reopenedStatus,
+  reopenedPush,
   cancelledPush,
   changedSince,
   emailSummary,
@@ -348,3 +351,24 @@ test("picked_up: the driver has it, so the order leaves the tablet for Completed
   const doc = src("docs/crm-bridge-contract.md");
   assert.match(doc, /picked_up/);
 });
+
+test("reopen: a completed order goes back on the tablet, today's only (2026-11-10)", () => {
+  assert.ok(isOrderAction("reopen"));
+  const now = Date.parse("2026-11-10T18:00:00Z");
+  assert.equal(reopenRefusal({ status: "completed", received_at: "2026-11-10T17:00:00Z" }, now), null);
+  assert.equal(reopenRefusal({ status: "opened", received_at: "2026-11-10T17:00:00Z" }, now)?.code, "order_not_completed");
+  assert.equal(reopenRefusal({ status: "cancelled", received_at: "2026-11-10T17:00:00Z" }, now)?.code, "order_not_completed");
+  assert.equal(reopenRefusal({ status: "completed", received_at: "2026-11-09T17:00:00Z" }, now)?.code, "too_old");
+  assert.equal(reopenRefusal({ status: "completed", received_at: null }, now)?.code, "too_old");
+  assert.equal(reopenedStatus({ accepted_at: "x" }), "opened");
+  assert.equal(reopenedStatus({ opened_at: "x" }), "opened");
+  assert.equal(reopenedStatus({ printed_at: "x" }), "printed");
+  assert.equal(reopenedStatus({}), "new");
+  assert.match(reopenedPush("123").title, /^REOPENED - Order #123$/);
+  const route = src("app/api/crm/orders/[id]/actions/route.ts");
+  assert.match(route, /reopenRefusal\(order, Date\.now\(\)\)[\s\S]*?reopenCompletedOrder\(order, actor\)/, "refusal first, then the one write");
+  const lib = src("lib/order-cancel.ts");
+  assert.match(lib, /update\(\{ status, completed_at: null \}\)[\s\S]*?\.eq\("status", "completed"\)/, "only a still-completed order is reopened");
+  assert.match(src("docs/crm-bridge-contract.md"), /\*\*`reopen`\*\*/);
+});
+

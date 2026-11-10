@@ -5,8 +5,8 @@ import { queueOrderToPrinters } from "@/lib/print-queue";
 import { reprintBy } from "@/lib/print-policy";
 import { appDeliveryOutcome } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, resendRefusal } from "@/lib/crm-orders";
-import { cancelOrderForCrm, completeOrderOnPickup } from "@/lib/order-cancel";
+import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, reopenRefusal, resendRefusal } from "@/lib/crm-orders";
+import { cancelOrderForCrm, completeOrderOnPickup, reopenCompletedOrder } from "@/lib/order-cancel";
 import { resendOrder } from "@/lib/order-resend";
 import { isValidTimeZone } from "@/lib/clock";
 import { UUID_RE } from "@/lib/restaurant-ref";
@@ -49,6 +49,12 @@ export const dynamic = "force-dynamic";
  *               saw the driver pick it up: status completed, so it leaves
  *               the tablet's list for Completed today. Any source. Already
  *               completed answers { ok, already: true }; 409 order_cancelled.
+ *
+ *   reopen      (2026-11-10, Matt: "uncomplete orders that are accidentally
+ *               completed") a completed order received in the last 24 h goes
+ *               back to the furthest step it reached (opened / printed / new),
+ *               completed_at cleared, the tablet pushed "REOPENED - Order #n".
+ *               409 order_not_completed / too_old. Answers { ok, action, reopened, status, pushed }.
  *
  * reprint / resend_app: 409 on a cancelled or completed order: the food is
  * not to be made, or already was. The actor is the CRM session's email,
@@ -108,6 +114,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (order.status === "completed") return NextResponse.json({ ok: true, action, already: true });
     const done = await completeOrderOnPickup(order.id);
     return NextResponse.json({ ok: true, action, already: !done.completed, completed_at: done.completed_at });
+  }
+
+  if (action === "reopen") {
+    const refusal = reopenRefusal(order, Date.now());
+    if (refusal) return NextResponse.json(refusal, { status: 409 });
+    const result = await reopenCompletedOrder(order, actor);
+    return NextResponse.json({ ok: true, action, ...result });
   }
 
   if (order.status === "cancelled" || order.status === "completed") {

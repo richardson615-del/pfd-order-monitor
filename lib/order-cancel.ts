@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { sendCancellationEmail } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { cancelledPush } from "@/lib/crm-orders";
+import { cancelledPush, reopenedPush, reopenedStatus } from "@/lib/crm-orders";
 
 /**
  * Cancel an order in the kitchen, for the CRM's Cancel order (2026-10-07).
@@ -50,4 +50,32 @@ export async function completeOrderOnPickup(orderId: string): Promise<{ complete
   if (data) return { completed: true, completed_at: data.completed_at ?? now };
   const { data: row } = await admin.from("orders").select("completed_at").eq("id", orderId).maybeSingle();
   return { completed: false, completed_at: row?.completed_at ?? null };
+}
+
+/**
+ * Reopen a completed order (CRM action reopen, Matt 2026-11-10): back to the
+ * furthest step it had reached before Done, completed_at cleared, and the tablet
+ * pushed so it shows again. Guarded on status, so a second click or a cancel in
+ * between changes nothing. printed_at, accepted_at and ready_at are kept: those
+ * things happened.
+ */
+export async function reopenCompletedOrder(
+  order: { id: string; restaurant_id: string; order_number: string | null },
+  actor: string
+): Promise<{ reopened: boolean; status: string | null; pushed: number }> {
+  const admin = supabaseAdmin();
+  const { data: before } = await admin.from("orders").select("status, accepted_at, opened_at, printed_at").eq("id", order.id).maybeSingle();
+  if (!before || before.status !== "completed") return { reopened: false, status: before?.status ?? null, pushed: 0 };
+  const status = reopenedStatus(before);
+  const { data } = await admin
+    .from("orders")
+    .update({ status, completed_at: null })
+    .eq("id", order.id)
+    .eq("status", "completed")
+    .select("status")
+    .maybeSingle();
+  if (!data) return { reopened: false, status: null, pushed: 0 };
+  console.log("Order reopened from the CRM:", JSON.stringify({ orderId: order.id, status, actor }));
+  const push = await notifyRestaurant(order.restaurant_id, { ...reopenedPush(order.order_number), orderId: order.id }).catch(() => ({ sent: 0 }));
+  return { reopened: true, status, pushed: push.sent ?? 0 };
 }

@@ -428,8 +428,41 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen"];
+
+/** A completed order may be reopened this long after it was received (Matt, 2026-11-10). */
+export const REOPEN_MAX_AGE_HOURS = 24;
+
+/**
+ * reopen (Matt, 2026-11-10: "need way to uncomplete orders that are accidentally
+ * completed"): only a completed order, and only one received in the last
+ * REOPEN_MAX_AGE_HOURS - yesterday's lunch is not reopened by mistake. Null = allowed.
+ */
+export function reopenRefusal(
+  o: { status: string | null; received_at: string | null },
+  now: number
+): { code: "order_not_completed" | "too_old"; error: string } | null {
+  if (o.status !== "completed") return { code: "order_not_completed", error: `this order is ${o.status ?? "not completed"}; only a completed order can be reopened` };
+  const at = o.received_at ? Date.parse(o.received_at) : NaN;
+  if (!Number.isFinite(at) || now - at > REOPEN_MAX_AGE_HOURS * 3_600_000) {
+    return { code: "too_old", error: `this order is more than ${REOPEN_MAX_AGE_HOURS} hours old; it can't be reopened` };
+  }
+  return null;
+}
+
+/** Pure: the status a reopened order goes back to - the furthest step it had reached before Done. */
+export function reopenedStatus(o: { accepted_at?: string | null; opened_at?: string | null; printed_at?: string | null }): "opened" | "printed" | "new" {
+  if (o.accepted_at || o.opened_at) return "opened";
+  if (o.printed_at) return "printed";
+  return "new";
+}
+
+/** The tablet push for a reopened order. ASCII, like every banner. */
+export const reopenedPush = (orderNumber: string | null | undefined) => ({
+  title: `REOPENED - Order #${orderNumber ?? "?"}`,
+  body: "This order was marked done by mistake. It is back on your list.",
+});
 
 /**
  * picked_up (Matt, 2026-11-09: "remove when driver picks up"): the CRM saw the

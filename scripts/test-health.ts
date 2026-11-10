@@ -4,7 +4,7 @@
  * quiet during the outage it existed to catch. Both directions are tested.
  */
 import assert from "node:assert/strict";
-import { DEFAULT_THRESHOLDS, evaluateHealth, sortIssues, type HealthSnapshot } from "@/lib/health";
+import { DEFAULT_THRESHOLDS, evaluateHealth, printJobActionable, sortIssues, type HealthSnapshot } from "@/lib/health";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -597,4 +597,32 @@ test("the snapshot asks only about customer orders on tablet restaurants, still 
   assert.match(q, /6 \* 60 \* 60 \* 1000/, "the chime window");
   const vercel = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
   assert.match(vercel, /"path": "\/api\/monitor\/check",\s*"schedule": "\* \* \* \* \*"/, "checked every minute, so three means three to four");
+});
+
+test("old news is not a critical alert: test prints, pulled tickets and day-old orders (2026-11-09)", () => {
+  const order = (mins: number, queued_by = "ingest") => ({ id: "o", order_number: "1", received_at: minsAgo(mins), customer_name: "Ann", total: 10, queued_by });
+  const failed = (id: string, extra: Record<string, unknown>) => ({ id, order_number: "1200", restaurant_name: "Colorado Grill", error: "Printer offline", ...extra });
+  const s = {
+    ...healthy,
+    failedJobs: [
+      failed("test-number", { order_number: "TEST-15ELYD", order: order(30) }),
+      failed("test-queued-by", { order: order(30, "test") }),
+      failed("cancelled", { error: "order cancelled", order: order(30) }),
+      failed("cancelled-by", { error: "order cancelled by crm:kayla", order: order(30) }),
+      failed("retired", { error: "bench printer retired; order printed on the restaurant's own device", order: order(30) }),
+      failed("yesterday", { error: "Printer is out of paper for over an hour (EPTR_REC_EMPTY)", order: order(25 * 60) }),
+      failed("real", { error: "Printer is out of paper for over an hour (EPTR_REC_EMPTY)", order: order(90) }),
+    ],
+    pendingJobs: [
+      { id: "old-test", order_number: "TEST-G06MYX", restaurant_name: "Japan House", queued_at: minsAgo(45 * 24 * 60), status: "queued", attempts: 0 },
+      { id: "stuck", order_number: "1195", restaurant_name: "China One", queued_at: minsAgo(20), status: "queued", attempts: 0 },
+    ],
+  };
+  const keys = evaluateHealth(s, NOW).map((i) => i.key).sort();
+  assert.deepEqual(keys, ["job_failed:real", "job_stuck:stuck"]);
+});
+
+test("printJobActionable keeps a job whose time is unknown", () => {
+  assert.equal(printJobActionable({ order_number: "1196", error: "Printer offline" }, NOW, 24), true);
+  assert.equal(printJobActionable({ order_number: "1196", error: "Printer offline", queued_at: minsAgo(24 * 60 + 1) }, NOW, 24), false);
 });

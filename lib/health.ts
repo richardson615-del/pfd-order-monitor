@@ -211,6 +211,8 @@ export interface HealthThresholds {
   inboxSilentMinutes: number;
   /** A ticket should print within seconds. This long means it never will. */
   jobPendingMinutes: number;
+  /** A ticket for an order this old is no longer something anyone can act on: the food is long gone. */
+  jobStaleHours: number;
   /** No accepted webhook order for this long means the pipe may be dead. */
   webhookSilentHours: number;
   /** Fewer refusals than this in the window is noise, not a misconfiguration. */
@@ -235,6 +237,11 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   deviceSilentMinutes: 15,
   inboxSilentMinutes: 15,
   jobPendingMinutes: 10,
+  // A day. On 2026-11-09 the CRM's Devices page showed 27 "critical" alerts and
+  // 20 of them were old news: test prints from weeks back, tickets pulled when
+  // an order was cancelled, a printer retired on purpose. The two that mattered
+  // that morning were buried under them.
+  jobStaleHours: 24,
   // Long on purpose. Restaurants close, and a quiet night is not an outage -
   // an alert that fires every morning at 4am is one nobody reads.
   webhookSilentHours: 24,
@@ -628,6 +635,7 @@ export function evaluateHealth(
 
   // --- tickets that should have printed by now ---
   for (const j of snap.pendingJobs) {
+    if (!printJobActionable(j, now, thresholds.jobStaleHours)) continue;
     const mins = minutesSince(j.queued_at, now);
     if (mins !== null && mins >= thresholds.jobPendingMinutes) {
       // A held job names what the printer is waiting for ("Printer is out
@@ -649,6 +657,7 @@ export function evaluateHealth(
 
   // --- tickets that gave up ---
   for (const j of snap.failedJobs) {
+    if (!printJobActionable(j, now, thresholds.jobStaleHours)) continue;
     // The stored error is already plain English (lib/print-policy.ts), so
     // it leads the title: "Printer is out of paper: order 1196" is a
     // ticket a tech can act on; 'ePOS code="EPTR_REC_EMPTY"' was not.
@@ -665,6 +674,25 @@ export function evaluateHealth(
   }
 
   return issues;
+}
+
+/**
+ * Is this unprinted ticket still something a person should chase (2026-11-09)?
+ * Not when it was a test print, not when the ticket was pulled on purpose (the
+ * order was cancelled, or its bench printer was retired and the order printed
+ * on the restaurant's own device), and not when the order is more than
+ * jobStaleHours old. A job with no known time stays, so nothing is hidden by
+ * a missing join.
+ */
+export function printJobActionable(
+  j: { order_number: string | null; error?: string | null; queued_at?: string | null; order?: Omit<IssueOrder, "age_minutes"> | null },
+  now: Date,
+  staleHours: number
+): boolean {
+  if (j.order?.queued_by === "test" || /^TEST-/i.test(j.order_number ?? "")) return false;
+  if (/^(order cancelled|bench printer retired)/i.test((j.error ?? "").trim())) return false;
+  const mins = minutesSince(j.order?.received_at ?? j.queued_at ?? null, now);
+  return mins === null || mins <= staleHours * 60;
 }
 
 /** The order behind a ticket issue, with its age worked out now rather than left to the reader. */

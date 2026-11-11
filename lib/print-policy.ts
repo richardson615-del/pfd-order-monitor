@@ -165,3 +165,10 @@ export const reprintBy = (actor: string): QueuedBy => `reprint:${actor.trim() ||
  */
 export const resendBy = (actor: string): QueuedBy => reprintBy(`resend:${actor.trim() || "unknown"}`);
 export const isResendJob = (queuedBy: string | null | undefined): boolean => /^reprint:resend:/.test(queuedBy ?? "");
+/**
+ * An UPDATE from the CRM (OE2, prs-crm QUEUE row 313, 2026-11-10): the CRM
+ * changed a phone order's items, tip or payment after it was sent. A reprint
+ * under its own prefix, so the ticket leads with UPDATED and what changed.
+ */
+export const updateBy = (actor: string): QueuedBy => reprintBy(`update:${actor.trim() || "unknown"}`);
+export const isUpdateJob = (queuedBy: string | null | undefined): boolean => /^reprint:update:/.test(queuedBy ?? "");

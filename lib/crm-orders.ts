@@ -428,8 +428,8 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready" | "update";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready", "update"];
 
 /**
  * set_ready (CRM Ticket #1447, 2026-11-10): dispatch re-times ONE accepted
@@ -540,3 +540,62 @@ export function resendRefusal(
 /** The line a resent ticket leads with - printed, emailed and pushed alike. ASCII, for the Epson. */
 export const resentBanner = (orderNumber: string | null | undefined) => `*** RESENT - ORDER #${orderNumber ?? "?"} ***`;
 export const isOrderAction = (v: unknown): v is OrderAction => ORDER_ACTIONS.includes(v as OrderAction);
+
+/**
+ * update (OE2, prs-crm QUEUE row 313, 2026-11-10): the CRM changed a PHONE
+ * order after it was sent - items, tip, payment. Any age: a completed order's
+ * money still has to match what the customer paid (payouts read it). Only a
+ * cancelled one is refused. Null = allowed.
+ */
+export function updateRefusal(o: { source: string | null; status: string | null }): { code: "not_phone_order" | "order_cancelled"; error: string } | null {
+  if (o.source !== "phone") return { code: "not_phone_order", error: `only a phone order can be updated from the CRM; this one came from ${o.source ?? "an unknown source"}` };
+  if (o.status === "cancelled") return { code: "order_cancelled", error: "this order is cancelled; it can't be updated" };
+  return null;
+}
+
+/**
+ * Whether the kitchen gets an UPDATED ticket: an order still being worked on
+ * (not completed) that the restaurant received today. A completed or older
+ * order changes its money quietly - no food is made from it any more.
+ */
+export function updateReprints(o: { status: string | null; received_at: string | null }, now: number, tz: string = DEFAULT_ORDERS_TZ): boolean {
+  if (o.status === "completed" || o.status === "cancelled") return false;
+  const at = o.received_at ? Date.parse(o.received_at) : NaN;
+  return !Number.isNaN(at) && localDayKey(at, tz) === localDayKey(now, tz);
+}
+
+/** The line an updated ticket leads with - printed, emailed and pushed alike. ASCII, for the Epson. */
+export const updatedBanner = (orderNumber: string | null | undefined) => `*** UPDATED - ORDER #${orderNumber ?? "?"} ***`;
+
+const money2 = (v: unknown) => (v == null ? "$0.00" : `$${Number(v).toFixed(2)}`);
+const lineName = (it: { name?: unknown; modifiers?: unknown }) => {
+  const mods = Array.isArray(it.modifiers) ? it.modifiers.filter((m) => typeof m === "string" && m) : [];
+  return `${String(it.name ?? "?")}${mods.length ? ` (${mods.join(", ")})` : ""}`;
+};
+
+/**
+ * What changed between the stored order and the updated one, in short ASCII
+ * lines for the top of the UPDATED ticket and the tablet push: items added
+ * (+) and removed (-), then the tip, the payment and the total when they
+ * moved. Items are compared by their printed line (name with quantity, plus
+ * options), so "2x Cheese" -> "3x Cheese" reads as - 2x Cheese / + 3x Cheese.
+ */
+export function orderChangeSummary(before: Record<string, any>, after: Record<string, any>, max = 12): string[] {
+  const out: string[] = [];
+  const left = (Array.isArray(before.items) ? before.items : []).map(lineName);
+  const right = (Array.isArray(after.items) ? after.items : []).map(lineName);
+  const remaining = [...right];
+  for (const l of left) {
+    const i = remaining.indexOf(l);
+    if (i >= 0) remaining.splice(i, 1);
+    else out.push(`- ${l}`);
+  }
+  for (const r of remaining) out.push(`+ ${r}`);
+  if ((before.notes ?? "") !== (after.notes ?? "")) out.push(after.notes ? `NOTE: ${after.notes}` : "NOTE removed");
+  const moved = (a: unknown, b: unknown) => Math.abs(Number(a ?? 0) - Number(b ?? 0)) >= 0.005;
+  if (moved(before.tip, after.tip)) out.push(`TIP ${money2(before.tip)} -> ${money2(after.tip)}`);
+  if ((before.payment_type ?? "") !== (after.payment_type ?? "") && after.payment_type) out.push(`PAYMENT: ${after.payment_type}`);
+  if (moved(before.customer_total, after.customer_total)) out.push(`TOTAL ${money2(before.customer_total)} -> ${money2(after.customer_total)}`);
+  if (out.length > max) return [...out.slice(0, max - 1), `...and ${out.length - (max - 1)} more change(s)`];
+  return out;
+}

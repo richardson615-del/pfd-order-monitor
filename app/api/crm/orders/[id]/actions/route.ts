@@ -5,7 +5,8 @@ import { queueOrderToPrinters } from "@/lib/print-queue";
 import { reprintBy } from "@/lib/print-policy";
 import { appDeliveryOutcome } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
-import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, reopenRefusal, resendRefusal, SET_READY_MAX, SET_READY_MIN, setReadyMinutes } from "@/lib/crm-orders";
+import { cancelRefusal, DEFAULT_ORDERS_TZ, isOrderAction, ORDER_ACTIONS, pickedUpRefusal, reopenRefusal, resendRefusal, SET_READY_MAX, SET_READY_MIN, setReadyMinutes, updateRefusal } from "@/lib/crm-orders";
+import { updatePhoneOrderForCrm } from "@/lib/order-update";
 import { retimeOrderForCrm } from "@/lib/order-retime";
 import { cancelOrderForCrm, completeOrderOnPickup, reopenCompletedOrder } from "@/lib/order-cancel";
 import { resendOrder } from "@/lib/order-resend";
@@ -56,6 +57,17 @@ export const dynamic = "force-dynamic";
  *               back to the furthest step it reached (opened / printed / new),
  *               completed_at cleared, the tablet pushed "REOPENED - Order #n".
  *               409 order_not_completed / too_old. Answers { ok, action, reopened, status, pushed }.
+ *
+ *   update      (2026-11-10, OE2, prs-crm QUEUE row 313) a PHONE order the
+ *               CRM changed after sending it - items, tip, payment. Body:
+ *               { action, actor, reason, order: <the whole order, same shape
+ *               as POST /api/crm/orders> }. The row takes the changed columns,
+ *               money_variance is recomputed; an order still in the kitchen
+ *               today gets an UPDATED ticket with what changed (printer, PC
+ *               inbox, tablet). Completed / older orders change their money
+ *               quietly. 409 not_phone_order / order_cancelled / order_mismatch;
+ *               400 reason_required / invalid order. Answers
+ *               { ok, action, changed, summary, reprinted, channels }.
  *
  *   set_ready   (2026-11-10, CRM Ticket #1447) dispatch re-times one
  *               accepted order: body { minutes } (1-180, counted from
@@ -117,6 +129,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       channels: result.channels,
       note: result.channels.map((c) => `${c.channel}: ${c.detail}`).join(" "),
     });
+  }
+
+  if (action === "update") {
+    const refusal = updateRefusal(order);
+    if (refusal) return NextResponse.json(refusal, { status: 409 });
+    const tz = typeof body?.tz === "string" && isValidTimeZone(body.tz) ? body.tz : DEFAULT_ORDERS_TZ;
+    const result = await updatePhoneOrderForCrm(order, { order: body?.order, reason: body?.reason, actor, tz });
+    // "in" narrows here; this repo is not strict, so `!result.ok` does not.
+    if ("error" in result) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+    return NextResponse.json({ ...result, action });
   }
 
   if (action === "set_ready") {

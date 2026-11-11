@@ -1,9 +1,9 @@
 import { supabaseAdmin } from "./supabase-server";
 import { appDeliveryOutcome, orderDestinations, type OrderDestination } from "./canonical";
 import { queueOrderToPrinters } from "./print-queue";
-import { resendBy } from "./print-policy";
+import { resendBy, updateBy } from "./print-policy";
 import { notifyRestaurant } from "./push";
-import { resentBanner } from "./crm-orders";
+import { resentBanner, updatedBanner } from "./crm-orders";
 import { EMAIL_SKIP_TEXT, emailSkipReason } from "./email-routing";
 
 /**
@@ -34,7 +34,14 @@ export interface ResendResult {
   channels: ResendChannelResult[];
 }
 
-export async function resendOrder(order: Record<string, any>, actor: string): Promise<ResendResult> {
+/**
+ * OE2 (2026-11-10): the same fan-out sends an UPDATED order - the CRM changed
+ * its items, tip or payment. Each channel is marked UPDATED and carries the
+ * short list of what changed, instead of RESENT.
+ */
+export type ResendMode = { kind: "resend" } | { kind: "update"; summary: string[] };
+
+export async function resendOrder(order: Record<string, any>, actor: string, mode: ResendMode = { kind: "resend" }): Promise<ResendResult> {
   const admin = supabaseAdmin();
   const { data: r } = await admin
     .from("restaurants")
@@ -52,14 +59,14 @@ export async function resendOrder(order: Record<string, any>, actor: string): Pr
     app_expected: r?.app_expected ?? null,
     hasActivePrinter: (devices?.length ?? 0) > 0,
   });
-  const by = resendBy(`crm:${actor}`);
+  const by = mode.kind === "update" ? updateBy(`crm:${actor}`) : resendBy(`crm:${actor}`);
   const channels: ResendChannelResult[] = [];
 
   for (const d of destinations) {
     try {
-      if (d === "printer") channels.push(await resendToPrinters(order, by));
-      else if (d === "email") channels.push(await resendByEmail(order, r ?? {}, by));
-      else channels.push(await resendToTablet(order, by));
+      if (d === "printer") channels.push(await resendToPrinters(order, by, mode));
+      else if (d === "email") channels.push(await resendByEmail(order, r ?? {}, by, mode));
+      else channels.push(await resendToTablet(order, by, mode));
     } catch (err) {
       channels.push({ channel: d, ok: false, detail: err instanceof Error ? err.message : String(err) });
     }
@@ -67,14 +74,14 @@ export async function resendOrder(order: Record<string, any>, actor: string): Pr
   return { destinations, channels };
 }
 
-async function resendToPrinters(order: Record<string, any>, by: ReturnType<typeof resendBy>): Promise<ResendChannelResult> {
+async function resendToPrinters(order: Record<string, any>, by: ReturnType<typeof resendBy>, mode: ResendMode): Promise<ResendChannelResult> {
   const result = await queueOrderToPrinters(order.id, order.restaurant_id, { queuedBy: by, receivedAt: order.received_at ?? null });
   if (result.refusal) return { channel: "printer", ok: false, detail: result.message ?? result.refusal };
   const names = result.queued.map((q) => q.deviceName).filter(Boolean).join(", ");
-  return { channel: "printer", ok: result.queued.length > 0, detail: result.queued.length ? `Queued on ${names}; it prints on the next poll, marked RESENT.` : "No printer took the job." };
+  return { channel: "printer", ok: result.queued.length > 0, detail: result.queued.length ? `Queued on ${names}; it prints on the next poll, marked ${mode.kind === "update" ? "UPDATED" : "RESENT"}.` : "No printer took the job." };
 }
 
-async function resendByEmail(order: Record<string, any>, r: Record<string, any>, by: string): Promise<ResendChannelResult> {
+async function resendByEmail(order: Record<string, any>, r: Record<string, any>, by: string, mode: ResendMode): Promise<ResendChannelResult> {
   // 057: Resend follows ingest's rule - a Zuppler order is not emailed to a CRM-orders-only PC.
   const skip = emailSkipReason(r, order);
   if (skip) return { channel: "email", ok: true, skipped: true, detail: EMAIL_SKIP_TEXT[skip] };
@@ -82,7 +89,7 @@ async function resendByEmail(order: Record<string, any>, r: Record<string, any>,
   const to = (r.ticket_email_to ?? "").trim();
   if (!to) return { channel: "email", ok: false, detail: "print_method is 'email' but ticket_email_to is empty" };
 
-  const { composeBrandedTicketEmail, markResent, sendTicketEmail } = await import("./email-out");
+  const { composeBrandedTicketEmail, markResent, markUpdated, sendTicketEmail } = await import("./email-out");
   const composed = await composeBrandedTicketEmail(order as any, {
     footer: { text: r.ticket_footer_text, url: r.ticket_footer_url },
     logo: r.ticket_logo_b64 ? Buffer.from(r.ticket_logo_b64, "base64") : null,
@@ -91,7 +98,10 @@ async function resendByEmail(order: Record<string, any>, r: Record<string, any>,
     footerMode: r.ticket_footer_mode,
     footerImage: r.ticket_footer_image_b64 ? Buffer.from(r.ticket_footer_image_b64, "base64") : null,
   });
-  const email = markResent(composed, resentBanner(order.order_number));
+  const email =
+    mode.kind === "update"
+      ? markUpdated(composed, [updatedBanner(order.order_number), ...mode.summary].join(" | "))
+      : markResent(composed, resentBanner(order.order_number));
   const result = await sendTicketEmail(to, email);
   const now = new Date().toISOString();
   console.log(
@@ -122,12 +132,17 @@ async function resendByEmail(order: Record<string, any>, r: Record<string, any>,
   return { channel: "email", ok: true, detail: `Emailed to ${to} - subject '${email.subject}'.` };
 }
 
-async function resendToTablet(order: Record<string, any>, by: string): Promise<ResendChannelResult> {
+async function resendToTablet(order: Record<string, any>, by: string, mode: ResendMode): Promise<ResendChannelResult> {
   const admin = supabaseAdmin();
   const total = order.customer_total == null ? null : Number(order.customer_total);
   const push = await notifyRestaurant(order.restaurant_id, {
-    title: `Resent Order #${order.order_number}`,
-    body: total ? `${order.customer_name || "Customer"} - $${total.toFixed(2)}` : "Tap to view the order",
+    title: mode.kind === "update" ? `UPDATED - Order #${order.order_number}` : `Resent Order #${order.order_number}`,
+    body:
+      mode.kind === "update"
+        ? (mode.summary.slice(0, 2).join(" / ") || "The order changed. Tap to see it.")
+        : total
+          ? `${order.customer_name || "Customer"} - $${total.toFixed(2)}`
+          : "Tap to view the order",
     orderId: order.id,
   });
   const now = new Date().toISOString();

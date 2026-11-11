@@ -1,4 +1,4 @@
-# Flashing a PFD Eatabit printer (firmware 2.8.2)
+# Flashing a PFD Eatabit printer (firmware 2.8.3)
 
 One-time USB flash per box. After this, updates go over WiFi from the printer's own page.
 
@@ -7,7 +7,7 @@ One-time USB flash per box. After this, updates go over WiFi from the printer's 
 - USB-serial adapter set to **3.3V** (FTDI FT232R is what we used; never 5V)
 - 3 jumper wires, a multimeter with beep mode
 - Chrome on a computer (Mac or Windows; on Windows the adapter needs its USB-serial driver)
-- `pfd-eatabit-2.8.2-full.bin` (this folder)
+- `pfd-eatabit-2.8.3-full.bin` (this folder)
 
 ## 1. Open the box and find the programming pads
 - Do **not** use the 6-pin socket marked GND/5V0/NC/NC/RXD/TXD. That is the printer's port, not the ESP32's.
@@ -30,7 +30,7 @@ One-time USB flash per box. After this, updates go over WiFi from the printer's 
 4. Push the board's power plug **all the way in**. A loose plug makes the board brown out: white screen, endless restarts, no setup WiFi.
 5. Put the board in flash mode: hold **SW2**, press and release **SW1**, then let go of SW2. To confirm, the Console section at 115200 shows "waiting for download" after this.
 6. Click **Connect**, pick the adapter (FT232R USB UART / usbserial / CP210x / CH340). It should report ESP32-D0WD and 4MB flash. If it fails, redo step 4 releasing SW2 first, or swap TX/RX.
-7. Flash address **0x0**, choose `pfd-eatabit-2.8.2-full.bin`, tick **Erase flash**, click **Program**. About 2 minutes. Keep the wires still.
+7. Flash address **0x0**, choose `pfd-eatabit-2.8.3-full.bin`, tick **Erase flash**, click **Program**. About 2 minutes. Keep the wires still.
 8. Check the log ends with "Hash of data verified". Disconnect, remove the wires, unplug power for 5 seconds and plug back in.
 
 ## 4. Put it on WiFi

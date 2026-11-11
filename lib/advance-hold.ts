@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase-server";
-import { ADVANCE_RELEASE_QUEUED_BY, ADVANCE_RELEASE_STALE_MS, advanceHoldMinutes, advanceReleaseDue } from "./advance-order";
+import { ADVANCE_RELEASE_QUEUED_BY, ADVANCE_RELEASE_STALE_MS, advanceHoldMinutes, advanceReleaseDue, maxAdvanceWindowMinutes } from "./advance-order";
+import { emailSkipReason } from "./email-routing";
 
 export * from "./advance-order";
 
@@ -49,9 +50,9 @@ export async function releaseAdvanceOrders(now: number = Date.now(), windowMinut
   try {
     const { data, error } = await admin
       .from("orders")
-      .select("id, restaurant_id, source, due_time, received_at")
+      .select("id, restaurant_id, source, due_time, received_at, customer_total")
       .not("due_time", "is", null)
-      .lte("due_time", new Date(now + windowMinutes * 60_000).toISOString())
+      .lte("due_time", new Date(now + maxAdvanceWindowMinutes(windowMinutes) * 60_000).toISOString())
       .gte("due_time", new Date(now - ADVANCE_RELEASE_STALE_MS).toISOString())
       .is("printed_at", null)
       .is("cancelled_at", null)
@@ -67,34 +68,75 @@ export async function releaseAdvanceOrders(now: number = Date.now(), windowMinut
   out.checked = orders.length;
   if (!orders.length) return out;
 
-  // An order that already has a printer job (queued at ingest, released earlier, or reprinted by hand) is done here.
-  const { data: jobs, error: jobsError } = await admin
-    .from("print_jobs")
-    .select("order_id")
-    .in("order_id", orders.map((o) => o.id))
-    .not("device_id", "is", null);
-  if (jobsError) {
+  let sent: Set<string>;
+  try {
+    sent = await ordersAlreadySent(orders.map((o) => o.id));
+  } catch (err) {
     out.errors++;
-    console.error("advance hold: could not read existing jobs -", jobsError.message);
+    console.error("advance hold: could not read existing jobs -", err instanceof Error ? err.message : err);
     return out;
   }
-  const hasJob = new Set((jobs ?? []).map((j: any) => j.order_id));
 
   for (const o of orders) {
-    if (hasJob.has(o.id)) continue;
+    if (sent.has(o.id)) continue;
     try {
-      const { data: restaurant } = await admin.from("restaurants").select("id, print_method").eq("id", o.restaurant_id).maybeSingle();
-      if (!restaurant || restaurant.print_method === "email") continue;
-      const { data: devices } = await admin.from("print_devices").select("id").eq("restaurant_id", o.restaurant_id).eq("is_active", true);
-      if (!devices?.length) continue;
-      const { error } = await admin.from("print_jobs").insert(devices.map((d: any) => ({ order_id: o.id, device_id: d.id, queued_by: ADVANCE_RELEASE_QUEUED_BY, manual_reprint_at: nowIso })));
-      if (error) throw new Error(error.message);
-      out.released++;
-      console.log("advance hold RELEASED", JSON.stringify({ order: o.id, due: o.due_time, printers: devices.length }));
+      const r = await sendOrderToKitchen(o.id, ADVANCE_RELEASE_QUEUED_BY, nowIso);
+      if (r.sent) {
+        out.released++;
+        console.log("advance hold RELEASED", JSON.stringify({ order: o.id, due: o.due_time, to: r.to }));
+      }
     } catch (err) {
       out.errors++;
       console.error("advance hold: could not release", o.id, "-", err instanceof Error ? err.message : err);
     }
   }
   return out;
+}
+
+/**
+ * Orders whose ticket already went out: a printer job (queued at ingest,
+ * released, or reprinted by hand) or the PC email. A tablet push row
+ * (delivery "app") is not the ticket and does not count.
+ */
+export async function ordersAlreadySent(orderIds: string[]): Promise<Set<string>> {
+  if (!orderIds.length) return new Set();
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.from("print_jobs").select("order_id, device_id, delivery").in("order_id", orderIds);
+  if (error) throw new Error(error.message);
+  return new Set((data ?? []).filter((j: any) => j.device_id != null || j.delivery === "email").map((j: any) => j.order_id));
+}
+
+export type SendToKitchenResult =
+  | { sent: true; to: "printer" | "email"; printers?: number }
+  | { sent: false; reason: "already_sent" | "no_printer" | "zuppler_emails_it" | "not_found" };
+
+/**
+ * Send one order's ticket to the kitchen now: the paper to every active
+ * printer, or the PC email for an email restaurant. The minute sweep calls it
+ * at an order's release time; dispatch calls it early with Send to kitchen
+ * (POST /api/crm/orders/:id/actions {action:"send_to_kitchen"}). Never sends
+ * twice: an order that already has a printer job or a PC email is left alone.
+ */
+export async function sendOrderToKitchen(orderId: string, queuedBy: string, nowIso: string = new Date().toISOString()): Promise<SendToKitchenResult> {
+  const admin = supabaseAdmin();
+  if ((await ordersAlreadySent([orderId])).has(orderId)) return { sent: false, reason: "already_sent" };
+  const { data: order } = await admin.from("orders").select("*").eq("id", orderId).maybeSingle();
+  if (!order) return { sent: false, reason: "not_found" };
+  const { data: restaurant } = await admin.from("restaurants").select("*").eq("id", order.restaurant_id).maybeSingle();
+  if (!restaurant) return { sent: false, reason: "not_found" };
+
+  if (restaurant.print_method === "email") {
+    if (emailSkipReason(restaurant, order)) return { sent: false, reason: "zuppler_emails_it" };
+    const { deliverByEmail } = await import("./canonical");
+    await deliverByEmail({ orderId, restaurant, order });
+    return { sent: true, to: "email" };
+  }
+
+  const { data: devices } = await admin.from("print_devices").select("id").eq("restaurant_id", order.restaurant_id).eq("is_active", true);
+  if (!devices?.length) return { sent: false, reason: "no_printer" };
+  const { error } = await admin
+    .from("print_jobs")
+    .insert(devices.map((d: any) => ({ order_id: orderId, device_id: d.id, queued_by: queuedBy, manual_reprint_at: nowIso })));
+  if (error) throw new Error(error.message);
+  return { sent: true, to: "printer", printers: devices.length };
 }

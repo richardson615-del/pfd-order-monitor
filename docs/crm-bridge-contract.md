@@ -1784,3 +1784,13 @@ Matt: "when we are sending orders to our flashed eataabits they are alerting the
 
 How ingest knows: an Eatabit's poll (`/api/print/epson`, User-Agent `pfd-eatabit...`) writes `print_devices.printer_name` = "PFD Eatabit <version>" (`eatabitPrinterName`). No migration; the CRM devices list already shows `printer_name` as the model. Epson-only and email restaurants are unchanged (print at once). A box that has not polled since this deploy is not recognised until its next poll (seconds).
 
+## Advance orders: every restaurant, 60 / 90 / 120 minutes, and Send to kitchen (2026-11-11)
+
+Matt: "they all need to be the same but lets switch it to one hour and dispatch needs to be able to send earlier if needed maybe we auto send larger orders earlier $150+ 1.5 hours early $250+ 2 hours early". Supersedes the tablet-or-Eatabit rule above.
+
+- **Every restaurant is held**: tablet, Eatabit, Epson, and the PC email the bridge sends. The hold is decided at ingest before either the email or the printer path. Zuppler's own emails to a PC are Zuppler's and are not held.
+- **Window**: base 60 min (`DEFAULT_ADVANCE_HOLD_MINUTES`, `ADVANCE_HOLD_MINUTES` env still overrides the base); customer total $150+ -> 90 min, $250+ -> 120 min (`advanceWindowMinutes`). A base above a tier is never shortened.
+- **Release**: the minute sweep sends to printers or the PC email (`sendOrderToKitchen`, never twice: a printer job or an email job ends it; a tablet push row does not).
+- **`POST /api/crm/orders/:id/actions {action: "send_to_kitchen", actor}`**: dispatch sends a held order now. `{ ok, action, to: "printer" | "email", printers }`. 409 `already_sent` | `no_printer` | `zuppler_emails_it`; 404 `not_found`; 409 `order_settled` for cancelled/completed. Job `queued_by` = `advance_release:crm:<actor>`.
+- `advanceReleaseAt(order, base)` (pure) gives the release time for the CRM's "Goes to the kitchen at".
+

@@ -136,7 +136,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (refusal) return NextResponse.json(refusal, { status: 409 });
     const tz = typeof body?.tz === "string" && isValidTimeZone(body.tz) ? body.tz : DEFAULT_ORDERS_TZ;
     const result = await updatePhoneOrderForCrm(order, { order: body?.order, reason: body?.reason, actor, tz });
-    if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+    // "in" narrows here; this repo is not strict, so `!result.ok` does not.
+    if ("error" in result) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     return NextResponse.json({ ...result, action });
   }
 

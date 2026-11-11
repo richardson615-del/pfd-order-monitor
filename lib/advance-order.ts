@@ -13,13 +13,14 @@
  * Built so an order can not be held and then never printed:
  *   - No schema change. A held order is simply an order with no printer job
  *     yet; nothing else marks it, so there is no flag to get stuck.
- *   - Only a restaurant with the tablet app, or with one of PFD's Eatabit
- *     boxes, is held. Eatabits added 2026-11-11 (Matt: "they are alerting them
- *     to early for advanced orders they need to get it when we send the order
- *     in"): the box flashes and prints on arrival, so an order for tonight
- *     placed this morning went off hours early. An Epson-only or email-only
- *     restaurant keeps getting its paper at once (paper is its only notice) -
- *     with the ADVANCE ORDER line on the ticket (lib/ticket.ts).
+ *   - EVERY restaurant is held (Matt, 2026-11-11: "they all need to be the
+ *     same but lets switch it to one hour ... we auto send larger orders
+ *     earlier $150+ 1.5 hours early $250+ 2 hours early"): tablet, Eatabit,
+ *     Epson and the PC email we send. The window is 60 minutes, 90 for an
+ *     order of $150 or more, 120 for $250 or more (`advanceWindowMinutes`,
+ *     on the customer total). Zuppler's own emails to a PC are Zuppler's and
+ *     can not be held. Dispatch can send any held order at once
+ *     (`send_to_kitchen`, app/api/crm/orders/[id]/actions).
  *   - Any doubt prints now: no due time, an unreadable one, an error while
  *     deciding, the window switched off (ADVANCE_HOLD_MINUTES=0).
  *   - The release sweep looks at every order whose release time has passed
@@ -36,7 +37,27 @@
  * renderer. The sweep that touches the database is lib/advance-hold.ts.
  */
 
-export const DEFAULT_ADVANCE_HOLD_MINUTES = 45;
+export const DEFAULT_ADVANCE_HOLD_MINUTES = 60;
+/** Larger orders go to the kitchen earlier (Matt 2026-11-11). Dollars of the customer total -> minutes before due. */
+export const ADVANCE_LARGE_ORDER_TIERS: readonly { minTotal: number; minutes: number }[] = [
+  { minTotal: 250, minutes: 120 },
+  { minTotal: 150, minutes: 90 },
+];
+/** The longest any order is held ahead of its due time: the sweep reads this far ahead. */
+export function maxAdvanceWindowMinutes(baseMinutes: number): number {
+  if (baseMinutes <= 0) return 0;
+  return Math.max(baseMinutes, ...ADVANCE_LARGE_ORDER_TIERS.map((t) => t.minutes));
+}
+
+/** This order's window: the base, or more for a large order. 0 (hold off) stays 0. A missing or unreadable total is the base. */
+export function advanceWindowMinutes(customerTotal: number | string | null | undefined, baseMinutes: number): number {
+  if (baseMinutes <= 0) return 0;
+  const total = customerTotal == null || customerTotal === "" ? NaN : Number(customerTotal);
+  if (Number.isFinite(total)) {
+    for (const t of ADVANCE_LARGE_ORDER_TIERS) if (total >= t.minTotal) return Math.max(baseMinutes, t.minutes);
+  }
+  return baseMinutes;
+}
 /** A release this long after the due time is not printed: nobody is waiting on that ticket. */
 export const ADVANCE_RELEASE_STALE_MS = 2 * 60 * 60_000;
 export const ADVANCE_RELEASE_QUEUED_BY = "advance_release";
@@ -67,31 +88,38 @@ export function advanceHoldDecision(args: {
   now: number;
   dueTime: string | null | undefined;
   source: string | null | undefined;
-  printMethod: string | null | undefined;
-  appExpected: boolean | null | undefined;
-  /** An active PFD Eatabit at the restaurant (print_devices.printer_name, lib/printers/text-only.ts). */
-  eatabitPrinter?: boolean | null;
+  printMethod?: string | null | undefined;
+  /** Dollars. Sets the window for a large order. */
+  customerTotal?: number | string | null;
+  /** The base window (advanceHoldMinutes()). */
   windowMinutes: number;
 }): AdvanceHoldDecision {
   if (args.windowMinutes <= 0) return { hold: false, reason: "hold switched off" };
   if (args.source === "test") return { hold: false, reason: "test order" };
   // ezCater has its own lead-time rule (lib/ezcater-promote.ts): it reaches ingest only when it is time.
   if (args.source === "ezcater") return { hold: false, reason: "ezCater has its own kitchen lead time" };
-  if (args.printMethod === "email") return { hold: false, reason: "email restaurant" };
-  if (!args.appExpected && !args.eatabitPrinter) return { hold: false, reason: "no tablet app or Eatabit: paper is this restaurant's only notice" };
   const due = ms(args.dueTime);
   if (!Number.isFinite(due)) return { hold: false, reason: "no due time (ASAP)" };
-  const releaseAt = due - args.windowMinutes * 60_000;
+  const window = advanceWindowMinutes(args.customerTotal, args.windowMinutes);
+  const releaseAt = due - window * 60_000;
   if (releaseAt <= args.now) return { hold: false, reason: "due within the window" };
   return { hold: true, releaseAt: new Date(releaseAt).toISOString() };
 }
 
-/** Pure: should the sweep queue this order's paper now? */
-export function advanceReleaseDue(o: { due_time?: string | null; received_at?: string | null }, now: number, windowMinutes: number): boolean {
+/** Pure: should the sweep queue this order's paper now? The order's own window (larger orders earlier). */
+export function advanceReleaseDue(o: { due_time?: string | null; received_at?: string | null; customer_total?: number | string | null }, now: number, baseMinutes: number): boolean {
   const due = ms(o.due_time);
-  if (!Number.isFinite(due) || windowMinutes <= 0) return false;
-  if (!isAdvanceOrder(o, windowMinutes)) return false;
-  if (now < due - windowMinutes * 60_000) return false;
+  const window = advanceWindowMinutes(o.customer_total, baseMinutes);
+  if (!Number.isFinite(due) || window <= 0) return false;
+  if (!isAdvanceOrder(o, window)) return false;
+  if (now < due - window * 60_000) return false;
   return now - due <= ADVANCE_RELEASE_STALE_MS;
 }
 
+/** Pure: when a held order goes to the kitchen, or null when it is not held. For the CRM's "Goes to the kitchen at". */
+export function advanceReleaseAt(o: { due_time?: string | null; received_at?: string | null; customer_total?: number | string | null }, baseMinutes: number): string | null {
+  const due = ms(o.due_time);
+  const window = advanceWindowMinutes(o.customer_total, baseMinutes);
+  if (!Number.isFinite(due) || window <= 0 || !isAdvanceOrder(o, window)) return null;
+  return new Date(due - window * 60_000).toISOString();
+}

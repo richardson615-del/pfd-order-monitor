@@ -1,5 +1,4 @@
 import { advanceHoldDecision, advanceHoldMinutes, type AdvanceHoldDecision } from "./advance-hold";
-import { EATABIT_PRINTER_NAME } from "./printers/text-only";
 import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant, type PushResult } from "./push";
 import { pushToRestaurantApps } from "./partner-push";
@@ -418,6 +417,28 @@ export async function ingestOrder(
   // answering slowly would hold the ticket out of the print queue for as long
   // as they took. Queueing costs one insert; the printer is polling already.
   await attempt("ticket delivery", inserted.id, async () => {
+    // Advance orders (CRM Ticket #1429; every restaurant, 60 / 90 / 120 min by
+    // size since Matt 2026-11-11): an order placed for later gets its paper or
+    // PC email from the minute cron at its release time (lib/advance-hold.ts),
+    // or when dispatch presses Send to kitchen. A tablet still shows it at
+    // once. Any doubt, or any error deciding, sends now.
+    let hold: AdvanceHoldDecision = { hold: false, reason: "not decided" };
+    try {
+      hold = advanceHoldDecision({
+        now: Date.now(),
+        dueTime: input.dueTime,
+        source: input.source,
+        printMethod: restaurantRow?.print_method,
+        customerTotal: input.customerTotal ?? null,
+        windowMinutes: advanceHoldMinutes(),
+      });
+    } catch (err) {
+      console.error("advance hold: decision failed, sending now -", err instanceof Error ? err.message : err);
+    }
+    if (hold.hold) {
+      console.log("advance hold HELD", JSON.stringify({ order: inserted.id, due: input.dueTime, release_at: hold.releaseAt }));
+      return;
+    }
     if (restaurantRow?.print_method === "email") {
       // 057: CRM orders only - a Zuppler order already reaches this PC by
       // Zuppler's own email. No job is written; the orders feed reports the
@@ -432,40 +453,6 @@ export async function ingestOrder(
         restaurant: restaurantRow,
         order: inserted,
       });
-      return;
-    }
-    // CRM Ticket #1429: an order placed for later, at a restaurant with the
-    // tablet app, gets its paper at due - 45 min from the minute cron
-    // (lib/advance-hold.ts) instead of now. The tablet shows it at once.
-    // Any doubt, or any error deciding, prints now.
-    let hold: AdvanceHoldDecision = { hold: false, reason: "not decided" };
-    try {
-      // Eatabit restaurants are held too (2026-11-11): read only when it could matter.
-      let eatabitPrinter = false;
-      if (!restaurantRow?.app_expected && restaurantRow?.print_method !== "email" && input.dueTime) {
-        const { data: eatabits } = await admin
-          .from("print_devices")
-          .select("id")
-          .eq("restaurant_id", input.restaurantId)
-          .eq("is_active", true)
-          .like("printer_name", `${EATABIT_PRINTER_NAME}%`)
-          .limit(1);
-        eatabitPrinter = (eatabits?.length ?? 0) > 0;
-      }
-      hold = advanceHoldDecision({
-        now: Date.now(),
-        dueTime: input.dueTime,
-        source: input.source,
-        printMethod: restaurantRow?.print_method,
-        appExpected: restaurantRow?.app_expected,
-        eatabitPrinter,
-        windowMinutes: advanceHoldMinutes(),
-      });
-    } catch (err) {
-      console.error("advance hold: decision failed, printing now -", err instanceof Error ? err.message : err);
-    }
-    if (hold.hold) {
-      console.log("advance hold HELD", JSON.stringify({ order: inserted.id, due: input.dueTime, release_at: hold.releaseAt }));
       return;
     }
     // Otherwise unchanged: one job per active device.
@@ -736,7 +723,7 @@ export async function deliverToApp(args: {
  * correctly - the order still reaches the dashboard, and the monitor raises
  * the failure.
  */
-async function deliverByEmail(args: {
+export async function deliverByEmail(args: {
   orderId: string;
   restaurant: {
     ticket_email_to?: string | null;

@@ -12,6 +12,7 @@ import { cancelOrderForCrm, completeOrderOnPickup, reopenCompletedOrder } from "
 import { resendOrder } from "@/lib/order-resend";
 import { isValidTimeZone } from "@/lib/clock";
 import { UUID_RE } from "@/lib/restaurant-ref";
+import { sendOrderToKitchen } from "@/lib/advance-hold";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,14 @@ export const dynamic = "force-dynamic";
  *               saw the driver pick it up: status completed, so it leaves
  *               the tablet's list for Completed today. Any source. Already
  *               completed answers { ok, already: true }; 409 order_cancelled.
+ *
+ *   send_to_kitchen (2026-11-11, Matt: "dispatch needs to be able to send
+ *               earlier if needed") a held advance order's ticket goes out
+ *               now: paper to every active printer, or the PC email
+ *               (lib/advance-hold.ts sendOrderToKitchen, the minute sweep's
+ *               own send). Never twice: 409 already_sent once it has a
+ *               printer job or a PC email. 409 no_printer / zuppler_emails_it.
+ *               Answers { ok, action, to, printers? }.
  *
  *   reopen      (2026-11-10, Matt: "uncomplete orders that are accidentally
  *               completed") a completed order received in the last 24 h goes
@@ -172,6 +181,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { error: `this order is ${order.status}; nothing is sent for it again`, code: "order_settled" },
       { status: 409 }
     );
+  }
+
+  if (action === "send_to_kitchen") {
+    const r = await sendOrderToKitchen(order.id, `advance_release:crm:${actor}`);
+    // "in" narrows here; this repo is not strict, so `!r.sent` does not.
+    if ("reason" in r) {
+      const error =
+        r.reason === "already_sent" ? "this order's ticket already went to the kitchen"
+        : r.reason === "no_printer" ? "this restaurant has no active printer"
+        : r.reason === "zuppler_emails_it" ? "Zuppler emails this order to the restaurant's PC itself; there is no PFD email to send"
+        : "order not found";
+      return NextResponse.json({ error, code: r.reason }, { status: r.reason === "not_found" ? 404 : 409 });
+    }
+    return NextResponse.json({ ok: true, action, to: r.to, printers: r.printers ?? null });
   }
 
   if (action === "reprint") {

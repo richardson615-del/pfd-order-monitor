@@ -428,8 +428,8 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready" | "update";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready", "update"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready" | "update" | "send_to_kitchen";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready", "update", "send_to_kitchen"];
 
 /**
  * set_ready (CRM Ticket #1447, 2026-11-10): dispatch re-times ONE accepted

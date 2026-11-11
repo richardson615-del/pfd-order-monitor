@@ -263,11 +263,15 @@ test("the resend route: today rule first, then every current destination, each m
   assert.match(r, /orderDestinations\(\{/, "where the restaurant receives orders NOW");
   assert.match(r, /queueOrderToPrinters\(order\.id, order\.restaurant_id, \{ queuedBy: by/);
   assert.match(r, /markResent\(composed, resentBanner\(order\.order_number\)\)/);
-  assert.match(r, /title: `Resent Order #\$\{order\.order_number\}`/);
+  // OE2: the same push says UPDATED for an update; a resend still says Resent.
+  assert.match(r, /title: mode\.kind === "update" \? `UPDATED - Order #\$\{order\.order_number\}` : `Resent Order #\$\{order\.order_number\}`/);
   assert.match(r, /if \(result\.ok \|\| !job\.sent_at\)/, "a failed resend never overwrites an earlier success");
   const epson = src("app/api/print/epson/route.ts");
   assert.match(epson, /queued_by,/);
-  assert.match(epson, /if \(isResendJob\(job\.queued_by\)\)[\s\S]*?bodyLines\.unshift\(\.\.\.banner\);\s*lines\.unshift\(\.\.\.banner\);/);
+  // OE2: the lead lines come from leadBanner (RESENT for a resend, UPDATED + what changed for an update),
+  // still put on both the raster body and the text fallback.
+  assert.match(epson, /const banner = leadBanner\(job\);[\s\S]*?bodyLines\.unshift\(\.\.\.banner\);\s*lines\.unshift\(\.\.\.banner\);/);
+  assert.match(epson, /if \(isResendJob\(job\.queued_by\)\) return \[\{ text: resentBanner\(job\.orders\?\.order_number\)/);
 });
 
 console.log("\nthe routes:");

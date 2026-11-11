@@ -13,9 +13,13 @@
  * Built so an order can not be held and then never printed:
  *   - No schema change. A held order is simply an order with no printer job
  *     yet; nothing else marks it, so there is no flag to get stuck.
- *   - Only a restaurant with the tablet app is held. A printer-only or
- *     email-only restaurant keeps getting its paper at once (paper is its only
- *     notice) - with the ADVANCE ORDER line on the ticket (lib/ticket.ts).
+ *   - Only a restaurant with the tablet app, or with one of PFD's Eatabit
+ *     boxes, is held. Eatabits added 2026-11-11 (Matt: "they are alerting them
+ *     to early for advanced orders they need to get it when we send the order
+ *     in"): the box flashes and prints on arrival, so an order for tonight
+ *     placed this morning went off hours early. An Epson-only or email-only
+ *     restaurant keeps getting its paper at once (paper is its only notice) -
+ *     with the ADVANCE ORDER line on the ticket (lib/ticket.ts).
  *   - Any doubt prints now: no due time, an unreadable one, an error while
  *     deciding, the window switched off (ADVANCE_HOLD_MINUTES=0).
  *   - The release sweep looks at every order whose release time has passed
@@ -65,6 +69,8 @@ export function advanceHoldDecision(args: {
   source: string | null | undefined;
   printMethod: string | null | undefined;
   appExpected: boolean | null | undefined;
+  /** An active PFD Eatabit at the restaurant (print_devices.printer_name, lib/printers/text-only.ts). */
+  eatabitPrinter?: boolean | null;
   windowMinutes: number;
 }): AdvanceHoldDecision {
   if (args.windowMinutes <= 0) return { hold: false, reason: "hold switched off" };
@@ -72,7 +78,7 @@ export function advanceHoldDecision(args: {
   // ezCater has its own lead-time rule (lib/ezcater-promote.ts): it reaches ingest only when it is time.
   if (args.source === "ezcater") return { hold: false, reason: "ezCater has its own kitchen lead time" };
   if (args.printMethod === "email") return { hold: false, reason: "email restaurant" };
-  if (!args.appExpected) return { hold: false, reason: "no tablet app: paper is this restaurant's only notice" };
+  if (!args.appExpected && !args.eatabitPrinter) return { hold: false, reason: "no tablet app or Eatabit: paper is this restaurant's only notice" };
   const due = ms(args.dueTime);
   if (!Number.isFinite(due)) return { hold: false, reason: "no due time (ASAP)" };
   const releaseAt = due - args.windowMinutes * 60_000;

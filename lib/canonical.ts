@@ -1,4 +1,5 @@
 import { advanceHoldDecision, advanceHoldMinutes, type AdvanceHoldDecision } from "./advance-hold";
+import { EATABIT_PRINTER_NAME } from "./printers/text-only";
 import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant, type PushResult } from "./push";
 import { pushToRestaurantApps } from "./partner-push";
@@ -439,12 +440,25 @@ export async function ingestOrder(
     // Any doubt, or any error deciding, prints now.
     let hold: AdvanceHoldDecision = { hold: false, reason: "not decided" };
     try {
+      // Eatabit restaurants are held too (2026-11-11): read only when it could matter.
+      let eatabitPrinter = false;
+      if (!restaurantRow?.app_expected && restaurantRow?.print_method !== "email" && input.dueTime) {
+        const { data: eatabits } = await admin
+          .from("print_devices")
+          .select("id")
+          .eq("restaurant_id", input.restaurantId)
+          .eq("is_active", true)
+          .like("printer_name", `${EATABIT_PRINTER_NAME}%`)
+          .limit(1);
+        eatabitPrinter = (eatabits?.length ?? 0) > 0;
+      }
       hold = advanceHoldDecision({
         now: Date.now(),
         dueTime: input.dueTime,
         source: input.source,
         printMethod: restaurantRow?.print_method,
         appExpected: restaurantRow?.app_expected,
+        eatabitPrinter,
         windowMinutes: advanceHoldMinutes(),
       });
     } catch (err) {

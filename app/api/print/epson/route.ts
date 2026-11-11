@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { buildTicket, toEposPrintXml } from "@/lib/ticket";
 import { renderHeader, renderFooter, toEposImageXml, DEFAULT_FOOTER_TEXT_MARK } from "@/lib/ticket-raster";
-import { claimDecision, expiredReason, failureTransition, isResendJob, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
-import { resentBanner } from "@/lib/crm-orders";
+import { claimDecision, expiredReason, failureTransition, isResendJob, isUpdateJob, printMaxAgeMs, HOLD_RETRY_MS } from "@/lib/print-policy";
+import { resentBanner, updatedBanner } from "@/lib/crm-orders";
 import { readyByFor } from "@/lib/ready-timer";
 import { isValidPrepMinutes } from "@/lib/countdown";
 import { isTextOnlyPrinter } from "@/lib/printers/text-only";
@@ -117,7 +117,7 @@ async function handleGetRequest(deviceKey: string, textOnly = false) {
        orders ( order_number, source, ticket_restaurant_name, order_type, due_time,
                 customer_name, customer_phone, customer_address, items, items_total,
                 tax, service_fee, delivery_fee, tip, customer_total, payment_type,
-                notes, received_at, footer_resolved,
+                notes, received_at, footer_resolved, last_update:raw_payload->last_update,
                 restaurants ( name, ticket_footer_text, ticket_footer_url, ticket_text_scale,
                               ticket_design_style, ticket_logo_b64,
                               ticket_footer_mode, ticket_footer_image_b64 ) )`
@@ -211,9 +211,8 @@ async function handleGetRequest(deviceKey: string, textOnly = false) {
           const textLines = lines.map((l: any) =>
             name && l.text === name && !l.size ? { ...l, size: "double" as const, bold: true } : l
           );
-          if (isResendJob(job.queued_by)) {
-            textLines.unshift({ text: resentBanner(job.orders?.order_number), align: "center", bold: true, reverse: true }, { text: "" });
-          }
+          const lead = leadBanner(job);
+          if (lead.length) textLines.unshift(...lead);
           return `<ePOSPrint><Parameter><devid>local_printer</devid><timeout>20000</timeout></Parameter><PrintData>${toEposPrintXml(textLines, cols)}</PrintData></ePOSPrint>`;
         }
 
@@ -223,11 +222,9 @@ async function handleGetRequest(deviceKey: string, textOnly = false) {
 
         // A resend from the CRM's Orders area leads with RESENT (2026-09-29),
         // on the raster layout and the text-only fallback alike.
-        if (isResendJob(job.queued_by)) {
-          const banner = [
-            { text: resentBanner(job.orders?.order_number), align: "center" as const, bold: true, reverse: true },
-            { text: "" },
-          ];
+        // OE2 (2026-11-10): an UPDATED order leads with UPDATED and what changed.
+        const banner = leadBanner(job);
+        if (banner.length) {
           bodyLines.unshift(...banner);
           lines.unshift(...banner);
         }
@@ -404,4 +401,22 @@ export async function POST(req: NextRequest) {
 
   // Status notification and anything else: acknowledge with an empty response.
   return empty();
+}
+
+/**
+ * The lines a ticket leads with: RESENT for a resend (2026-09-29); UPDATED
+ * plus what changed for an order the CRM updated (OE2, 2026-11-10). Nothing
+ * for a first print or a plain reprint.
+ */
+function leadBanner(job: any): Array<{ text: string; align?: "center"; bold?: boolean; reverse?: boolean }> {
+  if (isUpdateJob(job.queued_by)) {
+    const summary: string[] = Array.isArray(job.orders?.last_update?.summary) ? job.orders.last_update.summary.filter((l: unknown) => typeof l === "string") : [];
+    return [
+      { text: updatedBanner(job.orders?.order_number), align: "center", bold: true, reverse: true },
+      ...summary.map((l) => ({ text: l, bold: true })),
+      { text: "" },
+    ];
+  }
+  if (isResendJob(job.queued_by)) return [{ text: resentBanner(job.orders?.order_number), align: "center", bold: true, reverse: true }, { text: "" }];
+  return [];
 }

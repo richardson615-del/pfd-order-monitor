@@ -268,6 +268,11 @@ export function markResent(email: TicketEmail, banner: string): TicketEmail {
   return withBanner(email, banner, "RESENT");
 }
 
+/** OE2: an order the CRM changed after it was sent; [UPDATED] after the order number keeps the AEM match. */
+export function markUpdated(email: TicketEmail, banner: string): TicketEmail {
+  return withBanner(email, banner, "UPDATED");
+}
+
 function withBanner(email: TicketEmail, bannerText: string, tag: string): TicketEmail {
   const subject = /^PFD ORDER #\S+/.test(email.subject)
     ? email.subject.replace(/^(PFD ORDER #\S+)/, `$1 [${tag}]`)

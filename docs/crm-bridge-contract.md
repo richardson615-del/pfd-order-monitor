@@ -554,7 +554,7 @@ the tablet said about itself, never identity. Assigning one = bind.
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
-| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen" \| "set_ready", actor, tz?, minutes? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old`; 400 `invalid_action` |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen" \| "set_ready" \| "update", actor, tz?, minutes?, order?, reason? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; update answers `{ ok, action, changed, summary, reprinted, channels }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old` / `order_mismatch`; 400 `invalid_action` / `reason_required` / the phone-order codes |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`
@@ -1092,6 +1092,30 @@ with `source: "ubereats"`:
   CRM's cook-time feed shows it. Nothing is pushed: the tablet and Partner
   app show the new time on their next poll. A bridge older than this answers
   400 `invalid_action`, which the CRM should read as "not available yet".
+- `POST /api/crm/orders/:id/actions` **`update`** (2026-11-10, OE2, prs-crm
+  QUEUE row 313): the CRM changed a **phone** order after sending it (items,
+  tip, payment). Body: `{ "action": "update", "actor": "dispatcher@pfdworks.com",
+  "reason": "customer added a Coke", "order": { ...the whole order... } }`,
+  where `order` is exactly what `POST /api/crm/orders` takes (same validation;
+  `source` must be `phone` and `external_id` the stored one, else 409
+  `order_mismatch`). The CRM sends the order **as it is now**, not a diff.
+  The bridge writes only the columns that changed (the Zuppler revision diff,
+  plus a fee, tip or note that went to nothing), recomputes `money_variance`,
+  and keeps the new order in `raw_payload` with `last_update: { revision, at,
+  by, reason, changed, summary }`. `summary` is the short ASCII list of what
+  changed (`- 2x Cheese Pizza`, `+ 3x Cheese Pizza`, `TIP $3.00 -> $8.00`,
+  `PAYMENT: ...`, `TOTAL $30.50 -> $49.00`), at most 12 lines.
+  **The kitchen is told** only for an order not completed and received today
+  (the `tz` day): an UPDATED ticket everywhere the restaurant receives orders
+  now, the same fan-out as `resend` - printers (`queued_by =
+  reprint:update:crm:<actor>`, the ticket leads with `*** UPDATED - ORDER #n ***`
+  and the summary), PC inbox (`[UPDATED]` subject), tablet push
+  `UPDATED - Order #n`. A completed or older order changes its money quietly
+  (`reprinted: false`, `channels: []`), so payouts read what the customer paid.
+  Refused: any other source (409 `not_phone_order`), a cancelled order (409
+  `order_cancelled`), no reason (400 `reason_required`). Nothing changed
+  answers `{ ok: true, changed: [] }`. A bridge older than this answers 400
+  `invalid_action`, which the CRM should read as "not available yet".
 - `POST /api/crm/orders/:id/actions` `cancel` accepts a `ubereats` order as
   it does a phone order (the CRM cancels it when Uber does).
 - The CRM's payout engine does not pay these out until a payout rule is

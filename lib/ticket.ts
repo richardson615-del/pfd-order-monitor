@@ -11,6 +11,7 @@
  */
 
 import { cateringText } from "./catering-text";
+import { isAdvanceOrder } from "./advance-order";
 
 export interface TicketLine {
   text: string;
@@ -163,6 +164,11 @@ export function buildTicket(
     const dueMs = order.due_time ? new Date(order.due_time).getTime() : NaN;
     const recvMs = order.received_at ? new Date(order.received_at).getTime() : NaN;
     const stale = Number.isFinite(dueMs) && Number.isFinite(recvMs) && dueMs < recvMs;
+    // CRM Ticket #1429: an order placed for later says so above its due time,
+    // so a ticket that prints early (printer-only restaurants) is not cooked early.
+    if (!stale && isAdvanceOrder(order)) {
+      lines.push(L("ADVANCE ORDER", { align: "center", bold: true, reverse: true }));
+    }
     const dueText = `DUE  ${due}${stale ? "  (PAST)" : ""}`;
     lines.push(L(dueText, {
       align: "center", bold: true,

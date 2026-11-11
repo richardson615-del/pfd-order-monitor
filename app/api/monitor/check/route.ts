@@ -5,6 +5,7 @@ import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
 import { recordCronRun, MONITOR_JOB } from "@/lib/cron-liveness";
 import { promoteDueEzCaterOrders } from "@/lib/ezcater-promote";
+import { releaseAdvanceOrders } from "@/lib/advance-hold";
 import { sweepExpiredBusy } from "@/lib/cook-time-data";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,17 @@ export async function GET(req: NextRequest) {
   const presented = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!presented || !constantTimeEquals(presented, expected)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // CRM Ticket #1429: advance orders held at ingest get their paper at
+  // due - 45 min. FIRST, before the health checks: a kitchen's ticket must not
+  // wait on (or be lost to) a slow alert send, an unwritable alert store or a
+  // snapshot that throws further down. Its own try; the sweep does not throw anyway.
+  let advance: { checked: number; released: number; restamped: number; errors: number } | null = null;
+  try {
+    advance = await releaseAdvanceOrders();
+  } catch (err) {
+    console.error("monitor: advance-order release sweep failed -", err instanceof Error ? err.message : err);
   }
 
   const issues = sortIssues(evaluateHealth(await collectSnapshot(), new Date()));
@@ -201,6 +213,7 @@ export async function GET(req: NextRequest) {
     new: fresh.length,
     resolved: resolvedKeys.length,
     ezcater,
+    advance,
     channels: {
       webhook: !!process.env.ALERT_WEBHOOK_URL,
       sms: twilioConfigured(),

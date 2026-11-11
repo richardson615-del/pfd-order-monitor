@@ -1,3 +1,4 @@
+import { advanceHoldDecision, advanceHoldMinutes, type AdvanceHoldDecision } from "./advance-hold";
 import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant, type PushResult } from "./push";
 import { pushToRestaurantApps } from "./partner-push";
@@ -432,7 +433,28 @@ export async function ingestOrder(
       });
       return;
     }
-    // Unchanged: one job per active device.
+    // CRM Ticket #1429: an order placed for later, at a restaurant with the
+    // tablet app, gets its paper at due - 45 min from the minute cron
+    // (lib/advance-hold.ts) instead of now. The tablet shows it at once.
+    // Any doubt, or any error deciding, prints now.
+    let hold: AdvanceHoldDecision = { hold: false, reason: "not decided" };
+    try {
+      hold = advanceHoldDecision({
+        now: Date.now(),
+        dueTime: input.dueTime,
+        source: input.source,
+        printMethod: restaurantRow?.print_method,
+        appExpected: restaurantRow?.app_expected,
+        windowMinutes: advanceHoldMinutes(),
+      });
+    } catch (err) {
+      console.error("advance hold: decision failed, printing now -", err instanceof Error ? err.message : err);
+    }
+    if (hold.hold) {
+      console.log("advance hold HELD", JSON.stringify({ order: inserted.id, due: input.dueTime, release_at: hold.releaseAt }));
+      return;
+    }
+    // Otherwise unchanged: one job per active device.
     const { data: devices } = await admin
       .from("print_devices")
       .select("id")

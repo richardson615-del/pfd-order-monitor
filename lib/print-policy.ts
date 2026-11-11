@@ -157,7 +157,7 @@ export function holdReleased(heldAt: string | null | undefined, now: number): bo
 }
 
 /** Who put a job in the queue - the vocabulary of print_jobs.queued_by. */
-export type QueuedBy = "ingest" | "test" | "login_print" | `reprint:${string}`;
+export type QueuedBy = "ingest" | "test" | "login_print" | "advance_release" | `reprint:${string}`;
 export const reprintBy = (actor: string): QueuedBy => `reprint:${actor.trim() || "unknown"}`;
 /**
  * A RESEND from the CRM (2026-09-29) is a reprint - same manual-reprint

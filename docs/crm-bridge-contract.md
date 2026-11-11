@@ -1062,6 +1062,22 @@ with `source: "ubereats"`:
 - `money` is Uber's. It is **not** refused for `money_mismatch`: Uber
   computed it, not the CRM, so the order is stored and `money_variance`
   records any difference.
+- **Advance orders: the paper is held (2026-11-10, CRM Ticket #1429).** An
+  order whose `due_time` is more than 45 minutes after it arrives, at a
+  restaurant with the tablet app (`app_expected`) and a printer, is not queued
+  to the printer at ingest. The minute monitor cron queues it at
+  `due_time - 45 min` (`lib/advance-hold.ts`, `queued_by: "advance_release"`).
+  Nothing on the orders feed changes shape: until then such an order has no
+  paper job, so `print.state` is `"none"` and `printed_at` is null, the same
+  as any order with nothing queued. The CRM can tell a held order by the rule
+  itself: `due_time - received_at > 45 min`, `print.state === "none"`, and the
+  restaurant has `app_expected` and `print_method !== "email"`; its release
+  time is `due_time - 45 min`. Not held: ASAP orders, orders due within 45
+  minutes, restaurants with no tablet app (paper at once), email restaurants,
+  test orders, ezCater (its own `kitchen_lead_hours`). `reprint` / `resend`
+  print at once as always. Every ticket for an order placed for later says
+  `ADVANCE ORDER` above its `DUE` line. `ADVANCE_HOLD_MINUTES` (env, default
+  45) changes the window; `0` switches the hold off.
 - `POST /api/crm/orders/:id/actions` **`set_ready`** (2026-11-10, CRM Ticket
   #1447): dispatch re-times one accepted order. Request
   `{ "action": "set_ready", "minutes": 35, "actor": "dispatcher@pfdworks.com" }`.

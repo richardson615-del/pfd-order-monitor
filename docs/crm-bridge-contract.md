@@ -1777,3 +1777,10 @@ info@ (the same gmail.send grant as tickets and statements).
 - Audited in `restaurant_login_audit` (`created` / `password_reset`, note says
   "owner login email"), never with the link.
 - Base URL for the link: `PORTAL_BASE_URL`, else the request's own origin.
+
+## Advance orders held for Eatabit restaurants too (2026-11-11)
+
+Matt: "when we are sending orders to our flashed eataabits they are alerting them to early for advanced orders they need to get it when we send the order in". The 45-minute advance hold (lib/advance-order.ts, CRM Ticket #1429) applied only to restaurants with the tablet app, so an Eatabit-only restaurant printed and flashed the moment a later order was placed. It now also holds a restaurant with an active PFD Eatabit: the paper is queued at `due - 45 min` by the same minute sweep.
+
+How ingest knows: an Eatabit's poll (`/api/print/epson`, User-Agent `pfd-eatabit...`) writes `print_devices.printer_name` = "PFD Eatabit <version>" (`eatabitPrinterName`). No migration; the CRM devices list already shows `printer_name` as the model. Epson-only and email restaurants are unchanged (print at once). A box that has not polled since this deploy is not recognised until its next poll (seconds).
+

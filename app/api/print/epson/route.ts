@@ -6,7 +6,7 @@ import { claimDecision, expiredReason, failureTransition, isResendJob, isUpdateJ
 import { resentBanner, updatedBanner } from "@/lib/crm-orders";
 import { readyByFor } from "@/lib/ready-timer";
 import { isValidPrepMinutes } from "@/lib/countdown";
-import { isTextOnlyPrinter } from "@/lib/printers/text-only";
+import { isTextOnlyPrinter, eatabitPrinterName } from "@/lib/printers/text-only";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -45,7 +45,7 @@ const xml = (body: string) =>
  */
 const toJobId = (uuid: string) => uuid.replace(/-/g, "");
 
-async function findDevice(deviceKey: string) {
+async function findDevice(deviceKey: string, userAgent: string | null = null) {
   const admin = supabaseAdmin();
   const { data: device } = await admin
     .from("print_devices")
@@ -57,9 +57,11 @@ async function findDevice(deviceKey: string) {
 
   // Same device-health stamping as the pull agent, so /admin shows liveness
   // regardless of which transport a site uses.
+  // An Eatabit also says so in printer_name, which ingest reads to hold its advance orders (lib/advance-order.ts).
+  const eatabit = eatabitPrinterName(userAgent);
   await admin
     .from("print_devices")
-    .update({ last_seen_at: new Date().toISOString(), app_version: "server-direct-print" })
+    .update({ last_seen_at: new Date().toISOString(), app_version: "server-direct-print", ...(eatabit ? { printer_name: eatabit } : {}) })
     .eq("id", device.id);
 
   return device;
@@ -82,8 +84,8 @@ function sliceBody(lines: any[]): any[] {
   return lines.slice(start, end === -1 ? lines.length : end);
 }
 
-async function handleGetRequest(deviceKey: string, textOnly = false) {
-  const device = await findDevice(deviceKey);
+async function handleGetRequest(deviceKey: string, textOnly = false, userAgent: string | null = null) {
+  const device = await findDevice(deviceKey, userAgent);
   if (!device) return empty();
 
   const admin = supabaseAdmin();
@@ -391,7 +393,8 @@ export async function POST(req: NextRequest) {
   const deviceKey = (form.get("ID") || "").trim();
   if (!deviceKey) return empty();
 
-  if (connectionType === "GetRequest") return handleGetRequest(deviceKey, isTextOnlyPrinter(req.headers.get("user-agent")));
+  const userAgent = req.headers.get("user-agent");
+  if (connectionType === "GetRequest") return handleGetRequest(deviceKey, isTextOnlyPrinter(userAgent), userAgent);
   if (connectionType === "SetReadyTime") {
     return handleSetReadyTime(deviceKey, (form.get("OrderNumber") || "").trim(), form.get("Minutes") || "");
   }

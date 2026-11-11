@@ -13,6 +13,7 @@ import {
   advanceReleaseDue,
   isAdvanceOrder,
 } from "../lib/advance-order";
+import { eatabitPrinterName, isEatabitPrinterName } from "../lib/printers/text-only";
 import { buildTicket, toPlainText } from "../lib/ticket";
 
 let passed = 0;
@@ -114,6 +115,30 @@ test("guarantees in the code: any doubt prints now, the minute cron releases, a 
   assert.doesNotMatch(sweep, /\.from\("orders"\)\s*\.update|\.delete\(/);
   // The pure half imports nothing from the database, so the ticket renderer can use it anywhere.
   assert.doesNotMatch(readFileSync("lib/advance-order.ts", "utf8"), /supabase/);
+});
+
+test("Eatabit restaurants are held like tablet ones (Matt 2026-11-11); an Epson-only restaurant still prints at once", () => {
+  const eatabitOnly = { ...tablet, appExpected: false, eatabitPrinter: true };
+  const d = advanceHoldDecision({ ...eatabitOnly, dueTime: at(180) });
+  assert.equal(d.hold, true);
+  if (d.hold) assert.equal(d.releaseAt, at(135));
+  assert.equal(advanceHoldDecision({ ...eatabitOnly, dueTime: at(30) }).hold, false); // due within the window
+  assert.equal(advanceHoldDecision({ ...eatabitOnly, dueTime: null }).hold, false); // ASAP
+  assert.equal(advanceHoldDecision({ ...eatabitOnly, printMethod: "email", dueTime: at(180) }).hold, false);
+  const epsonOnly = advanceHoldDecision({ ...tablet, appExpected: false, eatabitPrinter: false, dueTime: at(180) });
+  assert.equal(epsonOnly.hold, false);
+  if (!epsonOnly.hold) assert.match(epsonOnly.reason, /only notice/);
+  assert.equal(advanceHoldDecision({ ...tablet, appExpected: false, dueTime: at(180) }).hold, false); // flag absent = old behaviour
+});
+
+test("an Eatabit names itself from its User-Agent; nothing else does", () => {
+  assert.equal(eatabitPrinterName("pfd-eatabit/2.5.0"), "PFD Eatabit 2.5.0");
+  assert.equal(eatabitPrinterName("pfd-eatabit"), "PFD Eatabit");
+  assert.equal(eatabitPrinterName("EpsonTM-m30III"), null);
+  assert.equal(eatabitPrinterName(null), null);
+  assert.equal(isEatabitPrinterName("PFD Eatabit 2.5.0"), true);
+  assert.equal(isEatabitPrinterName("TM-m30III"), false);
+  assert.equal(isEatabitPrinterName(null), false);
 });
 
 console.log(`\n${passed} assertions passed (advance hold).`);

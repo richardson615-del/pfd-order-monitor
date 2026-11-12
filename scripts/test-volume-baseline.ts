@@ -9,6 +9,9 @@ import {
   DEFAULT_VOLUME_THRESHOLDS as T,
   poissonAtMost,
   volumeIssues,
+  collectRestaurantVolumes,
+  resetVolumeCache,
+  VOLUME_CACHE_MS,
   type RestaurantVolume,
 } from "@/lib/volume-baseline";
 import { evaluateHealth, type HealthSnapshot } from "@/lib/health";
@@ -150,8 +153,67 @@ test("healthy volumes add nothing", () => {
   assert.deepEqual(evaluateHealth(snap, new Date("2026-09-15T12:00:00Z")), []);
 });
 
-console.log(
-  process.exitCode
-    ? "\nSOME TESTS FAILED"
-    : `\nAll assertions passed (${passed} checks).`
-);
+
+/* ---- the database side: one aggregate, kept ten minutes, paging as the fallback (060) ---- */
+async function databaseSide() {
+  const names = new Map([["r1", "Alpha"]]);
+  const now = new Date("2026-11-11T12:00:00Z");
+  let rpcCalls = 0;
+  let pageCalls = 0;
+  const paged = (rows: { restaurant_id: string; received_at: string }[]) => ({
+    from: () => {
+      const q: any = { select: () => q, gte: () => q, neq: () => q, order: () => q };
+      q.range = async () => {
+        pageCalls++;
+        return { data: rows, error: null };
+      };
+      return q;
+    },
+  });
+
+  resetVolumeCache();
+  const withRpc = {
+    ...paged([]),
+    rpc: async (fn: string) => {
+      rpcCalls++;
+      assert.equal(fn, "restaurant_order_volumes");
+      return { data: [{ restaurant_id: "r1", recent: "3", baseline: "40", established: true }], error: null };
+    },
+  };
+  const first = await collectRestaurantVolumes(withRpc, names, now);
+  assert.deepEqual(first, [{ restaurant_id: "r1", name: "Alpha", recent: 3, baseline: 40, established: true }]);
+  assert.equal(pageCalls, 0, "the aggregate answers without paging orders");
+  await collectRestaurantVolumes(withRpc, names, new Date(now.getTime() + VOLUME_CACHE_MS - 1));
+  assert.equal(rpcCalls, 1, "a second run inside ten minutes does not touch the database");
+  await collectRestaurantVolumes(withRpc, names, new Date(now.getTime() + VOLUME_CACHE_MS));
+  assert.equal(rpcCalls, 2, "after ten minutes it asks again");
+
+  resetVolumeCache();
+  const broken = {
+    ...paged([
+      { restaurant_id: "r1", received_at: "2026-10-08T12:00:00Z" },
+      { restaurant_id: "r1", received_at: "2026-11-10T12:00:00Z" },
+    ]),
+    rpc: async () => ({ data: null, error: { message: "function does not exist" } }),
+  };
+  const fallback = await collectRestaurantVolumes(broken, names, now);
+  assert.deepEqual(fallback, [{ restaurant_id: "r1", name: "Alpha", recent: 1, baseline: 1, established: true }]);
+  assert.ok(pageCalls > 0, "no function yet: it pages instead of going blind");
+  resetVolumeCache();
+  passed++;
+  console.log("  ok - one aggregate, cached ten minutes, paging when the function is missing");
+}
+
+databaseSide()
+  .catch((err) => {
+    console.error("  FAIL - database side");
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    console.log(
+      process.exitCode
+        ? "\nSOME TESTS FAILED"
+        : `\nAll assertions passed (${passed} checks).`
+    );
+  });

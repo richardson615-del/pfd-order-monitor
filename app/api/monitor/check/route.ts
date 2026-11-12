@@ -96,23 +96,28 @@ export async function GET(req: NextRequest) {
   // way: without persisted state every run sees every issue as new, so a
   // standing problem would alert on every single run. That is the alert
   // fatigue this table exists to prevent, so treat it as fatal.
+  //
+  // Two bulk upserts, not one per issue: the loop was a round trip per open
+  // alert per minute (2.36 million in the 2026-11-11 query report). Split by
+  // whether the alert is already open, because a bulk upsert writes the same
+  // columns for every row and only new alerts get first_seen_at/notified_at.
   let storeError: string | null = null;
-  for (const i of issues) {
-    const { error } = await admin.from("monitor_alerts").upsert(
-      {
-        key: i.key,
-        severity: i.severity,
-        title: i.title,
-        detail: i.detail,
-        last_seen_at: now,
-        resolved_at: null,
-        // notified_at is set AFTER a successful send, not here - writing it
-        // now would record an alert as delivered before anyone tried to
-        // deliver it, which is how a failed text becomes a silent one.
-        ...(openKeys.has(i.key) ? {} : { first_seen_at: now, notified_at: null }),
-      },
-      { onConflict: "key" }
-    );
+  const row = (i: HealthIssue) => ({
+    key: i.key,
+    severity: i.severity,
+    title: i.title,
+    detail: i.detail,
+    last_seen_at: now,
+    resolved_at: null,
+  });
+  const existingRows = issues.filter((i) => openKeys.has(i.key)).map(row);
+  // notified_at is set AFTER a successful send, not here - writing it
+  // now would record an alert as delivered before anyone tried to
+  // deliver it, which is how a failed text becomes a silent one.
+  const newRows = issues.filter((i) => !openKeys.has(i.key)).map((i) => ({ ...row(i), first_seen_at: now, notified_at: null }));
+  for (const rows of [existingRows, newRows]) {
+    if (!rows.length) continue;
+    const { error } = await admin.from("monitor_alerts").upsert(rows, { onConflict: "key" });
     if (error) {
       storeError = error.message;
       break;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { pollPlan, shouldStampDevice } from "@/lib/print-poll";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { buildTicket, toEposPrintXml } from "@/lib/ticket";
 import { renderHeader, renderFooter, toEposImageXml, DEFAULT_FOOTER_TEXT_MARK } from "@/lib/ticket-raster";
@@ -49,7 +50,7 @@ async function findDevice(deviceKey: string, userAgent: string | null = null) {
   const admin = supabaseAdmin();
   const { data: device } = await admin
     .from("print_devices")
-    .select("id, restaurant_id, name, text_scale")
+    .select("id, restaurant_id, name, text_scale, last_seen_at, app_version, printer_name")
     .eq("device_key", deviceKey)
     .eq("is_active", true)
     .maybeSingle();
@@ -59,10 +60,20 @@ async function findDevice(deviceKey: string, userAgent: string | null = null) {
   // regardless of which transport a site uses.
   // An Eatabit also says so in printer_name, which ingest reads to hold its advance orders (lib/advance-order.ts).
   const eatabit = eatabitPrinterName(userAgent);
-  await admin
-    .from("print_devices")
-    .update({ last_seen_at: new Date().toISOString(), app_version: "server-direct-print", ...(eatabit ? { printer_name: eatabit } : {}) })
-    .eq("id", device.id);
+  if (
+    shouldStampDevice({
+      lastSeenAt: device.last_seen_at,
+      appVersion: device.app_version,
+      printerName: device.printer_name,
+      wantPrinterName: eatabit,
+      now: Date.now(),
+    })
+  ) {
+    await admin
+      .from("print_devices")
+      .update({ last_seen_at: new Date().toISOString(), app_version: "server-direct-print", ...(eatabit ? { printer_name: eatabit } : {}) })
+      .eq("id", device.id);
+  }
 
   return device;
 }
@@ -92,25 +103,47 @@ async function handleGetRequest(deviceKey: string, textOnly = false, userAgent: 
   const nowMs = Date.now();
   const staleCutoff = new Date(nowMs - 2 * 60 * 1000).toISOString();
 
-  // Re-offer anything claimed but never reported (printer lost power mid-job).
-  await admin
+  // One light read of this printer's open jobs decides what the poll has to do.
+  // An idle printer (nearly every poll) used to run two releasing UPDATEs and
+  // the full queued read every few seconds - about 10 million statements in
+  // the 2026-11-11 report. Now an idle poll is this read and nothing else.
+  const { data: open } = await admin
     .from("print_jobs")
-    .update({ status: "queued", claimed_at: null })
+    .select("id, status, claimed_at, held_at")
     .eq("device_id", device.id)
-    .eq("status", "claimed")
-    .lt("claimed_at", staleCutoff);
+    .in("status", ["queued", "claimed", "held"])
+    // "queued" sorts first descending, so a pile of parked jobs can never
+    // hide a queued one behind the limit.
+    .order("status", { ascending: false })
+    .limit(50);
+  const plan = pollPlan(open ?? [], { now: nowMs, staleClaimMs: 2 * 60 * 1000, holdRetryMs: HOLD_RETRY_MS });
+  if (plan.idle) return empty();
+
+  // Re-offer anything claimed but never reported (printer lost power mid-job).
+  if (plan.staleClaimed.length) {
+    await admin
+      .from("print_jobs")
+      .update({ status: "queued", claimed_at: null })
+      .in("id", plan.staleClaimed)
+      .eq("status", "claimed")
+      .lt("claimed_at", staleCutoff);
+  }
 
   // Release what the printer parked (out of paper, cover open) once it has
   // had a couple of minutes: this poll is the device saying it is alive, and
   // a roll that was changed in the meantime prints now. A hold that keeps
   // coming back is re-held by the result, not retried - see the SetResponse
   // half - and fails with the reason after an hour (lib/print-policy.ts).
-  await admin
-    .from("print_jobs")
-    .update({ status: "queued", claimed_at: null })
-    .eq("device_id", device.id)
-    .eq("status", "held")
-    .lt("held_at", new Date(nowMs - HOLD_RETRY_MS).toISOString());
+  if (plan.heldDue.length) {
+    await admin
+      .from("print_jobs")
+      .update({ status: "queued", claimed_at: null })
+      .in("id", plan.heldDue)
+      .eq("status", "held")
+      .lt("held_at", new Date(nowMs - HOLD_RETRY_MS).toISOString());
+  }
+
+  if (!plan.readQueued) return empty();
 
   const { data: queued } = await admin
     .from("print_jobs")

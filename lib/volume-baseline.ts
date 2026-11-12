@@ -146,27 +146,69 @@ export function volumeIssues(
 /**
  * Per-restaurant order counts for both windows.
  *
- * PostgREST caps a response at 1000 rows, so this pages. The cap below bounds
- * the work a single health run can do: past it the check degrades (some
- * restaurants go unjudged) rather than slowing the run that every other check
- * shares. If order volume ever makes that routine, the upgrade is a Postgres
- * aggregate rather than a bigger page budget.
+ * One Postgres aggregate (restaurant_order_volumes, migration 060) and kept
+ * for ten minutes per instance. It used to page 35 days of orders out 1000
+ * rows at a time on every health run - 35% of all database time on the night
+ * the database fell over (2026-11-11). The windows are whole weeks, so a
+ * count ten minutes old judges nothing differently.
+ *
+ * The paged read stays as the fallback for a database that does not have the
+ * function yet (the deploy that adds it, a restored backup): slower, never
+ * blind.
  */
 const PAGE = 1000;
 const MAX_PAGES = 12;
+export const VOLUME_CACHE_MS = 10 * 60_000;
+
+type Counts = { restaurant_id: string; recent: number; baseline: number; established: boolean };
+let volumeCache: { at: number; counts: Counts[] } | null = null;
+
+/** Tests only. */
+export function resetVolumeCache() {
+  volumeCache = null;
+}
+
+const named = (counts: Counts[], names: Map<string, string>): RestaurantVolume[] =>
+  counts.map((c) => ({ ...c, name: names.get(c.restaurant_id) ?? "unknown restaurant" }));
 
 export async function collectRestaurantVolumes(
-  admin: { from: (t: string) => any },
+  admin: { from: (t: string) => any; rpc?: (fn: string, args: Record<string, unknown>) => any },
   names: Map<string, string>,
   now: Date = new Date(),
   t: VolumeThresholds = DEFAULT_VOLUME_THRESHOLDS
 ): Promise<RestaurantVolume[]> {
+  if (volumeCache && now.getTime() - volumeCache.at >= 0 && now.getTime() - volumeCache.at < VOLUME_CACHE_MS) {
+    return named(volumeCache.counts, names);
+  }
   const day = 24 * 60 * 60 * 1000;
   const recentStart = new Date(now.getTime() - t.recentDays * day);
   const baselineStart = new Date(now.getTime() - (t.recentDays + t.baselineDays) * day);
   // The oldest week of the baseline. An order in here is what proves the
   // restaurant was already running before the baseline began.
   const establishedBefore = new Date(baselineStart.getTime() + 7 * day);
+
+  if (admin.rpc) {
+    try {
+      const { data, error } = await admin.rpc("restaurant_order_volumes", {
+        p_baseline_start: baselineStart.toISOString(),
+        p_recent_start: recentStart.toISOString(),
+        p_established_before: establishedBefore.toISOString(),
+      });
+      if (!error && Array.isArray(data)) {
+        const counts: Counts[] = data.map((r: any) => ({
+          restaurant_id: r.restaurant_id,
+          recent: Number(r.recent) || 0,
+          baseline: Number(r.baseline) || 0,
+          established: r.established === true,
+        }));
+        volumeCache = { at: now.getTime(), counts };
+        return named(counts, names);
+      }
+      if (error) console.error("volume baseline: aggregate failed, paging instead:", error.message);
+    } catch (err) {
+      console.error("volume baseline: aggregate failed, paging instead:", err);
+    }
+  }
 
   const rows: { restaurant_id: string; received_at: string }[] = [];
   try {
@@ -202,9 +244,7 @@ export async function collectRestaurantVolumes(
     acc.set(o.restaurant_id, e);
   }
 
-  return [...acc.entries()].map(([restaurant_id, e]) => ({
-    restaurant_id,
-    name: names.get(restaurant_id) ?? "unknown restaurant",
-    ...e,
-  }));
+  const counts: Counts[] = [...acc.entries()].map(([restaurant_id, e]) => ({ restaurant_id, ...e }));
+  volumeCache = { at: now.getTime(), counts };
+  return named(counts, names);
 }

@@ -5,6 +5,7 @@ import { Order } from "@/lib/types";
 import { ageClass, dueLabel, elapsedLabel, isScheduled, itemsLine, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
+import { displayOrderNo } from "@/lib/order-label";
 
 /**
  * One order in the kitchen list.
@@ -85,7 +86,7 @@ export default function OrderCard({
     >
       <Link href={`/order/${order.id}`} className="card-body">
         <div className="card-top">
-          <span className="card-no num">#{order.order_number}</span>
+          <span className="card-no num">#{displayOrderNo(order)}</span>
           <span className="card-type">
             {order.order_type === "delivery" ? "Delivery" : "Pickup"}
           </span>

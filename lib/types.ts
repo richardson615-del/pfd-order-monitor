@@ -19,6 +19,8 @@ export interface Order {
   restaurant_id: string;
   source: OrderSource | null;
   order_number: string;
+  /** 059: plain per-restaurant number from 2026-11-12; show displayOrderNo(order). */
+  ticket_no?: number | null;
   ticket_restaurant_name: string | null;
   order_type: "pickup" | "delivery" | null;
   due_time: string | null;

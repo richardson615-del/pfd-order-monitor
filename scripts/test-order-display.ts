@@ -420,7 +420,8 @@ test("money reads like money", () => {
 test("the route groups on the server, in the restaurant's zone, from the session", () => {
   const route = src("app/api/dashboard/history/route.ts");
   assert.match(route, /getCurrentUserRestaurantIds\(\)/);
-  assert.match(route, /weekHistory\(orders \?\? \[\], now, timezone\)/);
+  // 059: the plain per-restaurant number goes in order_number for the kitchen's screens.
+  assert.match(route, /weekHistory\(withDisplayOrderNo\(orders \?\? \[\]\), now, timezone\)/);
   assert.match(route, /historyWindowStart\(now\)/);
   assert.doesNotMatch(route, /req\.json|searchParams/, "nothing is taken from the caller");
 });

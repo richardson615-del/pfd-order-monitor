@@ -10,6 +10,7 @@
  * must not depend on which transport happens to be in use.
  */
 
+import { displayOrderNo, orderSourceRef } from "./order-label";
 import { cateringText } from "./catering-text";
 import { isAdvanceOrder } from "./advance-order";
 
@@ -66,6 +67,8 @@ export const DEFAULT_FOOTER_TEXT =
 
 export interface TicketOrder {
   order_number?: string | null;
+  /** 059: the plain per-restaurant number; prints as ORDER #12 with order_number as "Ref" under it. */
+  ticket_no?: number | null;
   source?: string | null;
   ticket_restaurant_name?: string | null;
   order_type?: string | null;
@@ -183,7 +186,8 @@ export function buildTicket(
   lines.push(L(rule));
 
   const recv = localTime(order.received_at);
-  const orderLabel = `ORDER #${order.order_number ?? "?"}`;
+  const orderLabel = `ORDER #${displayOrderNo(order)}`;
+  const sourceRef = orderSourceRef(order);
   const placed = recv ? `placed ${recv}` : "";
   // pad() overflows rather than truncating when the two halves do not fit,
   // which on a narrow ticket pushed this line past the paper edge - the order
@@ -195,6 +199,8 @@ export function buildTicket(
   } else {
     lines.push(L(pad(orderLabel, placed, cols)));
   }
+  // 059: the source's own number, small, for looking the order up in Zuppler or the CRM.
+  if (sourceRef) lines.push(L(`Ref ${sourceRef}`));
   lines.push(L(rule));
 
   // --- Who it is for -------------------------------------------------------

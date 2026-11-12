@@ -10,6 +10,7 @@ import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@
 import { timeLabel } from "@/lib/local-day";
 import { useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 import { useTicking } from "@/lib/use-ticking";
+import { displayOrderNo } from "@/lib/order-label";
 
 /**
  * The ticket, on the tablet.
@@ -191,7 +192,7 @@ export default function OrderViewer({
       </div>
 
       <div className="ticket-head">
-        <span className="ticket-no num">#{order.order_number}</span>
+        <span className="ticket-no num">#{displayOrderNo(order)}</span>
         {/* The big number. Accepted: the countdown - the promise, large,
             amber under five minutes, red and counting up past zero. Not yet
             accepted, or settled: the timer - how long the customer has been

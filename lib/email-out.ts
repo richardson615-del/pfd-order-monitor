@@ -1,3 +1,4 @@
+import { displayOrderNo } from "./order-label";
 import { google } from "googleapis";
 import { getOAuthClient } from "./gmail";
 import { buildTicket, toPlainText, TicketOrder, TicketFooter } from "./ticket";
@@ -202,7 +203,7 @@ export function composeTicketEmail(
   const type = (order.order_type || "order").toUpperCase();
   const due = dueLabel(order);
   const subject =
-    `PFD ORDER #${order.order_number ?? "?"} - ${type}${due ? ` ${due}` : ""}`;
+    `PFD ORDER #${displayOrderNo(order)} - ${type}${due ? ` ${due}` : ""}`;
 
   // The HTML part promotes the three lines the thermal ticket emphasises and
   // drops them from the <pre>, so nothing is printed twice.
@@ -230,11 +231,11 @@ export function composeTicketEmail(
 
 /** Cancellation notice, mirroring how a queued Epson job is killed today. */
 export function composeCancellationEmail(order: TicketOrder): TicketEmail {
-  const subject = `CANCELLED - ORDER #${order.order_number ?? "?"}`;
+  const subject = `CANCELLED - ORDER #${displayOrderNo(order)}`;
   const text = [
     "*** ORDER CANCELLED ***",
     "",
-    `Order #${order.order_number ?? "?"}`,
+    `Order #${displayOrderNo(order)}`,
     order.customer_name ? `Customer: ${order.customer_name}` : null,
     order.customer_total != null ? `Total: $${Number(order.customer_total).toFixed(2)}` : null,
     "",

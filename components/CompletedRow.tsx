@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Order } from "@/lib/types";
 import { timeLabel } from "@/lib/local-day";
 import { prepTimeLabel } from "@/lib/countdown";
+import { displayOrderNo } from "@/lib/order-label";
 
 /**
  * One row in Completed, or under a day in Past week.
@@ -18,7 +19,7 @@ import { prepTimeLabel } from "@/lib/countdown";
  */
 export type CompletedRowOrder = Pick<
   Order,
-  "id" | "order_number" | "order_type" | "customer_name" | "customer_total" | "status" | "source" | "received_at" | "completed_at" | "cancelled_at"
+  "id" | "order_number" | "ticket_no" | "order_type" | "customer_name" | "customer_total" | "status" | "source" | "received_at" | "completed_at" | "cancelled_at"
 > & { accepted_at?: string | null };
 
 export default function CompletedRow({
@@ -46,7 +47,7 @@ export default function CompletedRow({
   return (
     <Link href={`/order/${order.id}`} className={`done-row ${state}`}>
       <span className="done-dot" aria-hidden="true" />
-      <span className="done-no num">#{order.order_number}</span>
+      <span className="done-no num">#{displayOrderNo(order)}</span>
       <span className="done-who">
         <span className="done-name">{order.customer_name || "Customer"}</span>
         <span className="done-kind">

@@ -23,6 +23,7 @@
  * The card surcharge on phone orders is PFD's money and ezCater's fee is
  * ezCater's; neither is the restaurant's sale, so neither is shown as one.
  */
+import { displayOrderNo } from "./order-label";
 import type { Order, OrderItem } from "./types";
 import { countsForHistory } from "./history";
 import { dayLabel, localDayKey, timeLabel } from "./local-day";
@@ -36,7 +37,7 @@ export const TOP_ITEMS = 5;
 
 /** The columns the sales routes read. Nothing about the customer beyond their name. */
 export const SALES_COLUMNS =
-  "id, order_number, order_type, source, customer_name, items, line_items, items_total, tax, service_fee, delivery_fee, tip, discount, customer_total, payment_type, status, received_at, cancelled_at";
+  "id, order_number, ticket_no, order_type, source, customer_name, items, line_items, items_total, tax, service_fee, delivery_fee, tip, discount, customer_total, payment_type, status, received_at, cancelled_at";
 
 export interface SalesLineItem {
   name: string;
@@ -48,6 +49,7 @@ export type SalesOrder = Pick<
   Order,
   | "id"
   | "order_number"
+  | "ticket_no"
   | "order_type"
   | "source"
   | "customer_name"
@@ -329,7 +331,8 @@ export function salesReport(
     const checks = orderChecks(o);
     rows.push({
       id: o.id,
-      order_number: o.order_number,
+      // 059: the restaurant sees its plain number.
+      order_number: displayOrderNo(o),
       day: key,
       time: timeLabel(o.received_at, timezone),
       channel: channelLabel(o.source),
@@ -408,7 +411,8 @@ export function salesReceipt(o: SalesOrder, timezone: string | null | undefined)
   };
   return {
     id: o.id,
-    order_number: o.order_number,
+    // 059: the restaurant sees its plain number.
+      order_number: displayOrderNo(o),
     day: localDayKey(o.received_at, timezone),
     time: timeLabel(o.received_at, timezone),
     channel: channelLabel(o.source),
@@ -475,7 +479,7 @@ export function salesCsv(orders: SalesOrder[], range: SalesRange, timezone: stri
       [
         localDayKey(o.received_at, timezone),
         timeLabel(o.received_at, timezone),
-        o.order_number,
+        displayOrderNo(o),
         channelLabel(o.source),
         o.order_type ?? "",
         firstName(o.customer_name) ?? "",

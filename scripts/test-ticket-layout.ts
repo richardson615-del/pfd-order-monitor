@@ -3,7 +3,7 @@
  * These assert the things a cook depends on, not cosmetics.
  */
 import assert from "node:assert/strict";
-import { buildTicket, toEposPrintXml, DEFAULT_FOOTER_TEXT } from "@/lib/ticket";
+import { buildTicket, toEposPrintXml, DEFAULT_FOOTER_TEXT, splitTicketNotes } from "@/lib/ticket";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -98,6 +98,31 @@ test("no QR line when the restaurant has no url", () =>
 test("a url produces a QR symbol in the XML", () => {
   const xml = toEposPrintXml(buildTicket(base, 48, { url: "https://ariella.zuppler.com" }), 48);
   assert.match(xml, /<symbol type="qrcode_model_2"[^>]*>https:\/\/ariella\.zuppler\.com<\/symbol>/);
+});
+
+test("the note prints with the items, larger, before the money (Charlie's 2026-11-12)", () => {
+  const o = { ...base, items_total: 23, notes: "Add extra egg and tomato to salad | Discount applied: $8.00" };
+  const lines = buildTicket(o, 48);
+  const bar = lines.findIndex((l) => l.text.trim() === "NOTE");
+  const item = lines.findIndex((l) => /CHEESEBURGER/.test(l.text));
+  const sub = lines.findIndex((l) => /^Subtotal/.test(l.text));
+  assert.ok(item < bar && bar < sub, "NOTE sits between the items and the subtotal");
+  assert.equal(lines[bar].reverse, true);
+  const note = lines[bar + 1];
+  assert.match(note.text, /Add extra egg and tomato/);
+  assert.equal(note.size, "double-h");
+  assert.equal(note.bold, true);
+  assert.ok(!text(lines).includes("Discount applied"), "the discount is not a kitchen note");
+  assert.match(text(lines), /Discount +-\$8\.00/);
+  const big = buildTicket(o, 48, {}, { scale: "large" });
+  assert.equal(big[big.findIndex((l) => l.text.trim() === "NOTE") + 1].size, "double");
+});
+
+test("splitTicketNotes keeps the note and pulls the discount out", () => {
+  assert.deepEqual(splitTicketNotes("Ring the bell | Discount applied: $8.00"), { kitchen: "Ring the bell", discount: "-$8.00" });
+  assert.deepEqual(splitTicketNotes("Discount applied: $2.5"), { kitchen: null, discount: "-$2.50" });
+  assert.deepEqual(splitTicketNotes("Gate 4 | side door"), { kitchen: "Gate 4 | side door", discount: null });
+  assert.deepEqual(splitTicketNotes(null), { kitchen: null, discount: null });
 });
 
 test("reverse video is emitted for the type banner only", () => {

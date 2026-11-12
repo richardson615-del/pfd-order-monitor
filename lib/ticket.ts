@@ -90,6 +90,26 @@ export interface TicketOrder {
 
 const L = (text: string, opts: Partial<TicketLine> = {}): TicketLine => ({ text, ...opts });
 
+/**
+ * The kitchen note and the discount, apart. The Zuppler mapper appends "Discount applied: $8.00" to the customer's
+ * note with " | " (lib/zuppler-mapper.ts), which put a money line in the cook's instructions. Pure.
+ */
+export function splitTicketNotes(notes: string | null | undefined): { kitchen: string | null; discount: string | null } {
+  let discount: string | null = null;
+  const parts = String(notes ?? "")
+    .split(" | ")
+    .map((p) => p.trim())
+    .filter((p) => {
+      const m = p.match(/^Discount applied:\s*\$?([0-9]+(?:\.[0-9]{1,2})?)$/i);
+      if (m) {
+        discount = `-$${Number(m[1]).toFixed(2)}`;
+        return false;
+      }
+      return p.length > 0;
+    });
+  return { kitchen: parts.length ? parts.join(" | ") : null, discount };
+}
+
 function money(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
@@ -296,6 +316,17 @@ export function buildTicket(
   });
   lines.push(L(rule));
 
+  // --- The customer's note, with the items (Charlie's 2026-11-12: "larger notes section ... move it to the order
+  // section"). It used to print small at the very bottom, under the payment, where a cook building the plate never
+  // looks. Same size as the items, under a reversed NOTE bar, before any money.
+  const { kitchen: kitchenNote, discount } = splitTicketNotes(cateringText(order.source, order.notes));
+  if (kitchenNote) {
+    lines.push(L(" NOTE ", { align: "center", bold: true, reverse: true, size: large ? "double" : "double-h" }));
+    const noteAttrs: Partial<TicketLine> = large ? { bold: true, size: "double" } : { bold: true, size: "double-h" };
+    for (const l of wrap(kitchenNote, W)) lines.push(L(l, noteAttrs));
+    lines.push(L(rule));
+  }
+
   // --- Money ---------------------------------------------------------------
   for (const [label, v] of [
     ["Subtotal", order.items_total],
@@ -306,6 +337,7 @@ export function buildTicket(
     const f = fmt(v);
     if (f !== null) lines.push(L(pad(label, f, cols)));
   }
+  if (discount) lines.push(L(pad("Discount", discount, cols)));
   // The tip is the DRIVER's money - it prints on its own line, never buried.
   const tip = fmt(order.tip);
   if (tip !== null) lines.push(L(pad("TIP (driver)", tip, cols), { bold: true }));
@@ -318,7 +350,6 @@ export function buildTicket(
   }
   // A restaurant never sees "ezCater"; stored rows are cleaned here so a reprint matches a new ticket.
   const paymentType = cateringText(order.source, order.payment_type);
-  const notes = cateringText(order.source, order.notes);
   if (paymentType) {
     const tender = String(paymentType);
     // A phone order's payment_type is a whole instruction - "PAID - CARD
@@ -328,12 +359,6 @@ export function buildTicket(
     // keeps the "Paid" label it always had.
     if (TENDER_LINE_RE.test(tender)) lines.push(L(tender, { bold: true }));
     else lines.push(L(pad("Paid", tender, cols)));
-  }
-
-  if (notes) {
-    lines.push(L(rule));
-    lines.push(L("NOTE:", { bold: true }));
-    for (const l of wrap(notes, cols)) lines.push(L(l, { bold: true }));
   }
 
   // --- Footer --------------------------------------------------------------

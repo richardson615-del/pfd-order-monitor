@@ -89,7 +89,7 @@ test("the alert rule is untouched: unaccepted orders, every 8 s, same ceiling", 
   const dash = src("components/OrderDashboard.tsx");
   assert.match(dash, /playNewOrderAlert\(\);\s*soundIntervalRef\.current = setInterval\(playNewOrderAlert, 8000\)/);
   assert.match(dash, /hasNewOrders && soundArmed/);
-  assert.match(dash, /const waiting = useMemo\(\(\) => unaccepted\(orders\), \[orders\]\)/);
+  assert.match(dash, /const waiting = useMemo\(\(\) => unaccepted\(kitchenOrders\), \[kitchenOrders\]\)/);
   const o = { status: "new", accepted_at: null, received_at: new Date(NOW - 60_000).toISOString() };
   assert.equal(unaccepted([o], NOW).length, 1);
   assert.equal(unaccepted([{ ...o, accepted_at: new Date(NOW).toISOString() }], NOW).length, 0);

@@ -1,5 +1,6 @@
 "use client";
 
+import { heldFromKitchen } from "@/lib/advance-order";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Order } from "@/lib/types";
@@ -262,7 +263,11 @@ export default function OrderDashboard({
    * Bounded to the six-hour window so a tablet does not ring all day about
    * a backlog nobody is going to cook.
    */
-  const waiting = useMemo(() => unaccepted(orders), [orders]);
+  // 061: an advance order stays off this screen (no card, no chime) until it
+  // goes to the kitchen. Read every second against `now`, so a hold whose time
+  // has passed shows even if the release never reached this tablet.
+  const kitchenOrders = useMemo(() => orders.filter((o) => !heldFromKitchen(o, now)), [orders, now]);
+  const waiting = useMemo(() => unaccepted(kitchenOrders), [kitchenOrders]);
   const hasNewOrders = waiting.length > 0;
 
   /**
@@ -708,19 +713,19 @@ export default function OrderDashboard({
    * which is how an order ages off the list without a reload.
    */
   const kitchen = useMemo(
-    () => kitchenSort(orders.filter((o) => bucketOf(o, now, timezone) === "orders"), prepMinutes, now),
-    [orders, now, timezone, prepMinutes]
+    () => kitchenSort(kitchenOrders.filter((o) => bucketOf(o, now, timezone) === "orders"), prepMinutes, now),
+    [kitchenOrders, now, timezone, prepMinutes]
   );
   const completed = useMemo(
     () =>
-      orders
+      kitchenOrders
         .filter((o) => bucketOf(o, now, timezone) === "completed")
         .sort((a, b) => {
           const ta = a.completed_at ?? a.cancelled_at ?? a.received_at;
           const tb = b.completed_at ?? b.cancelled_at ?? b.received_at;
           return ta < tb ? 1 : ta > tb ? -1 : 0;
         }),
-    [orders, now, timezone]
+    [kitchenOrders, now, timezone]
   );
   const completedCounted = completed.filter(countsForHistory);
   const completedTotal = completedCounted.reduce((sum, o) => sum + (o.customer_total ?? 0), 0);

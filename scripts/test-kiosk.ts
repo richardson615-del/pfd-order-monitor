@@ -275,7 +275,7 @@ test("a failed heartbeat cannot disturb the thing it reports on", () => {
 });
 
 test("the chime is keyed on Accept, not on status and not on opening", () => {
-  assert.match(dash, /unaccepted\(orders\)/);
+  assert.match(dash, /unaccepted\(kitchenOrders\)/);
   assert.doesNotMatch(
     dash,
     /o\.status === "new"/,

@@ -57,8 +57,11 @@ export const dynamic = "force-dynamic";
  *               earlier if needed") a held advance order's ticket goes out
  *               now: paper to every active printer, or the PC email
  *               (lib/advance-hold.ts sendOrderToKitchen, the minute sweep's
- *               own send). Never twice: 409 already_sent once it has a
- *               printer job or a PC email. 409 no_printer / zuppler_emails_it.
+ *               own send), and since 061 onto the tablet and Partner app with
+ *               its alert. Never twice: 409 already_sent once it has a
+ *               printer job or a PC email and is on the tablet. 409
+ *               no_printer / zuppler_emails_it when there was nothing to send.
+ *               to: "tablet" when only the tablet / app got it.
  *               Answers { ok, action, to, printers? }.
  *
  *   reopen      (2026-11-10, Matt: "uncomplete orders that are accidentally

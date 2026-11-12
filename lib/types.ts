@@ -24,6 +24,8 @@ export interface Order {
   ticket_restaurant_name: string | null;
   order_type: "pickup" | "delivery" | null;
   due_time: string | null;
+  /** 061: held off the tablet until this time (an advance order); null = not held. */
+  kitchen_hold_until?: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   customer_address: string | null;

@@ -43,6 +43,8 @@ export async function GET() {
       .select(ORDER_COLUMNS)
       .eq("restaurant_id", restaurantId)
       .gte("received_at", since)
+      // 061: an advance order is not the kitchen's until it is released (Kayla 2026-11-12).
+      .or(`kitchen_hold_until.is.null,kitchen_hold_until.lte.${new Date().toISOString()}`)
       .order("received_at", { ascending: false })
       .limit(PARTNER_ORDERS_LIMIT),
   ]);

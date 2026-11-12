@@ -320,6 +320,26 @@ export async function ingestOrder(
     ticketName = restaurant?.name ?? null;
   }
 
+  // Advance orders (CRM Ticket #1429; every restaurant, 60 / 90 / 120 min by
+  // size since Matt 2026-11-11): an order placed for later goes to the kitchen
+  // at its release time - paper, PC email, and since 061 the tablet and app
+  // too (Kayla 2026-11-12) - from the minute cron (lib/advance-hold.ts), or
+  // when dispatch presses Send to kitchen. Decided before the insert so the
+  // row reaches the tablet already marked held. Any doubt, or any error
+  // deciding, sends now.
+  let hold: AdvanceHoldDecision = { hold: false, reason: "not decided" };
+  try {
+    hold = advanceHoldDecision({
+      now: Date.now(),
+      dueTime: input.dueTime,
+      source: input.source,
+      customerTotal: input.customerTotal ?? null,
+      windowMinutes: advanceHoldMinutes(),
+    });
+  } catch (err) {
+    console.error("advance hold: decision failed, sending now -", err instanceof Error ? err.message : err);
+  }
+
   const { data: inserted, error: insertError } = await admin
     .from("orders")
     .insert({
@@ -359,6 +379,7 @@ export async function ingestOrder(
       // Only override the now() default when the source actually told us.
       ...(input.receivedAt ? { received_at: input.receivedAt } : {}),
       status: "new",
+      kitchen_hold_until: hold.hold ? hold.releaseAt : null,
     })
     .select()
     .single();
@@ -418,24 +439,8 @@ export async function ingestOrder(
   // answering slowly would hold the ticket out of the print queue for as long
   // as they took. Queueing costs one insert; the printer is polling already.
   await attempt("ticket delivery", inserted.id, async () => {
-    // Advance orders (CRM Ticket #1429; every restaurant, 60 / 90 / 120 min by
-    // size since Matt 2026-11-11): an order placed for later gets its paper or
-    // PC email from the minute cron at its release time (lib/advance-hold.ts),
-    // or when dispatch presses Send to kitchen. A tablet still shows it at
-    // once. Any doubt, or any error deciding, sends now.
-    let hold: AdvanceHoldDecision = { hold: false, reason: "not decided" };
-    try {
-      hold = advanceHoldDecision({
-        now: Date.now(),
-        dueTime: input.dueTime,
-        source: input.source,
-        printMethod: restaurantRow?.print_method,
-        customerTotal: input.customerTotal ?? null,
-        windowMinutes: advanceHoldMinutes(),
-      });
-    } catch (err) {
-      console.error("advance hold: decision failed, sending now -", err instanceof Error ? err.message : err);
-    }
+    // A held advance order (decided above, before the insert) waits for the
+    // minute sweep or Send to kitchen.
     if (hold.hold) {
       console.log("advance hold HELD", JSON.stringify({ order: inserted.id, due: input.dueTime, release_at: hold.releaseAt }));
       return;
@@ -469,6 +474,10 @@ export async function ingestOrder(
       );
     }
   });
+
+  // A held order's tablet and app alert goes out when it is released
+  // (lib/advance-hold.ts releaseToTablet), not now.
+  if (hold.hold) return { status: "created", orderId: inserted.id };
 
   await attempt("app alert", inserted.id, () =>
     deliverToApp({

@@ -123,3 +123,15 @@ export function advanceReleaseAt(o: { due_time?: string | null; received_at?: st
   if (!Number.isFinite(due) || window <= 0 || !isAdvanceOrder(o, window)) return null;
   return new Date(due - window * 60_000).toISOString();
 }
+
+/**
+ * Pure: is this order still off the kitchen's screens (tablet, Partner app)?
+ * Held from ingest until it goes to the kitchen (061, Kayla 2026-11-12: Larry's
+ * tablet showed advance orders before dispatch sent them). A hold time already
+ * past counts as released, so a sweep that never ran can never hide an order
+ * past its release time. Unreadable = not held: any doubt shows the order.
+ */
+export function heldFromKitchen(o: { kitchen_hold_until?: string | null }, now: number): boolean {
+  const t = ms(o.kitchen_hold_until);
+  return Number.isFinite(t) && now < t;
+}

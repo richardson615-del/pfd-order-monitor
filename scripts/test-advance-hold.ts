@@ -15,6 +15,7 @@ import {
   advanceWindowMinutes,
   maxAdvanceWindowMinutes,
   isAdvanceOrder,
+  heldFromKitchen,
 } from "../lib/advance-order";
 import { eatabitPrinterName, isEatabitPrinterName } from "../lib/printers/text-only";
 import { buildTicket, toPlainText } from "../lib/ticket";
@@ -145,7 +146,10 @@ test("guarantees in the code: any doubt prints now, the minute cron releases, a 
   const route = readFileSync("app/api/crm/orders/[id]/actions/route.ts", "utf8");
   assert.match(route, /sendOrderToKitchen\(order\.id, `advance_release:crm:\$\{actor\}`\)/);
   assert.match(sweep, /manual_reprint_at: nowIso/);
-  assert.doesNotMatch(sweep, /\.from\("orders"\)\s*\.update|\.delete\(/);
+  // The sweep's only write to orders is clearing the tablet hold (061); it never deletes.
+  assert.equal((sweep.match(/\.from\("orders"\)\s*\.update/g) ?? []).length, 1);
+  assert.match(sweep, /\.from\("orders"\)\s*\.update\(\{ kitchen_hold_until: null \}\)/);
+  assert.doesNotMatch(sweep, /\.delete\(/);
   // The pure half imports nothing from the database, so the ticket renderer can use it anywhere.
   assert.doesNotMatch(readFileSync("lib/advance-order.ts", "utf8"), /supabase/);
 });
@@ -158,6 +162,39 @@ test("an Eatabit names itself from its User-Agent; nothing else does", () => {
   assert.equal(isEatabitPrinterName("PFD Eatabit 2.5.0"), true);
   assert.equal(isEatabitPrinterName("TM-m30III"), false);
   assert.equal(isEatabitPrinterName(null), false);
+});
+
+
+test("061: a held order is off the tablet until its release time; any doubt shows it", () => {
+  const now = Date.parse("2026-11-12T17:00:00Z");
+  assert.equal(heldFromKitchen({ kitchen_hold_until: "2026-11-12T17:30:00Z" }, now), true);
+  assert.equal(heldFromKitchen({ kitchen_hold_until: "2026-11-12T17:00:00Z" }, now), false, "at the release time it shows");
+  assert.equal(heldFromKitchen({ kitchen_hold_until: "2026-11-12T16:00:00Z" }, now), false, "a missed release never hides it");
+  assert.equal(heldFromKitchen({ kitchen_hold_until: null }, now), false);
+  assert.equal(heldFromKitchen({}, now), false, "rows from before 061");
+  assert.equal(heldFromKitchen({ kitchen_hold_until: "not a time" }, now), false);
+});
+
+test("061 wiring: held at insert, no alert at ingest, released with its alert, hidden on both screens", () => {
+  const ingest = readFileSync("lib/canonical.ts", "utf8");
+  // Decided before the insert and written on the row, so the tablet's realtime INSERT already carries it.
+  assert.ok(ingest.indexOf("advanceHoldDecision({") < ingest.indexOf('.from("orders")\n    .insert({'));
+  assert.match(ingest, /kitchen_hold_until: hold\.hold \? hold\.releaseAt : null/);
+  // No app alert for a held order at ingest.
+  assert.ok(ingest.indexOf('if (hold.hold) return { status: "created"') < ingest.indexOf('attempt("app alert"'));
+  const sweep = readFileSync("lib/advance-hold.ts", "utf8");
+  // Released for every due order, before the paper's already-sent skip.
+  assert.ok(sweep.indexOf("await releaseToTablet(o.id)") < sweep.indexOf("if (sent.has(o.id)) continue;"));
+  // Send to kitchen releases the tablet too.
+  assert.match(sweep, /const tablet = await releaseToTablet\(orderId\)/);
+  // Only the call that clears the hold sends the alert.
+  assert.match(sweep, /\.not\("kitchen_hold_until", "is", null\)/);
+  const dash = readFileSync("components/OrderDashboard.tsx", "utf8");
+  assert.match(dash, /orders\.filter\(\(o\) => !heldFromKitchen\(o, now\)\)/);
+  assert.match(dash, /unaccepted\(kitchenOrders\)/);
+  assert.doesNotMatch(dash, /unaccepted\(orders\)/);
+  const app = readFileSync("app/api/dashboard/orders/route.ts", "utf8");
+  assert.match(app, /kitchen_hold_until\.is\.null,kitchen_hold_until\.lte\./);
 });
 
 console.log(`\n${passed} assertions passed (advance hold).`);

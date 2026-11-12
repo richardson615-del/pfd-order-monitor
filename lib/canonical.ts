@@ -1,4 +1,5 @@
 import { advanceHoldDecision, advanceHoldMinutes, type AdvanceHoldDecision } from "./advance-hold";
+import { displayOrderNo } from "./order-label";
 import { supabaseAdmin } from "./supabase-server";
 import { notifyRestaurant, type PushResult } from "./push";
 import { pushToRestaurantApps } from "./partner-push";
@@ -474,7 +475,8 @@ export async function ingestOrder(
       orderId: inserted.id,
       restaurantId: input.restaurantId,
       appExpected: !!restaurantRow?.app_expected,
-      orderNumber: input.orderNumber,
+      // 059: the push says the plain number the kitchen will see on the ticket.
+      orderNumber: displayOrderNo(inserted),
       customerName: input.customerName,
       customerTotal: input.customerTotal,
     })
@@ -800,7 +802,7 @@ export async function sendCancellationEmail(orderId: string): Promise<void> {
   const admin = supabaseAdmin();
   const { data: order } = await admin
     .from("orders")
-    .select("id, order_number, source, customer_name, customer_total, restaurant_id, restaurants(print_method, ticket_email_to, email_crm_orders_only)")
+    .select("id, order_number, ticket_no, source, customer_name, customer_total, restaurant_id, restaurants(print_method, ticket_email_to, email_crm_orders_only)")
     .eq("id", orderId)
     .maybeSingle();
   const r = (order as any)?.restaurants;

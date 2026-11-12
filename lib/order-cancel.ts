@@ -1,3 +1,4 @@
+import { displayOrderNo } from "./order-label";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { sendCancellationEmail } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
@@ -12,7 +13,7 @@ import { cancelledPush, reopenedPush, reopenedStatus } from "@/lib/crm-orders";
  * a ticket that came out of a printer is a fact, and the CRM is told so it
  * can decide about the money.
  */
-export async function cancelOrderForCrm(order: { id: string; restaurant_id: string; order_number: string | null }, actor: string): Promise<{ was_printed: boolean; jobs_pulled: number; pushed: number }> {
+export async function cancelOrderForCrm(order: { id: string; restaurant_id: string; order_number: string | null; ticket_no?: number | null }, actor: string): Promise<{ was_printed: boolean; jobs_pulled: number; pushed: number }> {
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
   const { data: before } = await admin.from("orders").select("printed_at").eq("id", order.id).maybeSingle();
@@ -24,7 +25,7 @@ export async function cancelOrderForCrm(order: { id: string; restaurant_id: stri
     .in("status", ["queued", "claimed"])
     .select("id");
   await sendCancellationEmail(order.id);
-  const push = await notifyRestaurant(order.restaurant_id, { ...cancelledPush(order.order_number), orderId: order.id }).catch(() => ({ sent: 0 }));
+  const push = await notifyRestaurant(order.restaurant_id, { ...cancelledPush(displayOrderNo(order)), orderId: order.id }).catch(() => ({ sent: 0 }));
   if (before?.printed_at) {
     console.error("Phone order CANCELLED AFTER PRINTING - the kitchen may have started it:", JSON.stringify({ orderId: order.id, printed_at: before.printed_at, cancelled_at: now, actor }));
   }
@@ -60,7 +61,7 @@ export async function completeOrderOnPickup(orderId: string): Promise<{ complete
  * things happened.
  */
 export async function reopenCompletedOrder(
-  order: { id: string; restaurant_id: string; order_number: string | null },
+  order: { id: string; restaurant_id: string; order_number: string | null; ticket_no?: number | null },
   actor: string
 ): Promise<{ reopened: boolean; status: string | null; pushed: number }> {
   const admin = supabaseAdmin();
@@ -76,6 +77,6 @@ export async function reopenCompletedOrder(
     .maybeSingle();
   if (!data) return { reopened: false, status: null, pushed: 0 };
   console.log("Order reopened from the CRM:", JSON.stringify({ orderId: order.id, status, actor }));
-  const push = await notifyRestaurant(order.restaurant_id, { ...reopenedPush(order.order_number), orderId: order.id }).catch(() => ({ sent: 0 }));
+  const push = await notifyRestaurant(order.restaurant_id, { ...reopenedPush(displayOrderNo(order)), orderId: order.id }).catch(() => ({ sent: 0 }));
   return { reopened: true, status, pushed: push.sent ?? 0 };
 }

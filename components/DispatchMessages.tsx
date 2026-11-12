@@ -5,6 +5,7 @@ import type { Order } from "@/lib/types";
 import { QUICK_PICKS, driverLateOrder, messageKindLabel, newReplies, type RestaurantMessage } from "@/lib/messages";
 import { timeLabel } from "@/lib/local-day";
 import { playChime } from "@/lib/sound";
+import { displayOrderNo } from "@/lib/order-label";
 
 /**
  * "Message dispatch" (Matt, 2026-10-06): the kitchen writes to Premium
@@ -143,7 +144,7 @@ export default function DispatchMessages({
     if (await send({ kind: "text", body: draft })) setDraft("");
   };
 
-  const orderNo = (id: string | null) => (id ? orders.find((o) => o.id === id)?.order_number : undefined);
+  const orderNo = (id: string | null) => (id ? (() => { const o = orders.find((x) => x.id === id); return o ? displayOrderNo(o) : undefined; })() : undefined);
   const pickable = [...orders].sort((a, b) => (a.received_at < b.received_at ? 1 : -1)).slice(0, 12);
 
   return (
@@ -203,7 +204,7 @@ export default function DispatchMessages({
                 {pickable.length === 0 && <p className="msg-empty">No orders today.</p>}
                 {pickable.map((o) => (
                   <button key={o.id} type="button" className="msg-pick-row" disabled={sending} onClick={() => orderProblem(o)}>
-                    <span className="num">#{o.order_number}</span>
+                    <span className="num">#{displayOrderNo(o)}</span>
                     <span>{o.customer_name || "Customer"}</span>
                     <span className="msg-pick-time">{timeLabel(o.received_at, timezone)}</span>
                   </button>

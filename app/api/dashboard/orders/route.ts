@@ -1,3 +1,4 @@
+import { withDisplayOrderNo } from "@/lib/order-label";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
@@ -12,7 +13,7 @@ const PARTNER_ORDERS_LIMIT = 200;
 
 /** What the PFD Partner app's Orders tab shows, with the ready-timer fields (055). */
 const ORDER_COLUMNS =
-  "id, order_number, order_type, source, customer_name, customer_total, items, notes, due_time, status, received_at, accepted_at, ready_minutes, ready_by, ready_at, completed_at, cancelled_at";
+  "id, order_number, ticket_no, order_type, source, customer_name, customer_total, items, notes, due_time, status, received_at, accepted_at, ready_minutes, ready_by, ready_at, completed_at, cancelled_at";
 
 /**
  * GET /api/dashboard/orders (PA3, 2026-10-27)
@@ -50,7 +51,8 @@ export async function GET() {
   const busy = liveBusy(restaurant, Date.now());
   return NextResponse.json(
     {
-      orders: orders ?? [],
+      // 059: order_number is the plain number the kitchen sees, so Partner app builds already in the stores show it.
+      orders: withDisplayOrderNo(orders ?? []),
       kitchen: {
         prep_minutes: restaurant?.prep_minutes ?? null,
         timezone: restaurant?.timezone ?? null,

@@ -1,3 +1,4 @@
+import { withDisplayOrderNo } from "@/lib/order-label";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentUserRestaurantIds } from "@/lib/authz";
@@ -31,7 +32,7 @@ export async function GET() {
     supabase.from("restaurants").select("timezone").eq("id", restaurantId).maybeSingle(),
     supabase
       .from("orders")
-      .select("id, order_number, order_type, customer_name, customer_total, status, source, received_at, completed_at, cancelled_at")
+      .select("id, order_number, ticket_no, order_type, customer_name, customer_total, status, source, received_at, completed_at, cancelled_at")
       .eq("restaurant_id", restaurantId)
       .gte("received_at", historyWindowStart(now))
       .order("received_at", { ascending: false })
@@ -43,7 +44,7 @@ export async function GET() {
 
   const timezone = restaurant?.timezone ?? null;
   return NextResponse.json(
-    { timezone, days: weekHistory(orders ?? [], now, timezone) },
+    { timezone, days: weekHistory(withDisplayOrderNo(orders ?? []), now, timezone) },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

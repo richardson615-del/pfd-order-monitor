@@ -107,7 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const admin = supabaseAdmin();
   const { data: order } = await admin
     .from("orders")
-    .select("id, restaurant_id, order_number, status, source, received_at, customer_name, customer_total")
+    .select("id, restaurant_id, order_number, ticket_no, status, source, received_at, customer_name, customer_total")
     .eq("id", params.id)
     .maybeSingle();
   if (!order) return NextResponse.json({ error: "order not found", code: "order_not_found" }, { status: 404 });

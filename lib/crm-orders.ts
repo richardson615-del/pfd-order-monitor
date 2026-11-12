@@ -177,6 +177,7 @@ export interface OrderFlags {
 export interface OrderRowInput {
   id: string;
   order_number: string;
+  ticket_no?: number | null;
   source: string | null;
   status: string;
   restaurant_id: string;
@@ -218,6 +219,11 @@ export interface RestaurantRef {
 export interface OrderListRow {
   order_id: string;
   order_number: string;
+  /**
+   * 059: the plain per-restaurant number (1, 2, 3...) from 2026-11-12, what the kitchen and drivers see. Null on
+   * older and TEST- orders: show order_number. order_number stays the source's reference.
+   */
+  ticket_no: number | null;
   source: string | null;
   status: string;
   restaurant: { id: string; crm_restaurant_id: string | null; name: string | null };
@@ -275,6 +281,7 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
   return {
     order_id: o.id,
     order_number: o.order_number,
+    ticket_no: typeof o.ticket_no === "number" ? o.ticket_no : null,
     source: o.source ?? null,
     status: o.status,
     restaurant: { id: r.id, crm_restaurant_id: r.crm_restaurant_id ?? null, name: r.name ?? null },

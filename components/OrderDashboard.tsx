@@ -17,6 +17,7 @@ import { acceptMinutes, busyLine, liveBusy, type LiveBusy } from "@/lib/cook-tim
 import DispatchMessages from "./DispatchMessages";
 import { AGE_LATE_MS, bucketOf, isScheduled, type DisplayMode } from "@/lib/order-display";
 import { countsForHistory, money } from "@/lib/history";
+import { restaurantSaleCents } from "@/lib/sales";
 import { Brand } from "./Brand";
 import { clockLabel } from "@/lib/clock";
 import AlertGate from "./AlertGate";
@@ -728,7 +729,8 @@ export default function OrderDashboard({
     [kitchenOrders, now, timezone]
   );
   const completedCounted = completed.filter(countsForHistory);
-  const completedTotal = completedCounted.reduce((sum, o) => sum + (o.customer_total ?? 0), 0);
+  // RS2: the restaurant's own sales today, the same figure as the Sales tab.
+  const completedTotal = completedCounted.reduce((sum, o) => sum + (restaurantSaleCents(o) ?? 0), 0) / 100;
 
   /**
    * The hero line: how many, how many still need Accept, and the soonest

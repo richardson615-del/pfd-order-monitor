@@ -60,7 +60,7 @@ export default function SalesTab({ timezone }: { timezone: string | null | undef
       <div className="menu-head">
         <div>
           <div className="menu-title">Sales</div>
-          <div className="menu-sub">Every order and what it was charged. Same page on a computer: sign in at this address with your tablet username.</div>
+          <div className="menu-sub">Every order and what you sold. Same page on a computer: sign in at this address with your tablet username.</div>
         </div>
         <a className="btn small" href={`/api/dashboard/sales/export?${qs}`} download>
           Download CSV
@@ -88,7 +88,7 @@ export default function SalesTab({ timezone }: { timezone: string | null | undef
             <div className="money-stat">
               <span className="money-stat-label">Sales</span>
               <span className="money-stat-value num">{centsLabel(t.food_cents)}</span>
-              <span className="money-stat-sub">Food sold, after discounts</span>
+              <span className="money-stat-sub">Your food sales, after discounts</span>
             </div>
             <div className="money-stat">
               <span className="money-stat-label">Orders</span>
@@ -126,35 +126,33 @@ export default function SalesTab({ timezone }: { timezone: string | null | undef
 
 function SalesDetail({ report, multiDay }: { report: SalesReport; multiDay: boolean }) {
   const t = report.totals;
-  const lines: [string, string][] = [
-    ["Customers paid", centsLabel(t.paid_cents)],
-    ["Tax", centsLabel(t.tax_cents)],
-    ["Delivery and service fees", centsLabel(t.fees_cents)],
-    ["Tips", centsLabel(t.tip_cents)],
-  ];
-  if (t.discount_cents) lines.push(["Discounts", `-${centsLabel(t.discount_cents)}`]);
-  if (t.cancelled.orders) lines.push([`Cancelled (${t.cancelled.orders})`, centsLabel(t.cancelled.paid_cents)]);
-  const maxDay = Math.max(1, ...report.days.map((d) => d.paid_cents));
+  // RS2: only the restaurant's own numbers. Tax, fees and tips are not its money.
+  const lines: [string, string][] = [];
+  if (t.discount_cents) lines.push(["Discounts given", `-${centsLabel(t.discount_cents)}`]);
+  if (t.cancelled.orders) lines.push([`Cancelled (${t.cancelled.orders})`, centsLabel(t.cancelled.food_cents)]);
+  const maxDay = Math.max(1, ...report.days.map((d) => d.food_cents));
   return (
     <div className="sales-detail">
-      <SalesBlock title="Breakdown">
-        {lines.map(([k, v]) => (
-          <div key={k} className="sales-line">
-            <span>{k}</span>
-            <span className="num">{v}</span>
-          </div>
-        ))}
-      </SalesBlock>
+      {lines.length > 0 && (
+        <SalesBlock title="Breakdown">
+          {lines.map(([k, v]) => (
+            <div key={k} className="sales-line">
+              <span>{k}</span>
+              <span className="num">{v}</span>
+            </div>
+          ))}
+        </SalesBlock>
+      )}
       {multiDay && (
         <SalesBlock title="By day">
           {report.days.map((d) => (
             <div key={d.key} className="sales-line sales-bar-line">
               <span className="sales-day">{d.label === "Today" || d.label === "Yesterday" ? d.label : `${d.label} ${d.key.slice(5).replace("-", "/")}`}</span>
               <span className="sales-bar" aria-hidden="true">
-                <span style={{ width: `${Math.round((d.paid_cents / maxDay) * 100)}%` }} />
+                <span style={{ width: `${Math.round((d.food_cents / maxDay) * 100)}%` }} />
               </span>
               <span className="num">
-                {d.orders} · {centsLabel(d.paid_cents)}
+                {d.orders} · {centsLabel(d.food_cents)}
               </span>
             </div>
           ))}
@@ -166,7 +164,7 @@ function SalesDetail({ report, multiDay }: { report: SalesReport; multiDay: bool
             <div key={g.label} className="sales-line">
               <span>{g.label}</span>
               <span className="num">
-                {g.orders} · {centsLabel(g.paid_cents)}
+                {g.orders} · {centsLabel(g.food_cents)}
               </span>
             </div>
           ))}
@@ -178,7 +176,7 @@ function SalesDetail({ report, multiDay }: { report: SalesReport; multiDay: bool
             <div key={g.label} className="sales-line">
               <span>{g.label}</span>
               <span className="num">
-                {g.orders} · {centsLabel(g.paid_cents)}
+                {g.orders} · {centsLabel(g.food_cents)}
               </span>
             </div>
           ))}
@@ -223,7 +221,7 @@ function SalesListRow({ row, multiDay, open, onToggle }: { row: SalesRow; multiD
         </span>
         <span className="money-right">
           {row.cancelled && <span className="money-chip">Cancelled</span>}
-          <span className="money-amount num">{row.paid_cents === null ? "—" : centsLabel(row.paid_cents)}</span>
+          <span className="money-amount num">{row.food_cents === null ? "—" : centsLabel(row.food_cents)}</span>
         </span>
       </button>
       {open && <Receipt id={row.id} />}
@@ -276,8 +274,8 @@ function Receipt({ id }: { id: string }) {
         </div>
       ))}
       <div className="sales-line sales-total">
-        <span>Total</span>
-        <span className="num">{r.paid_cents === null ? "—" : centsLabel(r.paid_cents)}</span>
+        <span>Your sale</span>
+        <span className="num">{r.food_cents === null ? "—" : centsLabel(r.food_cents)}</span>
       </div>
       <div className="sales-line">
         <span>Payment</span>

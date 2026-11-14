@@ -26,6 +26,7 @@ import {
   toCents,
   unpricedItems,
   type SalesOrder,
+  restaurantSaleCents,
 } from "../lib/sales";
 import { addDays, includesToday, periodRange } from "../lib/sales-periods";
 
@@ -182,7 +183,10 @@ test("adds up in cents: food after discount, what customers paid, tax, fees, tip
   assert.equal(r.totals.fees_cents, 100 + 499);
   assert.equal(r.totals.tip_cents, 200 + 300);
   assert.equal(r.totals.discount_cents, 200);
-  assert.equal(r.totals.average_cents, Math.round((1891 + 2779) / 2));
+  assert.equal(r.totals.average_cents, Math.round((1450 + 1800) / 2), "RS2: the average is of the restaurant's own sales");
+  assert.deepEqual(r.rows.map((x) => x.food_cents), [1800, 1450], "each row carries the restaurant's sale");
+  assert.deepEqual(r.days.map((d) => d.food_cents), [1450 + 1800]);
+  assert.deepEqual(r.channels.map((c) => c.food_cents), [1800, 1450]);
   assert.deepEqual(r.channels.map((c) => c.label), ["Phone", "Online"]);
   assert.deepEqual(r.payments.map((c) => [c.label, c.orders]), [["Cash", 1], ["Card", 1]]);
   assert.equal(r.days.length, 1);
@@ -203,7 +207,7 @@ test("cancelled orders are listed and totalled apart; test orders vanish; out-of
     TZ
   );
   assert.equal(r.totals.orders, 1);
-  assert.deepEqual(r.totals.cancelled, { orders: 1, paid_cents: 1000 });
+  assert.deepEqual(r.totals.cancelled, { orders: 1, paid_cents: 1000, food_cents: 1450 });
   assert.equal(r.rows.length, 2);
   assert.equal(r.rows.filter((x) => x.cancelled).length, 1);
   assert.deepEqual(r.days.map((d) => [d.key, d.orders]), [["2026-10-26", 0], ["2026-10-27", 1]]);
@@ -235,6 +239,13 @@ test("rows carry the first name only, never a phone or address", () => {
 });
 
 console.log("the receipt:");
+test("RS2: the restaurant's sale is items less discount; unknown when the order has no item total", () => {
+  assert.equal(restaurantSaleCents({ items_total: 20, discount: 2 }), 1800);
+  assert.equal(restaurantSaleCents({ items_total: 20, discount: -2 }), 1800, "a discount stored negative still comes off");
+  assert.equal(restaurantSaleCents({ items_total: "14.50", discount: null }), 1450);
+  assert.equal(restaurantSaleCents({ items_total: null, discount: 1 }), null);
+});
+
 test("items with prices, the unpriced one marked, lines without zeros, discount negative", () => {
   const rc = salesReceipt(
     order({
@@ -254,10 +265,8 @@ test("items with prices, the unpriced one marked, lines without zeros, discount 
   assert.deepEqual(rc.lines.map((l) => [l.label, l.cents]), [
     ["Items", 1450],
     ["Discount", -150],
-    ["Tax", 141],
-    ["Service fee", 100],
-    ["Tip", 200],
-  ]);
+  ], "RS2: the restaurant's side only - no tax, fees or tip");
+  assert.equal(rc.food_cents, 1300, "the bottom line is the restaurant's sale");
   assert.equal(rc.payment, "Card");
   assert.deepEqual(rc.checks, ["No price on Banana Pudding"]);
 });

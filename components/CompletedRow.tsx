@@ -3,6 +3,7 @@ import { Order } from "@/lib/types";
 import { timeLabel } from "@/lib/local-day";
 import { prepTimeLabel } from "@/lib/countdown";
 import { displayOrderNo } from "@/lib/order-label";
+import { centsLabel, restaurantSaleCents } from "@/lib/sales";
 
 /**
  * One row in Completed, or under a day in Past week.
@@ -19,7 +20,7 @@ import { displayOrderNo } from "@/lib/order-label";
  */
 export type CompletedRowOrder = Pick<
   Order,
-  "id" | "order_number" | "ticket_no" | "order_type" | "customer_name" | "customer_total" | "status" | "source" | "received_at" | "completed_at" | "cancelled_at"
+  "id" | "order_number" | "ticket_no" | "order_type" | "customer_name" | "customer_total" | "items_total" | "discount" | "status" | "source" | "received_at" | "completed_at" | "cancelled_at"
 > & { accepted_at?: string | null };
 
 export default function CompletedRow({
@@ -55,7 +56,8 @@ export default function CompletedRow({
           {order.source === "test" ? " · Test" : ""}
         </span>
       </span>
-      {order.customer_total != null && <span className="done-total num">${order.customer_total.toFixed(2)}</span>}
+      {/* RS2: the restaurant's own sale, not what the customer paid. */}
+      {restaurantSaleCents(order) != null && <span className="done-total num">{centsLabel(restaurantSaleCents(order)!)}</span>}
       <span className="done-when num">{when}</span>
     </Link>
   );

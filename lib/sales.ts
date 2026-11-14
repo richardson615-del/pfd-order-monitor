@@ -72,6 +72,19 @@ export interface SalesRange {
   to: string;
 }
 
+/**
+ * RS2 (Matt 2026-11-14: "The restaurants only need to see their number they are making on the tablet"): the
+ * restaurant's sale on one order - its items less any discount. Not tax, fees or the tip; those are not the
+ * restaurant's money and are what made The Depot read $3,800 one night and $2,600 the next morning for the same
+ * day. Null when the order came through with no item total (emailed orders). Every money figure a restaurant
+ * sees on the tablet and in the PFD Partner app is this.
+ */
+export function restaurantSaleCents(o: { items_total?: number | string | null; discount?: number | string | null }): number | null {
+  const items = toCents(o.items_total);
+  if (items === null) return null;
+  return items - Math.abs(toCents(o.discount) ?? 0);
+}
+
 export interface SalesTotals {
   /** Orders that count (not cancelled, not test). */
   orders: number;
@@ -86,7 +99,7 @@ export interface SalesTotals {
   discount_cents: number;
   /** Average customer total in cents, 0 with no orders. */
   average_cents: number;
-  cancelled: { orders: number; paid_cents: number };
+  cancelled: { orders: number; paid_cents: number; food_cents: number };
   /** Orders with an item that came through with no price. */
   to_check: number;
 }
@@ -96,12 +109,16 @@ export interface SalesDay {
   label: string;
   orders: number;
   paid_cents: number;
+  /** RS2: what the restaurant sees. */
+  food_cents: number;
 }
 
 export interface SalesGroup {
   label: string;
   orders: number;
   paid_cents: number;
+  /** RS2: what the restaurant sees. */
+  food_cents: number;
 }
 
 export interface SalesItem {
@@ -119,6 +136,8 @@ export interface SalesRow {
   order_type: "pickup" | "delivery" | null;
   customer: string | null;
   paid_cents: number | null;
+  /** RS2: the restaurant's sale on this order (restaurantSaleCents), what the row shows. */
+  food_cents: number | null;
   cancelled: boolean;
   /** Plain words, e.g. "An item came through with no price". Empty = nothing to check. */
   checks: string[];
@@ -280,14 +299,15 @@ function addItems(tally: Map<string, SalesItem>, o: SalesOrder) {
   }
 }
 
-function addGroup(groups: Map<string, SalesGroup>, label: string, paid: number) {
-  const g = groups.get(label) ?? { label, orders: 0, paid_cents: 0 };
+function addGroup(groups: Map<string, SalesGroup>, label: string, paid: number, food: number) {
+  const g = groups.get(label) ?? { label, orders: 0, paid_cents: 0, food_cents: 0 };
   g.orders += 1;
   g.paid_cents += paid;
+  g.food_cents += food;
   groups.set(label, g);
 }
 
-const byPaidDesc = (a: SalesGroup, b: SalesGroup) => b.paid_cents - a.paid_cents || b.orders - a.orders || a.label.localeCompare(b.label);
+const byPaidDesc = (a: SalesGroup, b: SalesGroup) => b.food_cents - a.food_cents || b.orders - a.orders || a.label.localeCompare(b.label);
 
 /**
  * The report for a range. `orders` may hold anything from the query window;
@@ -303,7 +323,7 @@ export function salesReport(
 ): SalesReport {
   const keys = rangeDayKeys(range);
   const inRange = new Set(keys);
-  const days = new Map<string, SalesDay>(keys.map((k) => [k, { key: k, label: dayLabel(k, now, timezone), orders: 0, paid_cents: 0 }]));
+  const days = new Map<string, SalesDay>(keys.map((k) => [k, { key: k, label: dayLabel(k, now, timezone), orders: 0, paid_cents: 0, food_cents: 0 }]));
   const channels = new Map<string, SalesGroup>();
   const payments = new Map<string, SalesGroup>();
   const items = new Map<string, SalesItem>();
@@ -316,7 +336,7 @@ export function salesReport(
     tip_cents: 0,
     discount_cents: 0,
     average_cents: 0,
-    cancelled: { orders: 0, paid_cents: 0 },
+    cancelled: { orders: 0, paid_cents: 0, food_cents: 0 },
     to_check: 0,
   };
   const rows: SalesRow[] = [];
@@ -327,6 +347,7 @@ export function salesReport(
     const key = localDayKey(o.received_at, timezone);
     if (!inRange.has(key)) continue;
     const paid = toCents(o.customer_total);
+    const food = restaurantSaleCents(o);
     const cancelled = o.status === "cancelled";
     const checks = orderChecks(o);
     rows.push({
@@ -339,12 +360,14 @@ export function salesReport(
       order_type: o.order_type ?? null,
       customer: firstName(o.customer_name),
       paid_cents: paid,
+      food_cents: food,
       cancelled,
       checks,
     });
     if (cancelled) {
       totals.cancelled.orders += 1;
       totals.cancelled.paid_cents += n0(paid);
+      totals.cancelled.food_cents += n0(food);
       continue;
     }
     const discount = Math.abs(n0(toCents(o.discount)));
@@ -359,11 +382,13 @@ export function salesReport(
     const d = days.get(key)!;
     d.orders += 1;
     d.paid_cents += n0(paid);
-    addGroup(channels, channelLabel(o.source), n0(paid));
-    addGroup(payments, paymentLabel(o.payment_type), n0(paid));
+    d.food_cents += n0(food);
+    addGroup(channels, channelLabel(o.source), n0(paid), n0(food));
+    addGroup(payments, paymentLabel(o.payment_type), n0(paid), n0(food));
     addItems(items, o);
   }
-  totals.average_cents = totals.orders ? Math.round(totals.paid_cents / totals.orders) : 0;
+  // RS2: the average the restaurant reads is of its own sales.
+  totals.average_cents = totals.orders ? Math.round(totals.food_cents / totals.orders) : 0;
 
   return {
     range,
@@ -397,8 +422,11 @@ export interface SalesReceipt {
   payment: string;
   cancelled: boolean;
   items: { name: string; price_cents: number | null; modifiers: string[]; unpriced: boolean }[];
+  /** RS2: items and discount only - the restaurant's side of the order. Tax, fees and tip are not shown to it. */
   lines: { label: string; cents: number }[];
   paid_cents: number | null;
+  /** RS2: the restaurant's sale on this order; the receipt's bottom line. */
+  food_cents: number | null;
   checks: string[];
 }
 
@@ -429,12 +457,9 @@ export function salesReceipt(o: SalesOrder, timezone: string | null | undefined)
     lines: [
       line("Items", o.items_total),
       line("Discount", o.discount, true),
-      line("Tax", o.tax),
-      line("Service fee", o.service_fee),
-      line("Delivery fee", o.delivery_fee),
-      line("Tip", o.tip),
     ].filter((l): l is { label: string; cents: number } => l !== null),
     paid_cents: toCents(o.customer_total),
+    food_cents: restaurantSaleCents(o),
     checks: orderChecks(o),
   };
 }

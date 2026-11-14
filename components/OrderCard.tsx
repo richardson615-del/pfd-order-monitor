@@ -6,6 +6,7 @@ import { ageClass, dueLabel, elapsedLabel, isScheduled, itemsLine, orderFlag } f
 import { countdown, isUnaccepted } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 import { displayOrderNo } from "@/lib/order-label";
+import { centsLabel, restaurantSaleCents } from "@/lib/sales";
 
 /**
  * One order in the kitchen list.
@@ -110,9 +111,8 @@ export default function OrderCard({
 
         <div className="card-who">
           <span className="card-name">{order.customer_name || "Customer"}</span>
-          {order.customer_total != null && (
-            <span className="card-total num">${order.customer_total.toFixed(2)}</span>
-          )}
+          {/* RS2: the restaurant's own sale, not what the customer paid. */}
+          {restaurantSaleCents(order) != null && <span className="card-total num">{centsLabel(restaurantSaleCents(order)!)}</span>}
         </div>
 
         {(items || order.source === "test") && (

@@ -141,6 +141,8 @@ export function mapZupplerGraphqlOrder(resp: any): MappedZupplerOrder {
       name: qty > 1 ? `${qty}x ${name}` : name,
       price: priceNum != null ? `$${priceNum.toFixed(2)}` : null,
       modifiers,
+      // TK2: named apart too, so the ticket can set it off from the choices (lib/ticket.ts splitItemNote).
+      ...(comment ? { note: comment } : {}),
     };
   });
 

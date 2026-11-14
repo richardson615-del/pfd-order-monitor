@@ -86,7 +86,7 @@ console.log("delivery order (cents mode):");
   });
   test("items: qty folded into name, cents->dollars, comments->modifiers", () =>
     assert.deepEqual(c.items, [
-      { name: "2x Cheeseburger", price: "$23.00", modifiers: ["No onions, add bacon"] },
+      { name: "2x Cheeseburger", price: "$23.00", modifiers: ["No onions, add bacon"], note: "No onions, add bacon" },
       { name: "Fries", price: "$4.00", modifiers: [] },
     ]));
   test("lineItems (row 66): structured lines beside the printed ones - quantity a number, total in dollars, ids as strings", () =>

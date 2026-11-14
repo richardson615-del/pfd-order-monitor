@@ -94,14 +94,13 @@ test("large print is NOT used for email", () => {
 
 test("modifiers survive - they are what ruins a plate if missed", () => {
   // Asserted on the words, not the line breaks: at 32 columns a long
-  // modifier wraps across two ">>" lines, and pinning the exact wrap would
-  // make this test fail on a width change rather than on a real regression.
+  // modifier wraps, and pinning the exact wrap would make this test fail on
+  // a width change rather than on a real regression.
   const text = composeTicketEmail(ORDER).text;
-  // Every modifier line is marked, so a cook can see it is an instruction...
-  const modLines = text.split("\n").filter((l) => l.trim().startsWith(">>"));
-  assert.ok(modLines.length >= 2, "modifiers must be marked with >>");
-  // ...and the words survive being wrapped across two of them.
-  const joined = modLines.map((l) => l.replace(/^\s*>>\s*/, "")).join(" ");
+  // TK2: every choice starts with a dash; a wrapped one continues without it.
+  const modLines = text.split("\n").filter((l) => /^\s+- \S/.test(l));
+  assert.ok(modLines.length >= 2, "each choice must start with a dash");
+  const joined = text.replace(/\s+/g, " ");
   assert.match(joined, /no beef - only chicken & lamb/);
   assert.match(joined, /white sauce on top please/);
 });

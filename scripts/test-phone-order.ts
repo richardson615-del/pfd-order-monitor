@@ -297,8 +297,8 @@ test("a phone order's ticket prints PAID - CARD ****8598 bold, with no 'Paid' la
   assert.ok(!/zuppler/i.test(text), "never Zuppler");
   assert.match(text, /TOTAL\s+\$58\.09/);
   assert.match(text, /2\s+SHRIMP PO'BOY\s+\$34\.00/, "line total = qty x (unit + paid modifiers)");
-  assert.match(text, />> Extra shrimp \+\$3\.00/);
-  assert.match(text, />> no pickles/, "item notes ride as a modifier line");
+  assert.match(text, /- Extra shrimp\s+\+\$3\.00/);
+  assert.match(text, /NOTE FOR THIS ITEM:\n\s+no pickles/, "TK2: the item note is set apart from the choices");
   assert.match(text, /5432 Highway 76 East, Springfield, TN 37172, Apt\n4/, "address2 joins the street line (wrapped at 48)");
   assert.match(text, />> Gate code 4482/, "customer notes print as a driver instruction");
   assert.ok(toEposPrintXml(lines).includes("PAID - CARD ****8598"));
@@ -346,7 +346,7 @@ test("source is phone, the id is the CRM's, and the money lands in the columns a
 
 test("items take the renderer's shape: quantity folded into the name, one string per modifier, the line total", () => {
   const c = phoneOrderToCanonical(ok(), { id: "r1", name: null }, { fingerprint: "f" });
-  assert.deepEqual(c.items[0], { name: "2x Shrimp Po'Boy", price: "$34.00", modifiers: ["Dressed", "Extra shrimp +$3.00", "no pickles"] });
+  assert.deepEqual(c.items[0], { name: "2x Shrimp Po'Boy", price: "$34.00", modifiers: ["Dressed", "Extra shrimp +$3.00", "no pickles"], note: "no pickles" });
   assert.deepEqual(c.items[1], { name: "Gumbo (cup)", price: "$6.00", modifiers: [] });
 });
 

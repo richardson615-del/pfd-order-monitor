@@ -3,7 +3,7 @@
  * These assert the things a cook depends on, not cosmetics.
  */
 import assert from "node:assert/strict";
-import { buildTicket, toEposPrintXml, DEFAULT_FOOTER_TEXT, splitTicketNotes } from "@/lib/ticket";
+import { buildTicket, toEposPrintXml, DEFAULT_FOOTER_TEXT, splitTicketNotes, splitModifierPrice, splitItemNote } from "@/lib/ticket";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -55,7 +55,7 @@ test("an explicit quantity field wins over the name prefix", () => {
 test("modifiers are BOLD - a missed one is a remade plate", () => {
   const l = buildTicket(base, 48).find((x) => /NO ONIONS/.test(x.text))!;
   assert.equal(l.bold, true);
-  assert.match(l.text, /^\s+>> NO ONIONS/);
+  assert.match(l.text, /^\s+- NO ONIONS/);
 });
 
 test("delivery instructions are split off the street address", () => {
@@ -74,6 +74,63 @@ test("no line exceeds the paper width", () => {
     if (l.qr) continue;
     assert.ok(l.text.length <= 48, `overflow (${l.text.length}): ${l.text}`);
   }
+});
+
+// TK2 (Matt 2026-11-14, The Depot's order #63): the ticket a kitchen can read at a glance.
+const depot: any = { ...base, items: [
+  { name: "2x Grilled Atlantic Salmon", price: "$54.00", note: "No tortillas strips on salad, but add the fried chicken",
+    modifiers: ["6 Oz +$19.00", "Loaded Garlic Mashed Potatoes", "Steamed Broccoli +$4.00", "No tortillas strips on salad, but add the fried chicken"] },
+  { name: "Twin Pork Chops", price: "$29.00", modifiers: ["Sweet Potato Fries"] },
+] };
+
+test("TK2: in large print a choice stays on one line, and its price sits at the right edge of that line", () => {
+  const lines = buildTicket(depot, 48, {}, { scale: "large" });
+  const t = lines.map((l) => l.text);
+  assert.ok(t.some((x) => /^\s+- Loaded Garlic Mashed Potatoes$/.test(x)), "the side is one line, not two");
+  const broc = lines.find((l) => /Steamed Broccoli/.test(l.text))!;
+  assert.match(broc.text, /^\s+- Steamed Broccoli\s+\+\$4\.00$/);
+  assert.equal(broc.text.length, 48);
+  assert.equal(broc.size, "double-h", "tall, not wide: 48 columns to work with");
+  assert.ok(!t.some((x) => /^\s*(>>|-)?\s*\+\$4\.00$/.test(x)), "a price never prints on a line of its own");
+});
+
+test("TK2: a wrapped choice continues without a dash, so it cannot read as two choices", () => {
+  const o = { ...base, items: [{ name: "Plate", price: "$9.00", modifiers: ["A choice with a name long enough that it has to wrap onto a second line"] }] };
+  const lines = buildTicket(o, 48).map((l) => l.text);
+  const i = lines.findIndex((x) => /- A choice with/.test(x));
+  assert.ok(i > 0 && !/-/.test(lines[i + 1]), `continuation has no dash: ${lines[i + 1]}`);
+  assert.match(lines[i + 1], /^\s{7,}\S/);
+});
+
+test("TK2: the customer's note on an item is set apart from the choices, once", () => {
+  const lines = buildTicket(depot, 48, {}, { scale: "large" }).map((l) => l.text);
+  const head = lines.findIndex((x) => /NOTE FOR THIS ITEM:/.test(x));
+  assert.ok(head > 0);
+  assert.match(lines[head + 1], /No tortillas strips on salad/);
+  assert.equal(lines.filter((x) => /No tortillas/.test(x)).length, 1, "not also printed as a choice");
+  assert.deepEqual(splitItemNote({ modifiers: ["Ranch", "extra crispy"] }), { mods: ["Ranch", "extra crispy"], note: null }, "an order stored before TK2 prints as before");
+});
+
+test("TK2: two of an item says so above its choices; items are divided by a dotted rule", () => {
+  const lines = buildTicket(depot, 48, {}, { scale: "large" }).map((l) => l.text);
+  assert.ok(lines.some((x) => /MAKE 2 - EACH WITH:/.test(x)));
+  const pork = lines.findIndex((x) => /TWIN PORK CHOPS/.test(x));
+  assert.match(lines[pork - 1], /^(\. )+\.?$/);
+  const plain = { ...base, items: [{ name: "2x Fries", price: "$6.00", modifiers: [] }] };
+  assert.ok(!buildTicket(plain, 48).some((l) => /MAKE 2/.test(l.text)), "nothing to say when there are no choices");
+});
+
+test("TK2: a price that does not fit beside a large item name prints right under it, never above the next item", () => {
+  const lines = buildTicket(depot, 48, {}, { scale: "large" });
+  const pork = lines.findIndex((l) => /TWIN PORK CHOPS/.test(l.text));
+  assert.match(lines[pork + 1].text, /^\s+\$29\.00$/);
+  assert.equal(lines[pork + 1].size, "double");
+  assert.equal(lines[lines.length - 1 - [...lines].reverse().findIndex((l) => /\$29\.00/.test(l.text))], lines[pork + 1], "and nowhere else");
+});
+
+test("TK2: splitModifierPrice", () => {
+  assert.deepEqual(splitModifierPrice("Add Fried Chicken +$4.00"), { label: "Add Fried Chicken", price: "+$4.00" });
+  assert.deepEqual(splitModifierPrice("2x Ranch"), { label: "2x Ranch", price: null });
 });
 
 test("the footer falls back to the global default", () =>

@@ -428,6 +428,8 @@ export function phoneOrderToCanonical(
       name: it.qty > 1 ? `${it.qty}x ${it.name}` : it.name,
       price: dollars(line),
       modifiers,
+      // TK2: named apart too, so the ticket sets it off from the choices (lib/ticket.ts splitItemNote).
+      ...(it.notes ? { note: it.notes } : {}),
     };
   });
 

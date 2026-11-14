@@ -77,7 +77,8 @@ export interface TicketOrder {
   customer_name?: string | null;
   customer_phone?: string | null;
   customer_address?: string | null;
-  items?: { name?: string; price?: string | number | null; modifiers?: string[] }[] | null;
+  /** `note` (TK2): the customer's own words on this item. The mapper also leaves it as the last modifier, for readers that predate it. */
+  items?: { name?: string; price?: string | number | null; modifiers?: string[]; note?: string | null }[] | null;
   items_total?: number | string | null;
   tax?: number | string | null;
   service_fee?: number | string | null;
@@ -144,6 +145,9 @@ function wrap(text: string, cols: number): string[] {
   return out.length ? out : [""];
 }
 
+/** The long label when it fits the room, else the short one (narrow emailed tickets). */
+const fit = (long: string, short: string, room: number): string => (long.length <= room ? long : short);
+
 function localTime(iso?: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -167,6 +171,7 @@ export function buildTicket(
   const bigCols = Math.floor(cols / 2);
   const rule = "-".repeat(cols);
   const heavy = "=".repeat(cols);
+  const dotted = ". ".repeat(Math.floor(cols / 2)).trimEnd();
   const lines: TicketLine[] = [];
 
   // --- Headline: where the food goes, and when -----------------------------
@@ -268,8 +273,9 @@ export function buildTicket(
     : { bold: true };
 
   items.forEach((it, idx) => {
-    let trailingPrice: string | null = null;
-    if (idx > 0) lines.push(L(""));   // items must not read as one block
+    // TK2: a dotted rule, not a blank line. On a long order a blank line was
+    // too weak to say where one plate ends and the next begins.
+    if (idx > 0) lines.push(L(dotted));
     const { qty, name } = splitQuantity(it?.name ?? "Item", it as any);
     const price = typeof it?.price === "string" ? it.price : fmt(it?.price);
     const qtyCell = String(qty).padStart(QTY_W);
@@ -289,9 +295,10 @@ export function buildTicket(
         rendered[rendered.length - 1] = pad(last, price, W);
       }
       for (const line of rendered) lines.push(L(line, itemAttrs));
-      // Only when it genuinely did not fit, and then AFTER the modifiers so
-      // it never separates an item from its instructions.
-      trailingPrice = price && rendered[rendered.length - 1] === last ? price : null;
+      // TK2: when the price did not fit beside the name it takes the next line, same size, right edge - where
+      // every other item's price already sits. It used to trail the modifiers in small print, directly above the
+      // NEXT item, and read as that item's price.
+      if (price && rendered[rendered.length - 1] === last) lines.push(L(pad("", price, W), itemAttrs));
     } else {
       const nameW = cols - NAME_INDENT - (price ? price.length + 1 : 0);
       const wrapped = wrap(name.toUpperCase(), Math.max(8, nameW));
@@ -301,17 +308,34 @@ export function buildTicket(
       }
     }
 
-    for (const mod of it?.modifiers ?? []) {
-      // Bold, because the modifier is the part that ruins a plate if missed -
-      // it used to print lighter than the item it modifies, which is backwards.
-      // In large mode it stays the same size as the item and keeps the arrow,
-      // so it reads as attached to the item rather than as another item.
-      for (const l of wrap(mod, W - NAME_INDENT - 3)) {
-        lines.push(L(`${" ".repeat(NAME_INDENT)}>> ${l}`, itemAttrs));
-      }
+    // --- What goes on the plate (TK2, Matt 2026-11-14: "too cluttered now and confusing") -------------------
+    // One choice per line, each starting with a dash. A choice that wraps continues indented with NO dash, so
+    // "Loaded Garlic / Mashed Potatoes" can no longer be read as two sides. An add-on's price sits at the right
+    // edge of its own line instead of wrapping onto a line of its own. In large mode the choices print tall but
+    // not wide (48 columns), so nearly every one fits on a single line and the item name stays the biggest thing.
+    const { mods, note } = splitItemNote(it);
+    const modAttrs: Partial<TicketLine> = large ? { bold: true, size: "double-h" } : { bold: true };
+    // Large item names are double width, so their indent is twice as many printed columns.
+    const modIndent = large ? NAME_INDENT * 2 : NAME_INDENT;
+    if (qty > 1 && (mods.length > 0 || note)) {
+      lines.push(L(" ".repeat(modIndent) + fit(`MAKE ${qty} - EACH WITH:`, "EACH WITH:", cols - modIndent), { bold: true }));
     }
-    if (large && typeof trailingPrice === "string" && trailingPrice) {
-      lines.push(L(pad("", trailingPrice, cols)));
+    for (const mod of mods) {
+      const { label, price: modPrice } = splitModifierPrice(mod);
+      const room = cols - modIndent - 2 - (modPrice ? modPrice.length + 1 : 0);
+      const parts = wrap(label, Math.max(8, room));
+      parts.forEach((part, i) => {
+        const left = `${" ".repeat(modIndent)}${i === 0 ? "- " : "  "}${part}`;
+        lines.push(L(i === 0 && modPrice ? pad(left, modPrice, cols) : left, modAttrs));
+      });
+    }
+    // The customer's own words about this item. They used to print as one more ">>" line, wrapped into four,
+    // indistinguishable from the sides above them.
+    if (note) {
+      lines.push(L(" ".repeat(modIndent) + fit("NOTE FOR THIS ITEM:", "NOTE:", cols - modIndent), { bold: true }));
+      for (const l of wrap(note, Math.max(8, cols - modIndent - 2))) {
+        lines.push(L(`${" ".repeat(modIndent)}  ${l}`, modAttrs));
+      }
     }
   });
   lines.push(L(rule));
@@ -382,6 +406,24 @@ export function buildTicket(
   }
 
   return lines;
+}
+
+/** "Steamed Broccoli +$4.00" -> the choice and its price, apart, so the price can sit at the right edge. Pure. */
+export function splitModifierPrice(mod: string): { label: string; price: string | null } {
+  const m = /^(.*\S)\s+(\+\$\d+(?:\.\d{1,2})?)$/.exec(String(mod ?? "").trim());
+  return m ? { label: m[1], price: m[2] } : { label: String(mod ?? "").trim(), price: null };
+}
+
+/**
+ * An item's choices and the customer's own note, apart. The mapper appends the note as the last modifier and
+ * (since TK2) also names it in `note`; an order stored before that has no `note` and prints as it always did. Pure.
+ */
+export function splitItemNote(it: { modifiers?: string[]; note?: string | null } | null | undefined): { mods: string[]; note: string | null } {
+  const mods = Array.isArray(it?.modifiers) ? it!.modifiers!.filter((m) => typeof m === "string" && m.trim()) : [];
+  const note = typeof it?.note === "string" && it.note.trim() ? it.note.trim() : null;
+  if (!note) return { mods, note: null };
+  const last = mods.length - 1;
+  return { mods: last >= 0 && mods[last].trim() === note ? mods.slice(0, last) : mods, note };
 }
 
 /**

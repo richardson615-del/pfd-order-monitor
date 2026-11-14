@@ -51,6 +51,8 @@ function order(receivedMsAgo: number, acceptAfterSec: number | null, extra: Part
     status: "completed",
     source: "zuppler",
     customer_total: 20,
+    items_total: 16,
+    discount: null,
     ...extra,
   };
 }
@@ -124,7 +126,7 @@ test("today is the restaurant's day, not UTC's", () => {
 test("today: count, sales, typical and fastest accept, share under two minutes", () => {
   const b = buildScoreboard([order(10 * MIN, 30), order(20 * MIN, 90), order(30 * MIN, 300), order(40 * MIN, null, { status: "cancelled" })], NOW, TZ);
   assert.equal(b.today.orders, 3);
-  assert.equal(b.today.sales, 60);
+  assert.equal(b.today.sales, 48, "RS2: the restaurant's own sales (items less discount), not what customers paid");
   assert.equal(b.today.accepted, 3);
   assert.equal(b.today.typicalAcceptSeconds, 90);
   assert.equal(b.today.fastestAcceptSeconds, 30);

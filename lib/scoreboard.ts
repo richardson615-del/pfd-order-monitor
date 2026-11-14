@@ -26,9 +26,10 @@
  * non-UTC zone (scripts/test-scoreboard.ts).
  */
 import { localDayKey, recentDayKeys, dayLabel } from "./local-day";
+import { restaurantSaleCents } from "./sales";
 import type { Order } from "./types";
 
-export type ScoreOrder = Pick<Order, "received_at" | "accepted_at" | "status" | "source" | "customer_total">;
+export type ScoreOrder = Pick<Order, "received_at" | "accepted_at" | "status" | "source" | "customer_total"> & Partial<Pick<Order, "items_total" | "discount">>;
 
 /** "Fast" means accepted inside two minutes. The office's own bar. */
 export const FAST_ACCEPT_SECONDS = 120;
@@ -195,7 +196,8 @@ export function buildScoreboard(orders: ScoreOrder[], now: number, timezone: str
   const fastToday = acceptTimes.filter((s) => s <= FAST_ACCEPT_SECONDS).length;
   const today = {
     orders: todays.length,
-    sales: Math.round(todays.reduce((sum, o) => sum + (o.customer_total ?? 0), 0) * 100) / 100,
+    // RS2: the restaurant's own sales (items less discounts), the same figure as the Sales tab.
+    sales: todays.reduce((sum, o) => sum + (restaurantSaleCents(o) ?? 0), 0) / 100,
     accepted: acceptTimes.length,
     typicalAcceptSeconds: median(acceptTimes),
     fastestAcceptSeconds: acceptTimes.length ? Math.min(...acceptTimes) : null,

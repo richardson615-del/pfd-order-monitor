@@ -13,7 +13,7 @@ const PARTNER_ORDERS_LIMIT = 200;
 
 /** What the PFD Partner app's Orders tab shows, with the ready-timer fields (055). */
 const ORDER_COLUMNS =
-  "id, order_number, ticket_no, order_type, source, customer_name, customer_total, items, notes, due_time, status, received_at, accepted_at, ready_minutes, ready_by, ready_at, completed_at, cancelled_at";
+  "id, order_number, ticket_no, order_type, source, customer_name, customer_total, items_total, discount, items, notes, due_time, status, received_at, accepted_at, ready_minutes, ready_by, ready_at, completed_at, cancelled_at";
 
 /**
  * GET /api/dashboard/orders (PA3, 2026-10-27)

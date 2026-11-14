@@ -1,5 +1,6 @@
 import { Order } from "@/lib/types";
 import { cateringText } from "@/lib/catering-text";
+import { centsLabel, restaurantSaleCents } from "@/lib/sales";
 
 /**
  * The order itself: what was ordered, what it costs, what the customer
@@ -21,14 +22,13 @@ export default function TicketBody({ order }: { order: Order }) {
   const items = order.items ?? [];
   const paymentType = cateringText(order.source, order.payment_type);
   const notes = cateringText(order.source, order.notes);
+  // RS2: the restaurant's side of the order only. Tax, fees and the tip are not its money; the payment line
+  // below still says whether to collect cash.
   const money_rows: [string, string | null][] = [
     ["Items", money(order.items_total)],
-    ["Tax", money(order.tax)],
-    ["Service fee", money(order.service_fee)],
-    ["Delivery fee", money(order.delivery_fee)],
-    ["Tip", money(order.tip)],
-    ["Discount", order.discount != null ? `−${money(order.discount)}` : null],
+    ["Discount", order.discount ? `−${money(Math.abs(order.discount))}` : null],
   ];
+  const sale = restaurantSaleCents(order);
 
   return (
     <div className="tk">
@@ -61,8 +61,8 @@ export default function TicketBody({ order }: { order: Order }) {
             </div>
           ))}
         <div className="tk-row tk-total">
-          <span>Total</span>
-          <span className="num">{money(order.customer_total) ?? "—"}</span>
+          <span>Your sale</span>
+          <span className="num">{sale === null ? "—" : centsLabel(sale)}</span>
         </div>
         {paymentType && <div className="tk-pay">{paymentType}</div>}
       </div>

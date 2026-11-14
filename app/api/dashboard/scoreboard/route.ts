@@ -36,7 +36,7 @@ export async function GET() {
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
       .from("orders")
-      .select("received_at, accepted_at, status, source, customer_total")
+      .select("received_at, accepted_at, status, source, customer_total, items_total, discount")
       .eq("restaurant_id", restaurantId)
       .gte("received_at", scoreboardWindowStart(now))
       .order("received_at", { ascending: false })

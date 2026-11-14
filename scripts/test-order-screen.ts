@@ -68,9 +68,14 @@ test("the order screen renders the normalised row", () => {
   // amber, the note where it cannot be skimmed past. Same row, same facts.
   assert.match(viewer, /<TicketBody order=\{order\}/);
   const body = src("components/TicketBody.tsx");
-  for (const f of ["items", "items_total", "tax", "tip", "customer_total", "notes", "customer_phone", "customer_address"]) {
+  for (const f of ["items", "items_total", "discount", "notes", "customer_phone", "customer_address"]) {
     assert.match(body, new RegExp(`order\\.${f}`), `the screen must show ${f}`);
   }
+  // RS2 (Matt 2026-11-14): the restaurant sees its own sale, not the customer's tax, fees, tip or total.
+  for (const f of ["tax", "tip", "service_fee", "delivery_fee", "customer_total"]) {
+    assert.doesNotMatch(body, new RegExp(`order\\.${f}\\b`), `the screen must not show ${f}`);
+  }
+  assert.match(body, /restaurantSaleCents\(order\)/);
   assert.match(body, /it\.modifiers/, "the modifier is the thing that gets missed");
 });
 

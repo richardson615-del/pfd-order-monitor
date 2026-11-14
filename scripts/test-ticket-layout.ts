@@ -83,15 +83,31 @@ const depot: any = { ...base, items: [
   { name: "Twin Pork Chops", price: "$29.00", modifiers: ["Sweet Potato Fries"] },
 ] };
 
-test("TK2: in large print a choice stays on one line, and its price sits at the right edge of that line", () => {
+test("TK3: in large print a choice is the item's size; a price shares its line only when it fits, else sits right-aligned under it with no dash", () => {
   const lines = buildTicket(depot, 48, {}, { scale: "large" });
-  const t = lines.map((l) => l.text);
-  assert.ok(t.some((x) => /^\s+- Loaded Garlic Mashed Potatoes$/.test(x)), "the side is one line, not two");
-  const broc = lines.find((l) => /Steamed Broccoli/.test(l.text))!;
-  assert.match(broc.text, /^\s+- Steamed Broccoli\s+\+\$4\.00$/);
-  assert.equal(broc.text.length, 48);
-  assert.equal(broc.size, "double-h", "tall, not wide: 48 columns to work with");
-  assert.ok(!t.some((x) => /^\s*(>>|-)?\s*\+\$4\.00$/.test(x)), "a price never prints on a line of its own");
+  const side = lines.find((l) => /- Loaded Garlic/.test(l.text))!;
+  assert.equal(side.size, "double", "sides and add-ons print as large as the item (Matt 2026-11-14)");
+  assert.ok(side.text.length <= 24);
+  const oz = lines.find((l) => /- 6 Oz/.test(l.text))!;
+  assert.match(oz.text, /^\s+- 6 Oz\s+\+\$19\.00$/);
+  assert.equal(oz.text.length, 24);
+  const broc = lines.findIndex((l) => /- Steamed Broccoli$/.test(l.text));
+  assert.ok(broc > 0, "too long to share the line");
+  assert.match(lines[broc + 1].text, /^\s+\+\$4\.00$/);
+  assert.ok(!/-\s/.test(lines[broc + 1].text), "the price line carries no dash");
+  for (const l of lines) if (!l.qr && l.size === "double") assert.ok(l.text.length <= 24, `overflow at double width: ${l.text}`);
+});
+
+test("TK3: in large print the fine print is tall, and stays at the base size in normal print", () => {
+  const big = buildTicket({ ...depot, items_total: 83, tax: 8 }, 48, {}, { scale: "large" });
+  for (const re of [/^ORDER #/, /^615-555-0100$/, /QTY\s+ITEM/, /^Subtotal/, /^Tax/, /MAKE 2 - EACH WITH:/, /NOTE FOR THIS ITEM:/]) {
+    const l = big.find((x) => re.test(x.text));
+    assert.ok(l, `missing ${re}`);
+    assert.equal(l!.size, "double-h", `${re} should print tall`);
+  }
+  const normal = buildTicket({ ...depot, items_total: 83 }, 48);
+  assert.equal(normal.find((x) => /^Subtotal/.test(x.text))!.size, undefined);
+  assert.equal(normal.find((x) => /- Loaded Garlic Mashed Potatoes$/.test(x.text))!.size, undefined);
 });
 
 test("TK2: a wrapped choice continues without a dash, so it cannot read as two choices", () => {
@@ -106,7 +122,7 @@ test("TK2: the customer's note on an item is set apart from the choices, once", 
   const lines = buildTicket(depot, 48, {}, { scale: "large" }).map((l) => l.text);
   const head = lines.findIndex((x) => /NOTE FOR THIS ITEM:/.test(x));
   assert.ok(head > 0);
-  assert.match(lines[head + 1], /No tortillas strips on salad/);
+  assert.match(lines[head + 1], /No tortillas/);
   assert.equal(lines.filter((x) => /No tortillas/.test(x)).length, 1, "not also printed as a choice");
   assert.deepEqual(splitItemNote({ modifiers: ["Ranch", "extra crispy"] }), { mods: ["Ranch", "extra crispy"], note: null }, "an order stored before TK2 prints as before");
 });

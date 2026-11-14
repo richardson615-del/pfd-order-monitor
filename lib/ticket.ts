@@ -172,6 +172,9 @@ export function buildTicket(
   const rule = "-".repeat(cols);
   const heavy = "=".repeat(cols);
   const dotted = ". ".repeat(Math.floor(cols / 2)).trimEnd();
+  // TK3 (Matt 2026-11-14: "the smallest font areas need to be increased some"): in large print nothing a person
+  // reads stays at the printer's base size. The fine print prints tall (same columns, so the layout is unchanged).
+  const fine: Partial<TicketLine> = large ? { size: "double-h" } : {};
   const lines: TicketLine[] = [];
 
   // --- Headline: where the food goes, and when -----------------------------
@@ -207,7 +210,7 @@ export function buildTicket(
   }
   lines.push(L(heavy));
 
-  lines.push(L(order.ticket_restaurant_name || "PFD ORDER", { align: "center" }));
+  lines.push(L(order.ticket_restaurant_name || "PFD ORDER", { align: "center", ...fine }));
   lines.push(L(rule));
 
   const recv = localTime(order.received_at);
@@ -218,14 +221,14 @@ export function buildTicket(
   // which on a narrow ticket pushed this line past the paper edge - the order
   // number survived and the time ran off. Split instead.
   if (placed && orderLabel.length + placed.length + 1 > cols) {
-    lines.push(L(orderLabel));
+    lines.push(L(orderLabel, fine));
     // At 24 columns (large emailed tickets) "placed Thu, Sep 3, 5:40 PM" is itself too wide.
-    for (const l of wrap(placed, cols)) lines.push(L(l));
+    for (const l of wrap(placed, cols)) lines.push(L(l, fine));
   } else {
-    lines.push(L(pad(orderLabel, placed, cols)));
+    lines.push(L(pad(orderLabel, placed, cols), fine));
   }
   // 059: the source's own number, small, for looking the order up in Zuppler or the CRM.
-  if (sourceRef) lines.push(L(`Ref ${sourceRef}`));
+  if (sourceRef) lines.push(L(`Ref ${sourceRef}`, fine));
   lines.push(L(rule));
 
   // --- Who it is for -------------------------------------------------------
@@ -234,7 +237,7 @@ export function buildTicket(
       ? { bold: true, size: "double" }
       : { bold: true }));
   }
-  if (order.customer_phone) lines.push(L(order.customer_phone));
+  if (order.customer_phone) lines.push(L(order.customer_phone, fine));
   if (order.customer_address) {
     // The address gets its own block. A driver reads this under time
     // pressure, often in the dark, and it must not run into the phone number.
@@ -244,9 +247,9 @@ export function buildTicket(
     // the middle of a street address is noise a driver has to parse past.
     // The street is the address; anything after it is an instruction.
     const [street, ...instructions] = String(order.customer_address).split(" | ");
-    for (const l of wrap(street, cols)) lines.push(L(l, { bold: true }));
+    for (const l of wrap(street, cols)) lines.push(L(l, { bold: true, ...fine }));
     for (const ins of instructions) {
-      for (const l of wrap(ins, cols - 3)) lines.push(L(`>> ${l}`, { bold: true }));
+      for (const l of wrap(ins, cols - 3)) lines.push(L(`>> ${l}`, { bold: true, ...fine }));
     }
   }
   if (order.customer_name || order.customer_phone || order.customer_address) {
@@ -257,7 +260,7 @@ export function buildTicket(
   // Quantity gets its own left column. Folded into the name as "2x Burger" it
   // is the easiest thing on the ticket to miss when scanning during a rush,
   // and a missed count is a remake.
-  lines.push(L(pad(" QTY  ITEM", "AMOUNT", cols)));
+  lines.push(L(pad(" QTY  ITEM", "AMOUNT", cols), fine));
   lines.push(L(rule));
 
   const items = Array.isArray(order.items) ? order.items : [];
@@ -310,30 +313,34 @@ export function buildTicket(
 
     // --- What goes on the plate (TK2, Matt 2026-11-14: "too cluttered now and confusing") -------------------
     // One choice per line, each starting with a dash. A choice that wraps continues indented with NO dash, so
-    // "Loaded Garlic / Mashed Potatoes" can no longer be read as two sides. An add-on's price sits at the right
-    // edge of its own line instead of wrapping onto a line of its own. In large mode the choices print tall but
-    // not wide (48 columns), so nearly every one fits on a single line and the item name stays the biggest thing.
+    // "Loaded Garlic / Mashed Potatoes" can no longer be read as two sides.
+    // TK3 (Matt, same day: "the sides and add on needs to go up 1 or 2 sizes"): in large print a choice is the
+    // SAME size as the item it belongs to (double width and height, 24 columns). The item stays apart by being
+    // upper case with its quantity; the choices are lower case behind a dash.
     const { mods, note } = splitItemNote(it);
-    const modAttrs: Partial<TicketLine> = large ? { bold: true, size: "double-h" } : { bold: true };
-    // Large item names are double width, so their indent is twice as many printed columns.
-    const modIndent = large ? NAME_INDENT * 2 : NAME_INDENT;
-    if (qty > 1 && (mods.length > 0 || note)) {
-      lines.push(L(" ".repeat(modIndent) + fit(`MAKE ${qty} - EACH WITH:`, "EACH WITH:", cols - modIndent), { bold: true }));
-    }
+    const modAttrs = itemAttrs;
+    const modIndent = NAME_INDENT;
+    const label = (long: string, short: string) =>
+      L(" ".repeat(large ? modIndent * 2 : modIndent) + fit(long, short, cols - (large ? modIndent * 2 : modIndent)), { bold: true, ...fine });
+    if (qty > 1 && (mods.length > 0 || note)) lines.push(label(`MAKE ${qty} - EACH WITH:`, "EACH WITH:"));
     for (const mod of mods) {
-      const { label, price: modPrice } = splitModifierPrice(mod);
-      const room = cols - modIndent - 2 - (modPrice ? modPrice.length + 1 : 0);
-      const parts = wrap(label, Math.max(8, room));
+      const { label: text, price: modPrice } = splitModifierPrice(mod);
+      const room = Math.max(8, W - modIndent - 2);
+      // The add-on's price shares the line when the whole thing fits; otherwise the choice wraps on its own and
+      // the price goes at the right edge under it, tall but not wide, with no dash - never mistaken for a side.
+      const oneLine = modPrice && text.length + 1 + modPrice.length <= room;
+      const parts = wrap(text, room);
       parts.forEach((part, i) => {
         const left = `${" ".repeat(modIndent)}${i === 0 ? "- " : "  "}${part}`;
-        lines.push(L(i === 0 && modPrice ? pad(left, modPrice, cols) : left, modAttrs));
+        lines.push(L(oneLine ? pad(left, modPrice!, W) : left, modAttrs));
       });
+      if (modPrice && !oneLine) lines.push(L(pad("", modPrice, cols), { bold: true, ...fine }));
     }
     // The customer's own words about this item. They used to print as one more ">>" line, wrapped into four,
     // indistinguishable from the sides above them.
     if (note) {
-      lines.push(L(" ".repeat(modIndent) + fit("NOTE FOR THIS ITEM:", "NOTE:", cols - modIndent), { bold: true }));
-      for (const l of wrap(note, Math.max(8, cols - modIndent - 2))) {
+      lines.push(label("NOTE FOR THIS ITEM:", "NOTE:"));
+      for (const l of wrap(note, Math.max(8, W - modIndent - 2))) {
         lines.push(L(`${" ".repeat(modIndent)}  ${l}`, modAttrs));
       }
     }
@@ -359,12 +366,12 @@ export function buildTicket(
     ["Delivery", order.delivery_fee],
   ] as const) {
     const f = fmt(v);
-    if (f !== null) lines.push(L(pad(label, f, cols)));
+    if (f !== null) lines.push(L(pad(label, f, cols), fine));
   }
-  if (discount) lines.push(L(pad("Discount", discount, cols)));
+  if (discount) lines.push(L(pad("Discount", discount, cols), fine));
   // The tip is the DRIVER's money - it prints on its own line, never buried.
   const tip = fmt(order.tip);
-  if (tip !== null) lines.push(L(pad("TIP (driver)", tip, cols), { bold: true }));
+  if (tip !== null) lines.push(L(pad("TIP (driver)", tip, cols), { bold: true, ...fine }));
 
   const total = fmt(order.customer_total);
   if (total !== null) {
@@ -381,8 +388,8 @@ export function buildTicket(
     // on the ticket that tells the counter whether to collect. It prints as
     // itself, bold. Every other source stores a tender NAME ("CREDIT"), which
     // keeps the "Paid" label it always had.
-    if (TENDER_LINE_RE.test(tender)) lines.push(L(tender, { bold: true }));
-    else lines.push(L(pad("Paid", tender, cols)));
+    if (TENDER_LINE_RE.test(tender)) lines.push(L(tender, { bold: true, ...fine }));
+    else lines.push(L(pad("Paid", tender, cols), fine));
   }
 
   // --- Footer --------------------------------------------------------------

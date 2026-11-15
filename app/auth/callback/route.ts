@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
+import { safeNext } from "@/lib/safe-next";
 
 /**
  * GET /auth/callback?code=...&next=/dashboard
@@ -29,7 +30,8 @@ function fail(req: NextRequest, reason: string) {
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const code = params.get("code");
-  const next = params.get("next") || "/dashboard";
+  // Z-07: only a path on this site; `new URL("https://evil", origin)` would leave it.
+  const next = safeNext(params.get("next"));
 
   // Supabase reports a refused link in the query string rather than by
   // failing the request. An expired or already-used link arrives here.

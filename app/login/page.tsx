@@ -6,6 +6,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 import { usernameToEmail } from "@/lib/usernames";
 import { rememberShellVersion, useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 import { Brand } from "@/components/Brand";
+import { safeNext } from "@/lib/safe-next";
 
 /**
  * Username and password.
@@ -51,7 +52,8 @@ function LoginForm() {
   );
   useFreshBuildOnReturn(untouched);
 
-  const next = params.get("next") || "/dashboard";
+  // Z-07: assign("javascript:...") would run script here; only a path on this site.
+  const next = safeNext(params.get("next"));
 
   async function signIn(e: React.FormEvent) {
     e.preventDefault();

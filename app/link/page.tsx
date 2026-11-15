@@ -9,6 +9,7 @@ import { LINK_STATUS_POLL_MS } from "@/lib/link-code";
 import { BOOTSTRAP_POLL_MS } from "@/lib/device-binding";
 import { KIOSK_WIFI_HINT } from "@/lib/first-run";
 import { rememberShellVersion, useFreshBuildOnReturn } from "@/lib/use-fresh-build";
+import { safeNext } from "@/lib/safe-next";
 
 const SUPPORT_PHONE = "(615) 619-5081";
 
@@ -41,7 +42,8 @@ type Phase =
 
 function LinkScreen() {
   const params = useSearchParams();
-  const next = params.get("next") || "/dashboard";
+  // Z-07: assign("javascript:...") would run script here; only a path on this site.
+  const next = safeNext(params.get("next"));
 
   const [phase, setPhase] = useState<Phase>("requesting");
   const [code, setCode] = useState<string | null>(null);

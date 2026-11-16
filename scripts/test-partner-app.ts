@@ -13,6 +13,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   LOGIN_CODE_MAX_ATTEMPTS,
+  LOGIN_CODE_RATE_MAX,
+  LOGIN_FAIL_WINDOW_MS,
+  LOGIN_FAILS_PER_IP,
+  LOGIN_FAILS_PER_USER,
+  clientIpFrom,
+  overLimit,
+  phoneKey,
   bearerToken,
   codeRowState,
   codesMatch,
@@ -107,6 +114,48 @@ test("a code request says the same thing whether or not the phone is on file", (
   // The code is never logged or returned; only the last four digits of a phone are logged.
   assert.doesNotMatch(lib, /console\.[a-z]+\([^)]*[,(]\s*code\s*[,)]/);
   assert.doesNotMatch(src("app/api/app/code/route.ts"), /code:/);
+});
+
+test("SH3a (Z-37): a phone is counted as an HMAC, per address too, BEFORE the owner lookup", () => {
+  const k = phoneKey("+16155550100", "secret");
+  assert.equal(k, phoneKey("+16155550100", "secret"));
+  assert.notEqual(k, phoneKey("+16155550101", "secret"));
+  assert.notEqual(k, phoneKey("+16155550100", "other"));
+  assert.ok(!k.includes("6155550100"));
+  const h = (m: Record<string, string>) => ({ get: (n: string) => m[n] ?? null });
+  assert.equal(clientIpFrom(h({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" })), "203.0.113.9");
+  assert.equal(clientIpFrom(h({ "x-real-ip": "198.51.100.2" })), "198.51.100.2");
+  assert.equal(clientIpFrom(h({})), "unknown");
+  assert.ok(!overLimit(LOGIN_CODE_RATE_MAX - 1, LOGIN_CODE_RATE_MAX) && overLimit(LOGIN_CODE_RATE_MAX, LOGIN_CODE_RATE_MAX));
+  const lib = src("lib/partner-app-server.ts");
+  const req = lib.slice(lib.indexOf("export async function requestLoginCode"), lib.indexOf("async function sessionForRestaurant"));
+  assert.ok(req.indexOf('countAttempts("code_phone"') > 0 && req.indexOf('countAttempts("code_phone"') < req.indexOf("ownerRows(phone)"), "limits are counted before the owner lookup");
+  assert.ok(req.indexOf("logAttempts(") < req.indexOf("ownerRows(phone)"), "every request is logged, on file or not");
+  assert.match(src("app/api/app/code/route.ts"), /requestLoginCode\(phone, clientIpFrom\(req\.headers\)\)/);
+});
+
+test("SH3a (Z-08): a try is claimed atomically before the code is compared; used_at flips once", () => {
+  const lib = src("lib/partner-app-server.ts");
+  const ver = lib.slice(lib.indexOf("export async function verifyLoginCode"), lib.indexOf("export async function passwordLogin"));
+  assert.ok(ver.indexOf('rpc("claim_login_code_try"') > 0 && ver.indexOf('rpc("claim_login_code_try"') < ver.indexOf("codesMatch("), "claim before compare");
+  assert.doesNotMatch(ver, /attempts: row\.attempts \+ 1/, "no read-then-write of attempts");
+  assert.match(ver, /\.update\(\{ used_at: [^}]+\}\)\.eq\("id", row\.id\)\.is\("used_at", null\)\.select\("id"\)/);
+  const sql = src("db/migrations/062_signin_limits.sql");
+  assert.match(sql, /attempts < max_tries\s+and used_at is null\s+and expires_at > now\(\)/);
+  assert.match(sql, /revoke all on function claim_login_code_try\(uuid, integer\) from public, anon, authenticated/);
+  assert.match(sql, /alter table app_signin_attempts enable row level security/);
+});
+
+test("SH3a (Z-10): password sign-in pauses after repeated failures, per username and per address", () => {
+  assert.equal(LOGIN_FAILS_PER_USER, 5);
+  assert.equal(LOGIN_FAIL_WINDOW_MS, 15 * 60_000);
+  assert.ok(LOGIN_FAILS_PER_IP > LOGIN_FAILS_PER_USER);
+  const lib = src("lib/partner-app-server.ts");
+  const pw = lib.slice(lib.indexOf("export async function passwordLogin"), lib.indexOf("export async function refreshAppSession"));
+  assert.ok(pw.indexOf("overLimit(") < pw.indexOf("signInWithPassword"), "the limit is checked before Supabase is asked");
+  assert.equal((pw.match(/return failed\(\)/g) ?? []).length, 2, "both wrong-password paths log a failure");
+  assert.match(pw, /status: 429/);
+  assert.match(src("app/api/app/login/route.ts"), /passwordLogin\(username, password, clientIpFrom\(req\.headers\)\)/);
 });
 
 test("the server client honours a Bearer token and the push never fails a reply", () => {

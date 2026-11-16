@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { normalizePhone } from "@/lib/partner-app";
+import { clientIpFrom, normalizePhone } from "@/lib/partner-app";
 import { requestLoginCode } from "@/lib/partner-app-server";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) ?? {};
   const phone = normalizePhone(body.phone);
   if (!phone) return NextResponse.json({ error: "Enter a 10-digit US cell number." }, { status: 400 });
-  const r = await requestLoginCode(phone);
+  const r = await requestLoginCode(phone, clientIpFrom(req.headers));
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
   return NextResponse.json({ ok: true });
 }

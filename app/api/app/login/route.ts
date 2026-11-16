@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clientIpFrom } from "@/lib/partner-app";
 import { passwordLogin } from "@/lib/partner-app-server";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) ?? {};
   const username = typeof body.username === "string" ? body.username : "";
   const password = typeof body.password === "string" ? body.password : "";
-  const r = await passwordLogin(username, password);
+  const r = await passwordLogin(username, password, clientIpFrom(req.headers));
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
   return NextResponse.json(r, { headers: { "Cache-Control": "no-store" } });
 }

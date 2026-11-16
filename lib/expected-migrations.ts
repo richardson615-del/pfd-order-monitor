@@ -62,4 +62,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "059_ticket_numbers.sql",
   "060_health_load.sql",
   "061_kitchen_hold.sql",
+  "062_signin_limits.sql",
 ];

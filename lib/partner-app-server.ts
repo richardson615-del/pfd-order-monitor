@@ -16,15 +16,25 @@ import { tokenHashFrom } from "./link-code";
 import { normaliseUsername, usernameToEmail, isValidUsername } from "./usernames";
 import {
   CODE_FAILURE_WORDS,
+  CODE_REQUESTS_PER_IP,
+  LOGIN_CODE_MAX_ATTEMPTS,
   LOGIN_CODE_RATE_MAX,
   LOGIN_CODE_RATE_WINDOW_MS,
   LOGIN_CODE_TTL_MS,
+  LOGIN_FAIL_WINDOW_MS,
+  LOGIN_FAILS_PER_IP,
+  LOGIN_FAILS_PER_USER,
+  TOO_MANY_CODE_REQUESTS,
+  TOO_MANY_LOGIN_FAILS,
   codeRowState,
   codesMatch,
   hashLoginCode,
   loginCodeText,
   newLoginCode,
+  overLimit,
+  phoneKey,
   phoneTail,
+  type SigninKind,
 } from "./partner-app";
 
 export interface AppSession {
@@ -87,18 +97,39 @@ async function ownerRows(phone: string) {
 }
 
 /**
+ * SH3a: how many attempts of one kind one key made since `sinceIso` (app_signin_attempts, migration 062).
+ * A read error counts as 0 and is logged: a broken counter must not lock every owner out.
+ */
+async function countAttempts(kind: SigninKind, key: string, sinceIso: string): Promise<number> {
+  const { count, error } = await supabaseAdmin()
+    .from("app_signin_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("kind", kind)
+    .eq("key", key)
+    .gte("at", sinceIso);
+  if (error) console.error("partner app: sign-in attempts unreadable", kind, error.message);
+  return count ?? 0;
+}
+
+async function logAttempts(rows: Array<{ kind: SigninKind; key: string }>): Promise<void> {
+  const { error } = await supabaseAdmin().from("app_signin_attempts").insert(rows);
+  if (error) console.error("partner app: sign-in attempt not logged", error.message);
+}
+
+/**
  * Text a code to a phone on file. The answer is the same whether or not the
  * phone is on file, so the endpoint can't be used to find owners' numbers.
+ * SH3a (Z-37): the limits are counted per phone (as an HMAC) and per address
+ * BEFORE the owner lookup, so a number not on file is limited the same way.
  */
-export async function requestLoginCode(phone: string): Promise<{ ok: true } | Fail> {
+export async function requestLoginCode(phone: string, ip: string): Promise<{ ok: true } | Fail> {
   const admin = supabaseAdmin();
   const now = Date.now();
-  const { data: recent } = await admin
-    .from("app_login_codes")
-    .select("id")
-    .eq("phone", phone)
-    .gte("created_at", new Date(now - LOGIN_CODE_RATE_WINDOW_MS).toISOString());
-  if ((recent ?? []).length >= LOGIN_CODE_RATE_MAX) return { error: "Too many codes for this number. Wait a few minutes and try again.", status: 429 };
+  const since = new Date(now - LOGIN_CODE_RATE_WINDOW_MS).toISOString();
+  const pk = phoneKey(phone, codeSecret());
+  const [byPhone, byIp] = await Promise.all([countAttempts("code_phone", pk, since), countAttempts("code_ip", ip, since)]);
+  if (overLimit(byPhone, LOGIN_CODE_RATE_MAX) || overLimit(byIp, CODE_REQUESTS_PER_IP)) return { error: TOO_MANY_CODE_REQUESTS, status: 429 };
+  await logAttempts([{ kind: "code_phone", key: pk }, { kind: "code_ip", key: ip }]);
 
   const owners = await ownerRows(phone);
   if (!owners.length) return { ok: true };
@@ -141,10 +172,17 @@ export async function verifyLoginCode(phone: string, code: string, restaurantId:
   if (!row) return { error: CODE_FAILURE_WORDS.wrong, status: 401 };
   const state = codeRowState(row, now);
   if (state) return { error: CODE_FAILURE_WORDS[state], status: 401 };
-  if (!codesMatch(row.code_hash, phone, code, codeSecret())) {
-    await admin.from("app_login_codes").update({ attempts: row.attempts + 1 }).eq("id", row.id);
-    return { error: CODE_FAILURE_WORDS.wrong, status: 401 };
+  // SH3a (Z-08): every try is counted in one statement BEFORE the code is compared, and only while the
+  // code is unused, unexpired and under its tries - parallel guesses can't all see the same count.
+  const { data: claimed, error: claimErr } = await admin.rpc("claim_login_code_try", { code_id: row.id, max_tries: LOGIN_CODE_MAX_ATTEMPTS });
+  if (claimErr) return { error: "Couldn't check the code right now. Try again.", status: 500 };
+  if (!Array.isArray(claimed) || !claimed.length) {
+    // Spent meanwhile: say which, from the row as it is now.
+    const { data: fresh } = await admin.from("app_login_codes").select("expires_at, attempts, used_at").eq("id", row.id).maybeSingle();
+    const why = fresh ? codeRowState(fresh, Date.now()) : null;
+    return { error: CODE_FAILURE_WORDS[why ?? "too_many_tries"], status: 401 };
   }
+  if (!codesMatch(row.code_hash, phone, code, codeSecret())) return { error: CODE_FAILURE_WORDS.wrong, status: 401 };
 
   const owners = await ownerRows(phone);
   if (!owners.length) return { error: CODE_FAILURE_WORDS.wrong, status: 401 };
@@ -153,17 +191,31 @@ export async function verifyLoginCode(phone: string, code: string, restaurantId:
     // The code stays good so the owner can choose without a second text.
     return { error: "Pick the restaurant to sign in to.", status: 409, choose: owners.map((o) => ({ id: o.restaurantId, name: o.restaurantName })) };
   }
-  await admin.from("app_login_codes").update({ used_at: new Date(now).toISOString() }).eq("id", row.id);
+  // SH3a (Z-08): single use - only the request that flips used_at from null mints a session.
+  const { data: spent } = await admin.from("app_login_codes").update({ used_at: new Date(now).toISOString() }).eq("id", row.id).is("used_at", null).select("id");
+  if (!spent?.length) return { error: CODE_FAILURE_WORDS.used, status: 401 };
   return sessionForRestaurant({ id: pick.restaurantId, name: pick.restaurantName }, pick.name);
 }
 
-/** The fallback: the restaurant's username and password (the same login as the tablet). */
-export async function passwordLogin(usernameRaw: string, password: string): Promise<AppSession | Fail> {
+/**
+ * The fallback: the restaurant's username and password (the same login as the tablet).
+ * SH3a (Z-10): failures are counted per username and per address; at the limit the next try is refused
+ * for LOGIN_FAIL_WINDOW_MS without asking Supabase.
+ */
+export async function passwordLogin(usernameRaw: string, password: string, ip: string): Promise<AppSession | Fail> {
   const username = normaliseUsername(usernameRaw);
-  if (!isValidUsername(username) || !password) return { error: "Wrong username or password.", status: 401 };
+  const userKey = (username || "(blank)").slice(0, 128);
+  const since = new Date(Date.now() - LOGIN_FAIL_WINDOW_MS).toISOString();
+  const [byUser, byIp] = await Promise.all([countAttempts("login_user", userKey, since), countAttempts("login_ip", ip, since)]);
+  if (overLimit(byUser, LOGIN_FAILS_PER_USER) || overLimit(byIp, LOGIN_FAILS_PER_IP)) return { error: TOO_MANY_LOGIN_FAILS, status: 429 };
+  const failed = async (): Promise<Fail> => {
+    await logAttempts([{ kind: "login_user", key: userKey }, { kind: "login_ip", key: ip }]);
+    return { error: "Wrong username or password.", status: 401 };
+  };
+  if (!isValidUsername(username) || !password) return failed();
   const { data, error } = await anonClient().auth.signInWithPassword({ email: usernameToEmail(username), password });
   const s = data?.session;
-  if (error || !s) return { error: "Wrong username or password.", status: 401 };
+  if (error || !s) return failed();
   const { data: links } = await supabaseAdmin()
     .from("restaurant_users")
     .select("restaurant_id, restaurants!inner(id, name)")

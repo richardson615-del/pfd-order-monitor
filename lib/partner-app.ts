@@ -87,6 +87,38 @@ export const CODE_FAILURE_WORDS: Record<Exclude<CodeCheck, "ok">, string> = {
   wrong: "That code isn't right. Check the text and try again.",
 };
 
+// --- SH3a (Z-10, Z-37): sign-in limits, counted in app_signin_attempts (migration 062) ---
+
+/** Code requests one address may make in LOGIN_CODE_RATE_WINDOW_MS, whatever the phones (a shared restaurant Wi-Fi asks a few). */
+export const CODE_REQUESTS_PER_IP = 10;
+/** Failed password sign-ins before a pause, and the pause. */
+export const LOGIN_FAILS_PER_USER = 5;
+/** Per address: higher than per user, so one restaurant's Wi-Fi isn't locked out by one person's typos. */
+export const LOGIN_FAILS_PER_IP = 20;
+export const LOGIN_FAIL_WINDOW_MS = 15 * 60_000;
+
+export type SigninKind = "code_phone" | "code_ip" | "login_user" | "login_ip";
+
+/**
+ * A phone as it is counted: an HMAC with the server secret, so the attempts table never holds a number
+ * and a stranger reading it can't test a guess. Same phone, same key.
+ */
+export function phoneKey(phone: string, secret: string): string {
+  return createHash("sha256").update(`signin|${secret}|${phone}`).digest("hex");
+}
+
+/** The caller's address from the proxy headers, capped; "unknown" when there is none (all such callers share one count). */
+export function clientIpFrom(headers: { get(name: string): string | null }): string {
+  const first = (headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim();
+  return (first || headers.get("x-real-ip") || "unknown").slice(0, 64);
+}
+
+/** Whether a count already at or over its limit refuses the next try. */
+export const overLimit = (count: number, max: number): boolean => count >= max;
+
+export const TOO_MANY_CODE_REQUESTS = "Too many codes asked for. Wait a few minutes and try again.";
+export const TOO_MANY_LOGIN_FAILS = "Too many wrong tries. Wait 15 minutes, or sign in with a texted code.";
+
 /** The SMS. Short, plain, and it says what it is for. */
 export const loginCodeText = (code: string): string => `${code} is your PFD Partner sign-in code. It expires in 10 minutes.`;
 

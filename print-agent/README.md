@@ -121,6 +121,14 @@ sudo systemctl enable --now pfd-print-agent
 journalctl -u pfd-print-agent -f
 ```
 
+### Run it as a LaunchAgent (macOS)
+
+`com.pfd.printagent.plist` is a template: its `PFD_DEVICE_KEY` is the
+placeholder `PFD-XXXX-XXXX-XXXX`. Copy it to `com.pfd.printagent.local.plist`
+(gitignored), put the device's real key there, and install that copy (the
+steps are in the plist's header). Never commit a real key:
+`scripts/test-no-device-keys.ts` fails the build if one is in a tracked file.
+
 ---
 
 ## Behaviour worth knowing

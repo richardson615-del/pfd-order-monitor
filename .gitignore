@@ -10,3 +10,5 @@ node_modules
 send-test-email.sh
 # Local ticket renders from scripts/preview-ticket.ts - regenerate, never commit
 preview-out
+# SC1 (Z-04): the print agent's plist with the machine's real device key - never commit
+print-agent/*.local.plist

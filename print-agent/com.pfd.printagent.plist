@@ -2,8 +2,10 @@
 <!--
   macOS LaunchAgent for the PFD print agent (USB printer attached to this Mac).
 
-  Install:
-    cp com.pfd.printagent.plist ~/Library/LaunchAgents/
+  Install (this file is a template - its PFD_DEVICE_KEY is a placeholder):
+    cp com.pfd.printagent.plist com.pfd.printagent.local.plist
+    # put the device's real key into com.pfd.printagent.local.plist (gitignored), never into this file
+    cp com.pfd.printagent.local.plist ~/Library/LaunchAgents/com.pfd.printagent.plist
     launchctl load -w ~/Library/LaunchAgents/com.pfd.printagent.plist
 
   Status / logs:
@@ -32,8 +34,9 @@
 
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- set on the machine; never commit a real key (copy this file to com.pfd.printagent.local.plist and put the key there) -->
         <key>PFD_DEVICE_KEY</key>
-        <string>PFD-4M88-E74H-GCBJ</string>
+        <string>PFD-XXXX-XXXX-XXXX</string>
         <key>PRINTER_TRANSPORT</key>
         <string>epos</string>
         <!-- Bonjour name, not an IP: survives DHCP reassignment. -->

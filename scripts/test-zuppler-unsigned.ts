@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { acceptUnsignedEnabled, isUuidShaped, zupplerWebhookDecision } from "@/lib/zuppler-webhook-auth";
+import { refusedToRecover, RECOVER_MAX_PER_RUN } from "@/lib/zuppler-recover";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -51,5 +52,27 @@ test("the route asks the decision, refuses on refuse, and marks unsigned receipt
   assert.match(route, /if \(decision === "refuse"\) \{/);
   assert.match(route, /unsigned: no token; order fetched from Zuppler's API/);
 });
+
+// Refused-order recovery (2026-11-18): which refused deliveries the monitor fetches.
+{
+  const now = Date.parse("2026-11-18T20:00:00Z");
+  const at = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+  const A = "3d13830c-1111-4222-8333-444455556666";
+  const B = "aaaaaaaa-1111-4222-8333-444455556666";
+  test("recovery: an old enough refusal not in the system is fetched, once", () => {
+    assert.deepEqual(refusedToRecover([{ order_uuid: A, received_at: at(10) }, { order_uuid: A, received_at: at(9) }], new Set(), now), [A]);
+  });
+  test("recovery: skips orders already in, too fresh, too old, or not uuid-shaped", () => {
+    assert.deepEqual(refusedToRecover([{ order_uuid: A, received_at: at(10) }], new Set([A]), now), []);
+    assert.deepEqual(refusedToRecover([{ order_uuid: A, received_at: at(1) }], new Set(), now), []);
+    assert.deepEqual(refusedToRecover([{ order_uuid: A, received_at: at(25 * 60) }], new Set(), now), []);
+    assert.deepEqual(refusedToRecover([{ order_uuid: "1 OR 1=1", received_at: at(10) }], new Set(), now), []);
+  });
+  test("recovery: reads the id from the stored body when order_uuid is empty, oldest first, capped", () => {
+    assert.deepEqual(refusedToRecover([{ raw_body: JSON.stringify({ order_uuid: B }), received_at: at(5) }, { order_uuid: A, received_at: at(30) }], new Set(), now), [A, B]);
+    const many = Array.from({ length: 9 }, (_, i) => ({ order_uuid: `aaaaaaa${i}-1111-4222-8333-444455556666`, received_at: at(10 + i) }));
+    assert.equal(refusedToRecover(many, new Set(), now).length, RECOVER_MAX_PER_RUN);
+  });
+}
 
 console.log(`\n${passed} assertions passed.`);

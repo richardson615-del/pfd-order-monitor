@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { constantTimeEquals } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { recoverRefusedZupplerOrders, type RecoverResult } from "@/lib/zuppler-recover";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
 import { recordCronRun, MONITOR_JOB } from "@/lib/cron-liveness";
@@ -66,6 +67,16 @@ export async function GET(req: NextRequest) {
     advance = await releaseAdvanceOrders();
   } catch (err) {
     console.error("monitor: advance-order release sweep failed -", err instanceof Error ? err.message : err);
+  }
+
+  // Zuppler orders whose only delivery was refused (unsigned): fetched from
+  // Zuppler's API when ZUPPLER_ACCEPT_UNSIGNED is on. Before the health checks,
+  // so a recovered order no longer reads as lost. Its own try.
+  let recover: RecoverResult | null = null;
+  try {
+    recover = await recoverRefusedZupplerOrders();
+  } catch (err) {
+    console.error("monitor: refused-order recovery failed -", err instanceof Error ? err.message : err);
   }
 
   const issues = sortIssues(evaluateHealth(await collectSnapshot(), new Date()));
@@ -217,6 +228,7 @@ export async function GET(req: NextRequest) {
     open: issues.length,
     new: fresh.length,
     resolved: resolvedKeys.length,
+    recover,
     ezcater,
     advance,
     channels: {

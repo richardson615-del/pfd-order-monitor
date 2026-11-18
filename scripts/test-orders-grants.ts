@@ -62,7 +62,8 @@ assert.ok(page.has("opened_at") && page.has("status"), "order page writes opened
 for (const c of [...route, ...page]) assert.ok(granted.has(c), `user-scoped write to orders.${c} is granted in 063`);
 
 // The two files must still use the session client for these writes (RLS scopes the row).
-assert.match(src("app/api/orders/[id]/route.ts"), /const supabase = supabaseServer\(\)/);
-assert.match(src("app/order/[id]/page.tsx"), /const supabase = supabaseServer\(\)/);
+// (async since Next 15, Z-06)
+assert.match(src("app/api/orders/[id]/route.ts"), /const supabase = await supabaseServer\(\)/);
+assert.match(src("app/order/[id]/page.tsx"), /const supabase = await supabaseServer\(\)/);
 
 console.log(`orders grants ok: ${granted.size} client-writable columns, ${MONEY.length} money columns pinned out`);

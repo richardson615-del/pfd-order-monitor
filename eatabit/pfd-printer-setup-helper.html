@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PFD Printer setup helper</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:520px;margin:24px auto;padding:0 16px;color:#111}
+h1{font-size:22px}h2{font-size:17px;margin-top:28px}
+label{display:block;margin:12px 0 4px;font-weight:600}
+input{width:100%;padding:9px;font-size:16px;box-sizing:border-box}
+input[type=file]{padding:6px 0}
+button{padding:11px 16px;font-size:16px;margin-top:12px;border:0;border-radius:6px;background:#111;color:#fff}
+.muted{color:#666;font-size:14px}.box{background:#f4f4f4;padding:10px 12px;border-radius:6px;font-size:14px}
+</style></head><body>
+<h1>PFD Printer setup helper</h1>
+<div class="box">
+1. Join this computer to the printer's own WiFi (it is named <b>PFD-Printer-</b> and four letters or numbers).<br>
+2. Then use one of the forms below. Both talk straight to the printer at 192.168.4.1.
+</div>
+
+<h2>Set the store WiFi</h2>
+<p class="muted">Use this when the printer's page is stuck on "Looking for WiFi networks". Type the name exactly as it appears on the router, capitals included. 2.4 GHz networks only.</p>
+<form method="post" action="http://192.168.4.1/wifi">
+<label>WiFi name</label><input name="ssid_other" autocomplete="off" autocapitalize="none" required>
+<label>WiFi password</label><input name="pass" type="password" autocomplete="off">
+<button>Save to printer</button>
+</form>
+
+<h2>Install new firmware</h2>
+<p class="muted">Pick pfd-eatabit-2.8.4-update.bin. It takes about a minute, then the printer restarts by itself. Don't unplug it while it runs.</p>
+<form method="post" action="http://192.168.4.1/update" enctype="multipart/form-data">
+<input type="file" name="fw" accept=".bin" required>
+<button>Install on printer</button>
+</form>
+</body></html>

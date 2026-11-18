@@ -28,8 +28,9 @@ export const dynamic = "force-dynamic";
  * client queue the job — restaurant sessions cannot write print_jobs, and
  * they should not be able to.
  */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = supabaseServer();
+export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

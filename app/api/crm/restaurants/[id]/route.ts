@@ -24,7 +24,8 @@ export const dynamic = "force-dynamic";
  * about one account without pulling five hundred rows to find it.
  * 404 for an id the bridge has never heard of.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 
@@ -54,8 +55,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 

@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  * fees, tip and the total. Read through the session client, so RLS keeps
  * it to the restaurant's own orders; a test order is not shown.
  */
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const caller = await salesCaller();
   if ("error" in caller) return NextResponse.json({ error: caller.error }, { status: caller.status });
 

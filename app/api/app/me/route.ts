@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const {
     data: { user },
-  } = await supabaseServer().auth.getUser();
+  } = await (await supabaseServer()).auth.getUser();
   if (!user) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
   const [restaurantId] = await getCurrentUserRestaurantIds();
   if (!restaurantId) return NextResponse.json({ error: "That login isn't linked to a restaurant." }, { status: 403 });

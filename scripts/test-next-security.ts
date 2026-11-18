@@ -8,7 +8,8 @@
  *    removes the Image Optimization API RCE advisories that have no 14.x fix.
  *    Nothing in app/, components/ or lib/ imports next/image.
  *
- * The remaining advisories need Next 15.5.28+ (a major upgrade, own brief).
+ * Z-06 (2026-11-17): raised to next >= 15.5.28 + React 19, which fixes the
+ * Server Actions / RSC DoS and SSRF advisories that had no 14.x fix.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -27,13 +28,21 @@ const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(spec);
 check("next is pinned to an exact version", !!m, spec);
 if (m) {
   const [maj, min, patch] = m.slice(1).map(Number);
-  const ok = maj > 14 || (maj === 14 && (min > 2 || (min === 2 && patch >= 35)));
-  check("next >= 14.2.35 (middleware bypass fix)", ok, spec);
+  const ok = maj > 15 || (maj === 15 && (min > 5 || (min === 5 && patch >= 28)));
+  check("next >= 15.5.28 (Server Actions DoS, SSRF, image optimizer RCE fixes; Z-06)", ok, spec);
 }
+
+const reactSpec: string = pkg.dependencies.react;
+check("react is 19 (Next 15 App Router)", /^\^?19\./.test(reactSpec), reactSpec);
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const config = require(join(root, "next.config.js"));
 check("images.unoptimized is true (/_next/image returns 404)", config?.images?.unoptimized === true);
+// Next 15 names (Z-06): the old experimental keys are ignored with a warning,
+// which would silently drop the canvas externalisation and the ticket font.
+check("serverExternalPackages keeps @napi-rs/canvas", (config?.serverExternalPackages ?? []).includes("@napi-rs/canvas"));
+check("outputFileTracingIncludes traces the ticket font", !!config?.outputFileTracingIncludes?.["/api/print/epson"]);
+check("no Next 14 experimental keys left", !config?.experimental?.serverComponentsExternalPackages && !config?.experimental?.outputFileTracingIncludes);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

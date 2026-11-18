@@ -10,7 +10,7 @@ import { isCurrentUserAdmin } from "@/lib/authz";
  * restaurant's Gmail address) so PFD gets a refresh token for that mailbox.
  */
 export async function GET(req: NextRequest) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

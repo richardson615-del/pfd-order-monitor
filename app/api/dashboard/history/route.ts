@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * side); lib/history.ts keeps only the seven local days.
  */
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

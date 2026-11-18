@@ -15,7 +15,8 @@ export const maxDuration = 30;
  * restaurant, replaced whole. The pause is NOT here: the tablet owns it.
  * GET returns what is held.
  */
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   const parsed = parseProfilePush(await req.json().catch(() => null));
@@ -30,7 +31,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ restaurant_id: restaurant.id, crm_restaurant_id: restaurant.crm_restaurant_id, pushed_at: pushedAt });
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   const restaurant = await findRestaurantByRef<{ id: string; crm_restaurant_id: string | null; online_paused_until: string | null }>(params.id, "id, crm_restaurant_id, online_paused_until");

@@ -26,7 +26,7 @@ const ORDER_COLUMNS =
  * the session client, so RLS applies exactly as it does for the tablet.
  */
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

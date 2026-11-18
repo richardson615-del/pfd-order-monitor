@@ -95,7 +95,8 @@ export const dynamic = "force-dynamic";
  * not to be made, or already was. The actor is the CRM session's email,
  * passed through - the bridge cannot know it otherwise.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   if (!UUID_RE.test(params.id)) return NextResponse.json({ error: "order not found", code: "order_not_found" }, { status: 404 });

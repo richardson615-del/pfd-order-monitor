@@ -28,8 +28,9 @@ export const maxDuration = 30;
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 

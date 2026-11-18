@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  * presses from the CRM.
  */
 export async function POST() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

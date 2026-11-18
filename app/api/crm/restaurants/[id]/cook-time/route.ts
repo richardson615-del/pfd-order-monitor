@@ -25,7 +25,8 @@ const cleanActor = (v: unknown): string | null => (typeof v === "string" && v.tr
  * The partner page's view (BT1, migration 058): the boost in force, the limits,
  * and the last changes, newest first.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   const r = await findRestaurantByRef<any>(params.id, SELECT);
@@ -46,7 +47,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
  * Only the CRM writes limits. A limit set to null goes back to the default. A
  * boost already running is not cut short by a lower limit; End busy does that.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   const body = await req.json().catch(() => null);

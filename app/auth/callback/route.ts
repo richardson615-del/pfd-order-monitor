@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {

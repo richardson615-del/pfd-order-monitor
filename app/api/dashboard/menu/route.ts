@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * its own time out when it is sent.
  */
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

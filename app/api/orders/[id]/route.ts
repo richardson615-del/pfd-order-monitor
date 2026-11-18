@@ -23,8 +23,9 @@ const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
  * Relies on the caller's Supabase session (cookie on the tablet, Bearer from
  * the PFD Partner app) + RLS, so a restaurant can only update its own orders.
  */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = supabaseServer();
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

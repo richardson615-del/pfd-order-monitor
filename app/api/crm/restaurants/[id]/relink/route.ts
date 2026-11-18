@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  * every CRM route resolves the account id fresh from this row - so the next
  * call by the new id resolves immediately and the old id is a 404.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 

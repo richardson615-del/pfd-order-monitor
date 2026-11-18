@@ -19,7 +19,7 @@ const MAX_ROWS = 12_000;
  * silently cut at the platform's row cap.
  */
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

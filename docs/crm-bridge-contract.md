@@ -43,6 +43,7 @@ hardware fault.
 | POST | `/api/crm/restaurants` | `{ crm_restaurant_id, name, zuppler_restaurant_id?, zuppler_ids?, timezone?, app_expected?, display_mode? }` | `{ ok, restaurant_created, warning?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/provision` | `{ actor? }` | `{ ok, restaurant, login, printers, destinations, changed }` |
 | POST | `/api/crm/restaurants/:id/relink` | `{ crm_restaurant_id, actor? }` | `{ ok, changed, previous_crm_restaurant_id, crm_restaurant_id, warning?, restaurant }` |
+| POST | `/api/crm/restaurants/:id/merge` | `{ into, take_crm?, actor? }` | `{ ok, merged_from, moved, restaurant }` |
 | POST | `/api/crm/restaurants/:id` | any subset below | `{ ok, conversions?, restaurant }` |
 | POST | `/api/crm/restaurants/:id/ticket-preview` | any subset below | **`image/png`** |
 
@@ -75,6 +76,28 @@ names it; two restaurants are never merged), `invalid_crm_restaurant_id`
 `restaurant_link_audit` row (migration 043: actor, old and new account id,
 time); if that write fails the relink stands and the response carries
 `warning`. `restaurant` is the roster row shape.
+
+`POST /api/crm/restaurants/:id/merge` (2026-11-19, Matt: El Vaquero's
+Zuppler orders and printer were on one restaurant and its CRM phone orders on
+a duplicate, so phone orders never printed) moves the duplicate `:id` onto
+`into` and switches the duplicate off, in one transaction
+(`merge_restaurants`, migration 064). Both ids are **either id**. Moves:
+Zuppler listings (`into` keeps its primary, takes the duplicate's when it has
+none); the CRM link when `take_crm` is true or `into` has none; orders,
+renumbered after `into`'s last ticket number; printers, kiosks, tablets'
+push tokens, logins, owner phones, inboxes, messages, statements, footer
+data, ezCater links, cook-time log and audit rows. One-row-per-restaurant
+tables (heartbeat, menu, profile) keep `into`'s row. A row that would clash on
+a unique key (same login, phone, inbox) stays with the switched-off duplicate.
+The duplicate ends `is_active = false`, renamed "<name> (merged)", with no CRM
+link and no Zuppler listing, so it can never answer for either again. Writes a
+`restaurant_link_audit` row. `moved` counts what moved. Errors carry a `code`:
+`statement_conflict` (409, both have a statement for one period; nothing
+changes), `into_inactive` (409), `merge_same_restaurant` (400),
+`restaurant_not_found` (404), `invalid_into` / `invalid_take_crm` /
+`invalid_body` (400). This is the one deliberate exception to "two
+restaurants are never merged" below: it is a person's explicit act on a pair
+they chose, never automatic.
 
 `POST /api/crm/restaurants/:id/provision` is the bridge half of **"Go
 live on tablet"** as one call: makes the restaurant active, sets

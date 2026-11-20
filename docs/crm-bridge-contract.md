@@ -81,7 +81,7 @@ time); if that write fails the relink stands and the response carries
 Zuppler orders and printer were on one restaurant and its CRM phone orders on
 a duplicate, so phone orders never printed) moves the duplicate `:id` onto
 `into` and switches the duplicate off, in one transaction
-(`merge_restaurants`, migration 064). Both ids are **either id**. Moves:
+(`merge_restaurants`, migrations 064 and 065). Both ids are **either id**. Moves:
 Zuppler listings (`into` keeps its primary, takes the duplicate's when it has
 none); the CRM link when `take_crm` is true or `into` has none; orders,
 renumbered after `into`'s last ticket number; printers, kiosks, tablets'

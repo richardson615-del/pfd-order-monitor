@@ -1,0 +1,15 @@
+{
+  "stable": {
+    "version": "2.9.0",
+    "file": "pfd-eatabit-2.9.0-update.bin",
+    "size": 1365248,
+    "md5": "fe987d030fad91baf23f74bc177114a8"
+  },
+  "test": {
+    "version": "2.9.1",
+    "file": "pfd-eatabit-2.9.1-update.bin",
+    "size": 1365248,
+    "md5": "7d4f5229b3c2085189c6d9917f2a0def",
+    "devices": ["pfd-eatabit-c05d89888f30"]
+  }
+}

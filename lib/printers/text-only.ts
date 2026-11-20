@@ -25,7 +25,8 @@ export const EATABIT_PRINTER_NAME = "PFD Eatabit";
 
 export function eatabitPrinterName(userAgent: string | null): string | null {
   if (!isTextOnlyPrinter(userAgent)) return null;
-  const version = (userAgent ?? "").match(/^pfd-eatabit\/([0-9][0-9A-Za-z.\-]{0,20})/)?.[1];
+  // "pfd-eatabit/2.9.0"; firmware before 2.9.0 sent "pfd-eatabit 2.8.5".
+  const version = (userAgent ?? "").match(/^pfd-eatabit[\/ ]([0-9][0-9A-Za-z.\-]{0,20})/)?.[1];
   return version ? `${EATABIT_PRINTER_NAME} ${version}` : EATABIT_PRINTER_NAME;
 }
 

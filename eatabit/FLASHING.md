@@ -1,4 +1,4 @@
-# Flashing a PFD Eatabit printer (firmware 2.8.4)
+# Flashing a PFD Eatabit printer (firmware 2.8.5)
 
 One-time USB flash per box. After this, updates go over WiFi from the printer's own page.
 
@@ -7,7 +7,7 @@ One-time USB flash per box. After this, updates go over WiFi from the printer's 
 - USB-serial adapter set to **3.3V** (FTDI FT232R is what we used; never 5V)
 - 3 jumper wires, a multimeter with beep mode
 - Chrome on a computer (Mac or Windows; on Windows the adapter needs its USB-serial driver)
-- `pfd-eatabit-2.8.4-full.bin` (this folder)
+- `pfd-eatabit-2.8.5-full.bin` (this folder)
 
 ## 1. Open the box and find the programming pads
 - Do **not** use the 6-pin socket marked GND/5V0/NC/NC/RXD/TXD. That is the printer's port, not the ESP32's.
@@ -30,7 +30,7 @@ One-time USB flash per box. After this, updates go over WiFi from the printer's 
 4. Push the board's power plug **all the way in**. A loose plug makes the board brown out: white screen, endless restarts, no setup WiFi.
 5. Put the board in flash mode: hold **SW2**, press and release **SW1**, then let go of SW2. To confirm, the Console section at 115200 shows "waiting for download" after this.
 6. Click **Connect**, pick the adapter (FT232R USB UART / usbserial / CP210x / CH340). It should report ESP32-D0WD and 4MB flash. If it fails, redo step 4 releasing SW2 first, or swap TX/RX.
-7. Flash address **0x0**, choose `pfd-eatabit-2.8.4-full.bin`, tick **Erase flash**, click **Program**. About 2 minutes. Keep the wires still.
+7. Flash address **0x0**, choose `pfd-eatabit-2.8.5-full.bin`, tick **Erase flash**, click **Program**. About 2 minutes. Keep the wires still.
 8. Check the log ends with "Hash of data verified". Disconnect, remove the wires, unplug power for 5 seconds and plug back in.
 
 ## 4. Put it on WiFi
@@ -58,10 +58,11 @@ If the screen stays white after flashing, unplug the power for 5 seconds and plu
 | Zero bytes at all, even on reset, but the adapter passes a loopback test (jumper TX to RX on the adapter, text echoes) | The board isn't running: power fault or dead module. Check 3V3 to GND on MOD2 with a meter. Set it aside. |
 | Connect fails / "No port selected" | Click Connect yourself (the port picker needs a real click), pick the port. If the flasher was used for a previous board, reload the page first so it lets go of the port. |
 | Write stops partway | Wire moved. Re-enter flash mode, reload the flasher, try again at 115200. |
-| Setup page stuck on **"Looking for WiFi networks"** forever (2.8.3 and older) | The scan stalls and old firmware never gives up. On a laptop, join the box's PFD-Printer-XXXX WiFi and open `pfd-printer-setup-helper.html` (this folder). Either type the store WiFi name and password there (skips the scan), or install `pfd-eatabit-2.8.4-update.bin` with it, which fixes the stall for good. |
+| Setup page stuck on **"Looking for WiFi networks"** forever (2.8.3 and older) | The scan stalls and old firmware never gives up. On a laptop, join the box's PFD-Printer-XXXX WiFi and open `pfd-printer-setup-helper.html` (this folder). Either type the store WiFi name and password there (skips the scan), or install `pfd-eatabit-2.8.5-update.bin` with it, which fixes the stall for good. |
 | Buttons do nothing on an older box | It's on old firmware. Upload the update bin from its settings page (`/update`). |
 
 ## Notes
 - Printer head: GPIO 22 @ 19200, screen reset 15, buttons 14/33/27/32 (UP/DOWN/MENU/PRINT), ring R25 G26 B12. All built in.
+- To move a printer to another restaurant: on its settings page press **Unpair** (2.8.5+). The screen shows a new pair code; pair it in Equipment and delete the old entry there.
 - Box settings page: http://pfd-printer-XXXX.local/ (or its IP, shown under MENU -> Printer info). Firmware updates: upload `pfd-eatabit-x.y.z-update.bin` at `/update` on that page.
 - On the box: UP/DOWN = today's orders, PRINT = reprint, MENU = settings (lights, WiFi) or prep time on an order.

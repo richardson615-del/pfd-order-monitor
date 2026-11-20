@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { acceptUnsignedEnabled, isUuidShaped, zupplerWebhookDecision } from "@/lib/zuppler-webhook-auth";
-import { refusedToRecover, RECOVER_MAX_PER_RUN } from "@/lib/zuppler-recover";
+import { refusedToRecover, RECOVER_MAX_PER_RUN, unmappedToRecover, zupplerIdFromDetail, MAPPED_RECOVER_WINDOW_MS } from "@/lib/zuppler-recover";
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -73,6 +73,32 @@ test("the route asks the decision, refuses on refuse, and marks unsigned receipt
     const many = Array.from({ length: 9 }, (_, i) => ({ order_uuid: `aaaaaaa${i}-1111-4222-8333-444455556666`, received_at: at(10 + i) }));
     assert.equal(refusedToRecover(many, new Set(), now).length, RECOVER_MAX_PER_RUN);
   });
+}
+
+// --- orders dropped as unmapped whose listing was registered afterwards (2026-11-20, Perry's Smokin Pig) ---
+{
+  const now = Date.parse("2026-11-20T17:40:00Z");
+  const U = (n: number) => `ddf5ebfc-0000-4000-8000-00000000000${n}`;
+  const at = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+  assert.equal(zupplerIdFromDetail("zuppler_restaurant_id 29897"), "29897");
+  assert.equal(zupplerIdFromDetail("recovered by the monitor ... - zuppler_restaurant_id 32770"), "32770");
+  assert.equal(zupplerIdFromDetail("token mismatch"), null);
+  const rows = [
+    { order_uuid: U(1), detail: "zuppler_restaurant_id 29897", received_at: at(25) },
+    { order_uuid: U(1), detail: "zuppler_restaurant_id 29897", received_at: at(24) }, // Zuppler's second delivery of the same order
+    { order_uuid: U(2), detail: "zuppler_restaurant_id 29897", received_at: at(90) },
+    { order_uuid: U(3), detail: "zuppler_restaurant_id 55555", received_at: at(10) }, // still unmapped
+    { order_uuid: U(4), detail: "zuppler_restaurant_id 29897", received_at: at(MAPPED_RECOVER_WINDOW_MS / 60_000 + 5) }, // too old for a live ticket
+    { order_uuid: U(5), detail: "zuppler_restaurant_id 29897", received_at: at(5) }, // already in the system
+    { order_uuid: "not-a-uuid", detail: "zuppler_restaurant_id 29897", received_at: at(5) },
+    { order_uuid: U(6), detail: null, received_at: at(5) },
+  ];
+  // Oldest first, each order once, only the mapped listing, nothing already here or too old.
+  assert.deepEqual(unmappedToRecover(rows, new Set(["29897"]), new Set([U(5)]), now), [U(2), U(1)]);
+  assert.deepEqual(unmappedToRecover(rows, new Set(), new Set(), now), []);
+  assert.equal(unmappedToRecover(rows, new Set(["29897"]), new Set(), now, 1).length, 1);
+  const check = readFileSync("app/api/monitor/check/route.ts", "utf8");
+  assert.ok(check.indexOf("recoverNewlyMappedZupplerOrders()") < check.indexOf("evaluateHealth("), "runs before the health checks");
 }
 
 console.log(`\n${passed} assertions passed.`);

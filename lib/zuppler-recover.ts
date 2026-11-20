@@ -87,3 +87,90 @@ export async function recoverRefusedZupplerOrders(now = new Date(), env: Record<
   }
   return { enabled: true, tried: todo.length, recovered, failed };
 }
+
+/**
+ * Orders dropped as "unmapped" whose listing has been registered since
+ * (2026-11-20, Perry's Smokin Pig: the delivery listing 29897 was linked in
+ * the CRM but never sent here, so order ddf5ebfc was turned away twice; the
+ * listing was sent 20 minutes later and nothing fetched the order).
+ *
+ * Every minute the monitor takes each unmapped receipt from the last three
+ * hours whose zuppler_restaurant_id is now in restaurant_zuppler_ids and whose
+ * order is still not in `orders`, and ingests it the normal way - so the
+ * kitchen gets its ticket and the CRM gets the order. Three hours, not a day:
+ * this is a live ingest (print, alert, email), right for an order still being
+ * cooked and wrong for yesterday's, which scripts/backfill-zuppler-orders.ts
+ * adds silently. One try per order. Not tied to ZUPPLER_ACCEPT_UNSIGNED: the
+ * id comes from our own receipt and the order from Zuppler's API.
+ */
+export const MAPPED_RECOVER_WINDOW_MS = 3 * 60 * 60 * 1000;
+export const MAPPED_RECOVER_AGENT = "monitor-recover-mapped";
+
+export interface UnmappedRow {
+  order_uuid?: string | null;
+  detail?: string | null;
+  received_at?: string | null;
+}
+
+/** "zuppler_restaurant_id 29897" (the webhook's and the recovery's detail) -> "29897". */
+export function zupplerIdFromDetail(detail: string | null | undefined): string | null {
+  return /zuppler_restaurant_id\s+(\d+)/.exec(detail ?? "")?.[1] ?? null;
+}
+
+/** Pure: which dropped orders to fetch now that their listing is mapped, oldest first, at most `max`. */
+export function unmappedToRecover(rows: UnmappedRow[], mappedIds: Set<string>, skip: Set<string>, nowMs: number, max = RECOVER_MAX_PER_RUN): string[] {
+  const picked: { uuid: string; at: number }[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const uuid = (r.order_uuid ?? "").trim();
+    const zid = zupplerIdFromDetail(r.detail);
+    if (!isUuidShaped(uuid) || seen.has(uuid) || skip.has(uuid) || !zid || !mappedIds.has(zid)) continue;
+    const at = r.received_at ? Date.parse(r.received_at) : NaN;
+    if (!Number.isFinite(at) || nowMs - at > MAPPED_RECOVER_WINDOW_MS || at > nowMs) continue;
+    seen.add(uuid);
+    picked.push({ uuid, at });
+  }
+  return picked.sort((a, b) => a.at - b.at).slice(0, max).map((p) => p.uuid);
+}
+
+export async function recoverNewlyMappedZupplerOrders(now = new Date()): Promise<RecoverResult> {
+  const none = { enabled: true, tried: 0, recovered: 0, failed: 0 };
+  const admin = supabaseAdmin();
+  const since = new Date(now.getTime() - MAPPED_RECOVER_WINDOW_MS).toISOString();
+  const { data: dropped, error } = await admin
+    .from("webhook_receipts")
+    .select("order_uuid, detail, received_at")
+    .eq("source", "zuppler")
+    .eq("status", "unmapped")
+    .gte("received_at", since);
+  if (error || !dropped?.length) return none;
+  const zids = [...new Set(dropped.map((r: UnmappedRow) => zupplerIdFromDetail(r.detail)).filter((x): x is string => !!x))];
+  const uuids = [...new Set(dropped.map((r: UnmappedRow) => (r.order_uuid ?? "").trim()).filter(isUuidShaped))];
+  if (!zids.length || !uuids.length) return none;
+  const { data: mapped, error: mapErr } = await admin.from("restaurant_zuppler_ids").select("zuppler_restaurant_id").in("zuppler_restaurant_id", zids);
+  if (mapErr || !mapped?.length) return none;
+  const mappedIds = new Set<string>(mapped.map((m: { zuppler_restaurant_id: string }) => String(m.zuppler_restaurant_id)));
+  const { data: have, error: haveErr } = await admin.from("orders").select("external_id").in("external_id", uuids);
+  if (haveErr) return none;
+  const skip = new Set<string>((have ?? []).map((o: { external_id: string }) => String(o.external_id)));
+  const { data: tried } = await admin.from("webhook_receipts").select("order_uuid").eq("user_agent", MAPPED_RECOVER_AGENT).in("order_uuid", uuids);
+  for (const t of tried ?? []) if (t.order_uuid) skip.add(String(t.order_uuid));
+  const todo = unmappedToRecover(dropped, mappedIds, skip, now.getTime());
+  let recovered = 0;
+  let failed = 0;
+  for (const uuid of todo) {
+    const result = await ingestZupplerOrderByUuid(uuid);
+    const ok = ["created", "updated", "duplicate", "cancelled"].includes(result.status);
+    if (ok) recovered++;
+    else failed++;
+    await recordWebhookReceipt({
+      status: result.status === "error" ? "ingest_error" : result.status,
+      httpStatus: undefined,
+      orderUuid: uuid,
+      orderId: result.orderId ?? null,
+      detail: `recovered by the monitor: its listing was registered after the order was dropped as unmapped${result.error ? `: ${result.error}` : ""}${result.status === "unmapped" ? ` - zuppler_restaurant_id ${result.zupplerRestaurantId}` : ""}`.slice(0, 500),
+      userAgent: MAPPED_RECOVER_AGENT,
+    });
+  }
+  return { enabled: true, tried: todo.length, recovered, failed };
+}

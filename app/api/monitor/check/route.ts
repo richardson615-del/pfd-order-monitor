@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { constantTimeEquals } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
-import { recoverRefusedZupplerOrders, type RecoverResult } from "@/lib/zuppler-recover";
+import { recoverNewlyMappedZupplerOrders, recoverRefusedZupplerOrders, type RecoverResult } from "@/lib/zuppler-recover";
 import { collectSnapshot, evaluateHealth, sortIssues, type HealthIssue } from "@/lib/health";
 import { composeSmsAlert, sendSms, sendWebhook, twilioConfigured, smsConfigGaps } from "@/lib/alerts";
 import { recordCronRun, MONITOR_JOB } from "@/lib/cron-liveness";
@@ -77,6 +77,14 @@ export async function GET(req: NextRequest) {
     recover = await recoverRefusedZupplerOrders();
   } catch (err) {
     console.error("monitor: refused-order recovery failed -", err instanceof Error ? err.message : err);
+  }
+
+  // Orders dropped as unmapped whose listing was registered afterwards (last 3 hours). Its own try.
+  let recoverMapped: RecoverResult | null = null;
+  try {
+    recoverMapped = await recoverNewlyMappedZupplerOrders();
+  } catch (err) {
+    console.error("monitor: newly-mapped order recovery failed -", err instanceof Error ? err.message : err);
   }
 
   const issues = sortIssues(evaluateHealth(await collectSnapshot(), new Date()));
@@ -229,6 +237,7 @@ export async function GET(req: NextRequest) {
     new: fresh.length,
     resolved: resolvedKeys.length,
     recover,
+    recoverMapped,
     ezcater,
     advance,
     channels: {

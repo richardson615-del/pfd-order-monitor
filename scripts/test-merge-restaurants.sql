@@ -84,5 +84,19 @@ select merge_restaurants('44444444-4444-4444-4444-444444444444', '33333333-3333-
 do $$ begin
   assert (select crm_restaurant_id from restaurants where id = '33333333-3333-3333-3333-333333333333') = 'cccccccc-0000-0000-0000-000000000003', 'into keeps its link';
 end $$;
+-- 065: the duplicate's ticket numbers overlap the numbers they are about to get (Pappy's, 2026-11-20).
+insert into restaurants (id, name, slug, zuppler_restaurant_id, ticket_counter) values ('55555555-5555-5555-5555-555555555555', 'Pappys', 'p1', '32905', 3),
+                                                                                     ('66666666-6666-6666-6666-666666666666', 'Pappys', 'p2', '32906', 9);
+insert into orders (restaurant_id, order_number, source, received_at, ticket_no)
+select '55555555-5555-5555-5555-555555555555', 'K-' || g, 'zuppler', now() - (20 - g) * interval '1 hour', g from generate_series(1, 3) g;
+insert into orders (restaurant_id, order_number, source, received_at, ticket_no)
+select '66666666-6666-6666-6666-666666666666', 'D-' || g, 'zuppler', now() - (10 - g) * interval '1 hour', g from generate_series(1, 9) g;
+select merge_restaurants('66666666-6666-6666-6666-666666666666', '55555555-5555-5555-5555-555555555555', false, 'test') \gset
+do $$ begin
+  assert (select array_agg(ticket_no order by ticket_no) from orders where restaurant_id = '55555555-5555-5555-5555-555555555555') = array[1,2,3,4,5,6,7,8,9,10,11,12], 'overlapping tickets renumbered 4-12';
+  assert (select ticket_no from orders where order_number = 'D-1') = 4 and (select ticket_no from orders where order_number = 'D-9') = 12, 'oldest moved order first';
+  assert (select ticket_counter from restaurants where id = '55555555-5555-5555-5555-555555555555') = 12, 'counter at 12';
+  assert not exists (select 1 from orders where restaurant_id = '66666666-6666-6666-6666-666666666666'), 'nothing left on the duplicate';
+end $$;
 \echo merge_restaurants tests passed
 rollback;

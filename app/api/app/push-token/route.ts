@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const {
     data: { user },
-  } = await supabaseServer().auth.getUser();
+  } = await (await supabaseServer()).auth.getUser();
   if (!user) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
   const [restaurantId] = await getCurrentUserRestaurantIds();
   if (!restaurantId) return NextResponse.json({ error: "no restaurant" }, { status: 403 });

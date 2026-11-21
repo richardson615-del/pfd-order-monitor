@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * only ones not already marked.
  */
 export async function POST() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

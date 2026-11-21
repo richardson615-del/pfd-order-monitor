@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  * can decide where the credentials go. Idempotent - a second call changes
  * nothing and says so in `changed: []`. Never resets a password.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 

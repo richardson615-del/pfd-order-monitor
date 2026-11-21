@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * link for the rest.
  */
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

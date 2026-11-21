@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  * Never raw_html or raw_payload - the email parser's source can carry
  * card-holder data, and nobody in the office needs it.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   if (!UUID_RE.test(params.id)) return NextResponse.json({ error: "order not found", code: "order_not_found" }, { status: 404 });

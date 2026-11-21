@@ -18,7 +18,8 @@ async function restaurantFor(ref: string) {
   return findRestaurantByRef<{ id: string }>(ref, "id");
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   const r = await restaurantFor(params.id);
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ phones: data ?? [] });
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const denied = authorizeCrmWrite(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
   const r = await restaurantFor(params.id);

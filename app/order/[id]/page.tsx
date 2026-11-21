@@ -9,12 +9,11 @@ export const dynamic = "force-dynamic";
 /** Statuses on which opening the ticket means nothing any more. */
 const SETTLED = new Set(["completed", "cancelled"]);
 
-export default async function OrderDetailPage({
-  params,
-}: {
-  params: { id: string };
+export default async function OrderDetailPage(props: {
+  params: Promise<{ id: string }>;
 }) {
-  const supabase = supabaseServer();
+  const params = await props.params;
+  const supabase = await supabaseServer();
 
   const { data: order } = await supabase
     .from("orders")

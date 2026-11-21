@@ -25,7 +25,7 @@ export const maxDuration = 60;
  */
 
 async function actor(): Promise<string> {
-  const { data } = await supabaseServer().auth.getUser();
+  const { data } = await (await supabaseServer()).auth.getUser();
   return data.user?.email ?? "admin";
 }
 

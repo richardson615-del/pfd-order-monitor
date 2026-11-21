@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  * restaurant's own hours and timezone, not the tablet's clock.
  */
 export async function POST(req: NextRequest) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

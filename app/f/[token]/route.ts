@@ -50,8 +50,9 @@ const esc = (s: unknown) =>
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { token: string } }
+  ctx: { params: Promise<{ token: string }> }
 ) {
+  const params = await ctx.params;
   const token = String(params.token ?? "").slice(0, 64);
   if (!token) return page("<h1>Not found</h1>", 404);
 

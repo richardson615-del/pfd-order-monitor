@@ -2,7 +2,7 @@ import { supabaseServer } from "./supabase-server";
 
 /** True if the currently logged-in user is a PFD admin (row in `admins`). */
 export async function isCurrentUserAdmin(): Promise<boolean> {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -19,7 +19,7 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
 
 /** Returns the restaurant_id(s) the current user belongs to. */
 export async function getCurrentUserRestaurantIds(): Promise<string[]> {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

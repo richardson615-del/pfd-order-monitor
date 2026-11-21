@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  * address with no error.
  */
 export async function GET(_req: NextRequest) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

@@ -7,20 +7,19 @@ const nextConfig = {
   // GHSA-2464-fhr4-w9xw) that have no 14.x fix. `unoptimized` makes Next
   // answer /_next/image with a 404. Pinned by scripts/test-next-security.ts.
   images: { unoptimized: true },
-  experimental: {
-    // @napi-rs/canvas is a native binary. Webpack cannot bundle a .node file,
-    // and trying to fails the BUILD rather than the request - which is the
-    // good outcome, but only if it is externalised here.
-    serverComponentsExternalPackages: ["@napi-rs/canvas"],
-    // The bundled ticket font is read from disk at render time, so it has to
-    // be traced into the serverless function. Without this the font silently
-    // fails to register and the header rasterizes with fallback glyphs.
-    outputFileTracingIncludes: {
-      "/api/print/epson": ["./assets/fonts/**"],
-      // Emailed tickets are the Epson ticket drawn as a picture (2026-11-06),
-      // rendered from any route that ingests or resends an order.
-      "/api/**": ["./assets/fonts/**"],
-    },
+  // Next 15 (Z-06) moved both keys below out of `experimental` to the top level.
+  // @napi-rs/canvas is a native binary. Webpack cannot bundle a .node file,
+  // and trying to fails the BUILD rather than the request - which is the
+  // good outcome, but only if it is externalised here.
+  serverExternalPackages: ["@napi-rs/canvas"],
+  // The bundled ticket font is read from disk at render time, so it has to
+  // be traced into the serverless function. Without this the font silently
+  // fails to register and the header rasterizes with fallback glyphs.
+  outputFileTracingIncludes: {
+    "/api/print/epson": ["./assets/fonts/**"],
+    // Emailed tickets are the Epson ticket drawn as a picture (2026-11-06),
+    // rendered from any route that ingests or resends an order.
+    "/api/**": ["./assets/fonts/**"],
   },
   /**
    * The build this bundle came from, inlined into the client.

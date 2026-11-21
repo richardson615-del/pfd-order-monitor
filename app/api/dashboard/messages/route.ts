@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  * and an order_id is only accepted when it belongs to this restaurant.
  */
 async function sessionRestaurant() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

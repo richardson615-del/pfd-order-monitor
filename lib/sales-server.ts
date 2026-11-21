@@ -14,12 +14,12 @@ import { SALES_COLUMNS, SALES_ORDER_CAP, salesQueryWindow, type SalesOrder, type
 const PAGE = 1000;
 
 export type SalesCaller =
-  | { ok: true; supabase: ReturnType<typeof supabaseServer>; restaurantId: string; timezone: string | null; name: string | null }
+  | { ok: true; supabase: Awaited<ReturnType<typeof supabaseServer>>; restaurantId: string; timezone: string | null; name: string | null }
   | { ok: false; status: number; error: string };
 
 /** The signed-in restaurant, its zone and name, or why not. */
 export async function salesCaller(): Promise<SalesCaller> {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

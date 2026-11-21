@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  * screen and the office cannot disagree about whether a printer is up.
  */
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

@@ -5,7 +5,7 @@ import { actorOf } from "@/lib/cook-time-data";
 
 /** The signed-in restaurant for a Store route (the session decides; never a request body). */
 export async function storeSession(): Promise<{ restaurantId: string; actor: string | null } | { error: NextResponse }> {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();

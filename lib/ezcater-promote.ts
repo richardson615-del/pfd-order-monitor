@@ -1,3 +1,4 @@
+import { markOrderCancelled } from "./cancel-mark";
 import { supabaseAdmin } from "./supabase-server";
 import { ingestOrder, moneyVariance, sendCancellationEmail } from "./canonical";
 import { ezCaterOrderToCanonical, type EzCaterCanonicalOrder, type EzCaterOrder } from "./ezcater";
@@ -203,7 +204,8 @@ async function cancelInKitchen(row: any): Promise<KitchenSyncResult> {
   if (existing.cancelled_at) return { status: "unchanged", orderId: existing.id, detail: "already cancelled" };
   const now = new Date().toISOString();
   // printed_at is never cleared: a ticket that came out is a fact.
-  await admin.from("orders").update({ status: "cancelled", cancelled_at: now }).eq("id", existing.id);
+  const { notice } = await markOrderCancelled(existing.id, now);
+  if (notice === "already_cancelled") return { status: "unchanged", orderId: existing.id, detail: "already cancelled" };
   if (existing.printed_at) {
     console.error("ezCater order CANCELLED AFTER PRINTING - the kitchen may have started it:", JSON.stringify({ orderId: existing.id, ezcaterOrderId: row.ezcater_order_id, printed_at: existing.printed_at, cancelled_at: now }));
   }
@@ -212,7 +214,7 @@ async function cancelInKitchen(row: any): Promise<KitchenSyncResult> {
     .update({ status: "failed", error: "order cancelled", finished_at: now })
     .eq("order_id", existing.id)
     .in("status", ["queued", "claimed"]);
-  await sendCancellationEmail(existing.id);
+  if (notice === "send") await sendCancellationEmail(existing.id);
   return { status: "cancelled", orderId: existing.id };
 }
 

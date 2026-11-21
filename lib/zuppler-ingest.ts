@@ -1,3 +1,4 @@
+import { markOrderCancelled } from "./cancel-mark";
 import { supabaseAdmin } from "./supabase-server";
 import { ingestOrder, sendCancellationEmail } from "./canonical";
 import {
@@ -54,10 +55,8 @@ export async function ingestZupplerOrderByUuid(
       // fact about the world, and overwriting the record of it is how a
       // cancelled-after-printing order becomes indistinguishable from one
       // that never reached the kitchen.
-      await admin
-        .from("orders")
-        .update({ status: "cancelled", cancelled_at: now })
-        .eq("id", existing.id);
+      // Guarded: a cancel seen twice (webhook retry, or the CRM cancelled it first) changes nothing the second time.
+      const { notice } = await markOrderCancelled(existing.id, now);
 
       if (existing.printed_at) {
         // The loud case. The food may already be made, and the money question
@@ -81,7 +80,9 @@ export async function ingestZupplerOrderByUuid(
       // An email restaurant has no queued job to kill - the ticket is already
       // printed and sitting on their spike. They get a second email instead,
       // which is the only way to reach them at all.
-      await sendCancellationEmail(existing.id);
+      // Once, and only while the kitchen could still act on it (see cancel-mark.ts).
+      if (notice === "send") await sendCancellationEmail(existing.id);
+      else console.log("Zuppler cancel: no notice printed", { orderId: existing.id, why: notice });
 
       console.log("Zuppler order cancelled", { orderId: existing.id, orderUuid });
       return { status: "cancelled", orderId: existing.id };

@@ -1,5 +1,6 @@
 import { displayOrderNo } from "./order-label";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { markOrderCancelled } from "@/lib/cancel-mark";
 import { sendCancellationEmail } from "@/lib/canonical";
 import { notifyRestaurant } from "@/lib/push";
 import { cancelledPush, reopenedPush, reopenedStatus } from "@/lib/crm-orders";
@@ -17,14 +18,14 @@ export async function cancelOrderForCrm(order: { id: string; restaurant_id: stri
   const admin = supabaseAdmin();
   const now = new Date().toISOString();
   const { data: before } = await admin.from("orders").select("printed_at").eq("id", order.id).maybeSingle();
-  await admin.from("orders").update({ status: "cancelled", cancelled_at: now }).eq("id", order.id);
+  const { notice } = await markOrderCancelled(order.id, now);
   const { data: pulled } = await admin
     .from("print_jobs")
     .update({ status: "failed", error: `order cancelled by ${actor}`, finished_at: now })
     .eq("order_id", order.id)
     .in("status", ["queued", "claimed"])
     .select("id");
-  await sendCancellationEmail(order.id);
+  if (notice === "send") await sendCancellationEmail(order.id);
   const push = await notifyRestaurant(order.restaurant_id, { ...cancelledPush(displayOrderNo(order)), orderId: order.id }).catch(() => ({ sent: 0 }));
   if (before?.printed_at) {
     console.error("Phone order CANCELLED AFTER PRINTING - the kitchen may have started it:", JSON.stringify({ orderId: order.id, printed_at: before.printed_at, cancelled_at: now, actor }));

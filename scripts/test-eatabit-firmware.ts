@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { existsSync, statSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { RELEASE_PLAN, eatabitVersion, firmwareReply, pickFirmware, versionRank, type FirmwarePlan } from "@/lib/printers/eatabit-firmware";
+import { RELEASE_PLAN, RELEASE_PLANS, eatabitVersion, firmwarePath, firmwareReply, pickFirmware, productOf, versionRank, type FirmwarePlan } from "@/lib/printers/eatabit-firmware";
 import { eatabitPrinterName } from "@/lib/printers/text-only";
 
 let passed = 0;
@@ -69,10 +69,31 @@ test("version read from both user-agent forms", () => {
   assert.equal(eatabitPrinterName("pfd-eatabit/2.9.0"), "PFD Eatabit 2.9.0");
 });
 
-test("every release in the plan has its file, size and md5 right", () => {
-  const all = [RELEASE_PLAN.stable, RELEASE_PLAN.test].filter(Boolean) as { file: string; size: number; md5: string }[];
+test("old Eatabit firmware (no Product) is eatabit; order boxes are orderbox", () => {
+  assert.equal(productOf(null, "pfd-eatabit-c05d89888f30"), "eatabit");
+  assert.equal(productOf(null, "pfd-orderbox-aabbccddeeff"), "orderbox");
+  assert.equal(productOf("orderbox", "pfd-orderbox-aabbccddeeff"), "orderbox");
+  assert.equal(productOf("ORDERBOX", "x"), "orderbox");
+  assert.equal(productOf("toaster", "pfd-eatabit-c05d89888f30"), null);
+});
+
+test("an order box is never offered an Eatabit build", () => {
+  // even on a low version that the eatabit stable build would beat
+  const ob = pickFirmware(RELEASE_PLANS.orderbox, "pfd-orderbox-aabbccddeeff", "0.0.1");
+  if (ob) assert.match(ob.file, /^pfd-orderbox-/);
+  for (const r of [RELEASE_PLANS.eatabit.stable, RELEASE_PLANS.eatabit.test]) if (r) assert.match(r.file, /^pfd-eatabit-/);
+});
+
+test("order box replies point at the order box folder", () => {
+  assert.equal(firmwarePath("orderbox"), "/firmware/orderbox/");
+  assert.match(firmwareReply(rel("1.0.1"), "https://x.test", "orderbox"), /url=https:\/\/x\.test\/firmware\/orderbox\//);
+});
+
+test("every release in every plan has its file, size and md5 right", () => {
+  const all = (Object.entries(RELEASE_PLANS) as [string, FirmwarePlan][]).flatMap(([prod, pl]) =>
+    ([pl.stable, pl.test].filter(Boolean) as { file: string; size: number; md5: string }[]).map((r) => ({ ...r, prod })));
   for (const r of all) {
-    const p = path.join(process.cwd(), "public/firmware/eatabit", r.file);
+    const p = path.join(process.cwd(), "public/firmware", r.prod, r.file);
     assert.ok(existsSync(p), `missing ${r.file}`);
     assert.equal(statSync(p).size, r.size, `${r.file} size`);
     assert.equal(createHash("md5").update(readFileSync(p)).digest("hex"), r.md5, `${r.file} md5`);
@@ -81,6 +102,7 @@ test("every release in the plan has its file, size and md5 right", () => {
 
 test("test devices are device ids, never device keys", () => {
   for (const d of RELEASE_PLAN.test?.devices ?? []) assert.match(d, /^pfd-eatabit-[0-9a-f]{12}$/);
+  for (const d of RELEASE_PLANS.orderbox.test?.devices ?? []) assert.match(d, /^pfd-orderbox-[0-9a-f]{12}$/);
 });
 
 console.log(`${passed} passed`);

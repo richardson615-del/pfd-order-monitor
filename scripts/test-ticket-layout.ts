@@ -186,7 +186,7 @@ test("the note prints with the items, larger, before the money (Charlie's 2026-1
   assert.equal(note.size, "double-h");
   assert.equal(note.bold, true);
   assert.ok(!text(lines).includes("Discount applied"), "the discount is not a kitchen note");
-  assert.match(text(lines), /Discount +-\$8\.00/);
+  assert.ok(!/Discount/.test(text(lines)), "DH1: the discount is PFD's and never prints for the restaurant");
   const big = buildTicket(o, 48, {}, { scale: "large" });
   assert.equal(big[big.findIndex((l) => l.text.trim() === "NOTE") + 1].size, "double");
 });

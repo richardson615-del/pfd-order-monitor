@@ -15,6 +15,7 @@
  * jobs and stay out of git; scripts/test-no-device-keys.ts).
  */
 import plan from "./eatabit-firmware-plan.json";
+import orderboxPlan from "./orderbox-firmware-plan.json";
 
 export type FirmwareRelease = { version: string; file: string; size: number; md5: string };
 export type FirmwarePlan = {
@@ -24,6 +25,33 @@ export type FirmwarePlan = {
 
 export const RELEASE_PLAN = plan as FirmwarePlan;
 export const FIRMWARE_PATH = "/firmware/eatabit/";
+
+/**
+ * One release plan per kind of box. The Eatabit reflash (ESP32) and the PFD
+ * order box (Waveshare ESP32-S3 touchscreen) run different builds; offering
+ * one the other's .bin would at best fail its check and at worst brick it.
+ */
+export type Product = "eatabit" | "orderbox";
+export const RELEASE_PLANS: Record<Product, FirmwarePlan> = {
+  eatabit: RELEASE_PLAN,
+  orderbox: orderboxPlan as FirmwarePlan,
+};
+
+/**
+ * Which product is asking. Order boxes send Product=orderbox and a
+ * pfd-orderbox-<mac> device id; Eatabit firmware before the order box existed
+ * sends no Product at all, so that means eatabit. Anything else is unknown.
+ */
+export function productOf(productParam: string | null, device: string): Product | null {
+  const p = (productParam ?? "").trim().toLowerCase();
+  if (p === "orderbox" || p === "eatabit") return p;
+  if (p) return null;
+  return device.toLowerCase().startsWith("pfd-orderbox-") ? "orderbox" : "eatabit";
+}
+
+export function firmwarePath(product: Product): string {
+  return `/firmware/${product}/`;
+}
 
 /** "2.10.0" > "2.9.3". Unparseable means 0, so it never blocks an update. */
 export function versionRank(v: string | null | undefined): number {
@@ -46,9 +74,9 @@ export function pickFirmware(planIn: FirmwarePlan, device: string, current: stri
 }
 
 /** Plain-text reply the ESP32 parses line by line. */
-export function firmwareReply(release: FirmwareRelease | null, origin: string): string {
+export function firmwareReply(release: FirmwareRelease | null, origin: string, product: Product = "eatabit"): string {
   if (!release) return "update=none";
-  const url = new URL(FIRMWARE_PATH + encodeURIComponent(release.file), origin).toString();
+  const url = new URL(firmwarePath(product) + encodeURIComponent(release.file), origin).toString();
   return `update=${release.version}\nurl=${url}\nsize=${release.size}\nmd5=${release.md5}`;
 }
 

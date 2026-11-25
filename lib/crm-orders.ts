@@ -242,8 +242,8 @@ export interface OrderListRow {
   ready_by: string | null;
   /** PA5: when the kitchen tapped READY; null = not yet. */
   ready_at: string | null;
-  /** 066: the driver as the CRM last pushed it ("driver" action) - the CRM compares before pushing again. */
-  driver: { name: string; status: string | null; eta_at: string | null } | null;
+  /** 066: the driver as the CRM last pushed it ("driver" action) - the CRM compares before pushing again. Named box_driver: the CRM already puts its own `driver` on order rows. */
+  box_driver: { name: string; status: string | null; eta_at: string | null } | null;
   /** 066: the kitchen refused this Uber Eats order on the order box. The CRM denies it with Uber using `code`. */
   kitchen_denied: { at: string; code: string } | null;
   completed_at: string | null;
@@ -301,7 +301,7 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
     ready_minutes: o.ready_minutes ?? null,
     ready_by: o.ready_by ?? null,
     ready_at: o.ready_at ?? null,
-    driver: o.driver_name ? { name: o.driver_name, status: o.driver_status ?? null, eta_at: o.driver_eta_at ?? null } : null,
+    box_driver: o.driver_name ? { name: o.driver_name, status: o.driver_status ?? null, eta_at: o.driver_eta_at ?? null } : null,
     kitchen_denied: o.kitchen_denied_at ? { at: o.kitchen_denied_at, code: o.kitchen_deny_code ?? "OTHER" } : null,
     completed_at: o.completed_at ?? null,
     cancelled_at: o.cancelled_at ?? null,

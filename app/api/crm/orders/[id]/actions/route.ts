@@ -13,6 +13,8 @@ import { resendOrder } from "@/lib/order-resend";
 import { isValidTimeZone } from "@/lib/clock";
 import { UUID_RE } from "@/lib/restaurant-ref";
 import { sendOrderToKitchen } from "@/lib/advance-hold";
+import { parseDriverPush } from "@/lib/orderbox";
+import { setOrderDriver } from "@/lib/orderbox-server";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +93,14 @@ export const dynamic = "force-dynamic";
  *               cook-time log row, source "crm", actor = the CRM user.
  *               Answers { ok, action, ready_by, ready_minutes, before_ready_by }.
  *
+ *   driver      (2026-11-25, the order box) who is coming for the order,
+ *               from the CRM's delivery sync: body { driver: { name, status,
+ *               eta_at } | null }. First name only; status assigned |
+ *               at_pickup | picked_up; eta_at = when they should reach the
+ *               restaurant, or null. null clears it (driver unassigned).
+ *               Never refused for a settled order - it only feeds a screen.
+ *               Answers { ok, action, changed }.
+ *
  * reprint / resend_app: 409 on a cancelled or completed order: the food is
  * not to be made, or already was. The actor is the CRM session's email,
  * passed through - the bridge cannot know it otherwise.
@@ -162,6 +172,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const result = await retimeOrderForCrm(order.id, minutes, actor);
     if ("error" in result) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     return NextResponse.json({ ok: true, action, ready_by: result.ready_by, ready_minutes: result.ready_minutes, before_ready_by: result.before_ready_by });
+  }
+
+  if (action === "driver") {
+    const d = parseDriverPush(body?.driver === undefined ? {} : body.driver);
+    if ("error" in d) return NextResponse.json({ error: d.error, code: "invalid_driver" }, { status: 400 });
+    const res = await setOrderDriver(order.id, d as { clear: boolean; name?: string; status?: string; etaAt?: string | null });
+    if (res.error) return NextResponse.json({ error: res.error }, { status: 500 });
+    return NextResponse.json({ ok: true, action, changed: res.changed });
   }
 
   if (action === "picked_up") {

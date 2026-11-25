@@ -67,6 +67,9 @@ export interface HealthSnapshot {
     restaurant_name: string | null;
     is_active: boolean;
     last_seen_at: string | null;
+    /** 066: what an order box last said about its printer; absent for other devices. */
+    printer_status?: string | null;
+    printer_status_at?: string | null;
   }[];
   inboxes: {
     id: string;
@@ -148,6 +151,8 @@ export interface HealthSnapshot {
     received_at: string;
     /** SC1: an order due more than two hours out is scheduled - acknowledged ahead, not a customer waiting now. */
     due_time?: string | null;
+    /** 066: the restaurant acknowledges on an order box (GOT IT), not a tablet. */
+    on_box?: boolean;
   }[];
   tabletsNotWatching: {
     id: string;
@@ -330,6 +335,20 @@ export function evaluateHealth(
         title: `Printer offline: ${d.name}`,
         detail: `${where(d.restaurant_name)} - last checked in ${ago(mins)}. Orders will not print. Check power, network and paper.`,
       });
+    } else if (d.printer_status && d.printer_status !== "ok") {
+      // 066: the order box reads its printer's paper sensor and says so before
+      // a ticket fails. Low paper warns; out of paper / cover open is a
+      // printer that will not print the next order.
+      const low = d.printer_status === "paper_low";
+      const words: Record<string, string> = { paper_low: "paper is running low", paper_out: "out of paper", cover_open: "cover is open", offline: "printer is not answering" };
+      issues.push({
+        key: `printer_paper:${d.id}`,
+        restaurant_id: d.restaurant_id,
+        device_id: d.id,
+        severity: low ? "warning" : "critical",
+        title: `Order box ${words[d.printer_status] ?? d.printer_status}: ${d.name}`,
+        detail: `${where(d.restaurant_name)} - ${low ? "the roll is near its end. Ask the kitchen to have a new roll ready." : "the next order will not print until someone fixes it. Call the kitchen."}`,
+      });
     }
   }
 
@@ -431,7 +450,9 @@ export function evaluateHealth(
       restaurant_id: o.restaurant_id,
       severity: "critical",
       title: `Order not opened: #${o.order_number ?? o.id.slice(0, 8)} at ${o.restaurant_name ?? "unknown restaurant"}`,
-      detail: `Arrived ${ago(mins)} and nobody at ${where(o.restaurant_name)} has opened it on the tablet. Call the kitchen - the customer is waiting.`,
+      detail: o.on_box
+        ? `Arrived ${ago(mins)} and nobody at ${where(o.restaurant_name)} has tapped GOT IT on the order box. Call the kitchen - the customer is waiting.`
+        : `Arrived ${ago(mins)} and nobody at ${where(o.restaurant_name)} has opened it on the tablet. Call the kitchen - the customer is waiting.`,
     });
   }
 
@@ -716,6 +737,7 @@ export function sortIssues(issues: HealthIssue[]): HealthIssue[] {
 import { supabaseAdmin } from "./supabase-server";
 import { ACCEPTED_STATUSES } from "./webhook-receipts";
 import { orderUuidFromRawBody } from "./zuppler-webhook-auth";
+import { isOrderBoxPrinterName } from "./orderbox";
 
 /** A refusal this recent may still be followed by its signed delivery. */
 const REFUSAL_GRACE_MS = 5 * 60 * 1000;
@@ -784,7 +806,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
   const admin = supabaseAdmin();
 
   const [devicesRes, inboxesRes, restaurantsRes, jobsRes] = await Promise.all([
-    admin.from("print_devices").select("id, name, is_active, last_seen_at, restaurant_id"),
+    admin.from("print_devices").select("id, name, is_active, last_seen_at, restaurant_id, printer_name, printer_status, printer_status_at"),
     admin.from("monitored_inboxes").select("id, email_address, is_active, gmail_refresh_token, gmail_last_poll_at, restaurant_id"),
     admin.from("restaurants").select("id, name, is_active, zuppler_restaurant_id, printer_expected, print_method, app_expected"),
     admin
@@ -929,6 +951,8 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
     restaurant_name: nameOf(d.restaurant_id),
     is_active: d.is_active,
     last_seen_at: d.last_seen_at,
+    printer_status: isOrderBoxPrinterName(d.printer_name) ? (d.printer_status ?? null) : null,
+    printer_status_at: d.printer_status_at ?? null,
   }));
 
   const inboxes = (inboxesRes.data ?? []).map((i: any) => ({
@@ -990,15 +1014,21 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
   const appRestaurants = restaurants.filter((r: any) => r.is_active && r.app_expected);
   const tabletsNotWatching: HealthSnapshot["tabletsNotWatching"] = [];
   const unacceptedOrders: HealthSnapshot["unacceptedOrders"] = [];
+  // 066: a restaurant with an order box acknowledges there (GOT IT), so its
+  // orders are watched the same way even without a tablet.
+  const boxRestaurantIds = new Set(
+    (devicesRes.data ?? []).filter((d: any) => d.is_active && isOrderBoxPrinterName(d.printer_name)).map((d: any) => d.restaurant_id)
+  );
+  const ackRestaurants = restaurants.filter((r: any) => r.is_active && (r.app_expected || boxRestaurantIds.has(r.id)));
 
-  if (appRestaurants.length) {
+  if (ackRestaurants.length) {
     // Customer orders only (never a test order: no customer is waiting on
     // one), still live, and within the chime window - the same six hours
     // past which the tablet itself stops asking (STILL_ACTIONABLE_MS).
     const { data: openOrders } = await admin
       .from("orders")
       .select("id, order_number, restaurant_id, received_at, due_time")
-      .in("restaurant_id", appRestaurants.map((r: any) => r.id))
+      .in("restaurant_id", ackRestaurants.map((r: any) => r.id))
       .is("accepted_at", null)
       .not("status", "in", "(cancelled,completed)")
       .neq("source", "test")
@@ -1013,6 +1043,7 @@ async function collectSnapshotInner(): Promise<HealthSnapshot> {
         restaurant_name: nameOf(o.restaurant_id),
         received_at: o.received_at,
         due_time: o.due_time ?? null,
+        on_box: boxRestaurantIds.has(o.restaurant_id) && !appRestaurants.some((r: any) => r.id === o.restaurant_id),
       });
     }
   }

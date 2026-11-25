@@ -57,6 +57,11 @@ const KITCHEN_WORDS: Record<string, Words> = {
     title: i.title,
     detail: i.order?.order_number ? `Order ${i.order.order_number} did not print. Use the order on the tablet, and reprint it from there once the printer is fixed.` : "A ticket did not print. Use the order on the tablet.",
   }),
+  // 066: the order box's paper sensor.
+  printer_paper: (i) => ({
+    title: "Printer " + i.title.replace(/^Order box /, "").replace(/: [^:]*$/, ""),
+    detail: i.severity === "warning" ? "Have a new roll of paper ready." : "Fix the printer now - the next order will not print until you do.",
+  }),
   restaurant_no_app_device: () => ({
     title: "Order notifications are off on this tablet",
     detail: 'New orders will not chime. Tap "Enable notifications" on this screen, or call Premium dispatch.',

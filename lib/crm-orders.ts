@@ -188,6 +188,12 @@ export interface OrderRowInput {
   ready_minutes?: number | null;
   ready_by?: string | null;
   ready_at?: string | null;
+  /** 066, the order box: who is coming (from the CRM's own driver push) and a kitchen refusal of an Uber Eats order. */
+  driver_name?: string | null;
+  driver_status?: string | null;
+  driver_eta_at?: string | null;
+  kitchen_denied_at?: string | null;
+  kitchen_deny_code?: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   printed_at: string | null;
@@ -236,6 +242,10 @@ export interface OrderListRow {
   ready_by: string | null;
   /** PA5: when the kitchen tapped READY; null = not yet. */
   ready_at: string | null;
+  /** 066: the driver as the CRM last pushed it ("driver" action) - the CRM compares before pushing again. */
+  driver: { name: string; status: string | null; eta_at: string | null } | null;
+  /** 066: the kitchen refused this Uber Eats order on the order box. The CRM denies it with Uber using `code`. */
+  kitchen_denied: { at: string; code: string } | null;
   completed_at: string | null;
   cancelled_at: string | null;
   printed_at: string | null;
@@ -291,6 +301,8 @@ export function shapeOrderRow(o: OrderRowInput, r: RestaurantRef, jobs: PrintJob
     ready_minutes: o.ready_minutes ?? null,
     ready_by: o.ready_by ?? null,
     ready_at: o.ready_at ?? null,
+    driver: o.driver_name ? { name: o.driver_name, status: o.driver_status ?? null, eta_at: o.driver_eta_at ?? null } : null,
+    kitchen_denied: o.kitchen_denied_at ? { at: o.kitchen_denied_at, code: o.kitchen_deny_code ?? "OTHER" } : null,
     completed_at: o.completed_at ?? null,
     cancelled_at: o.cancelled_at ?? null,
     printed_at: o.printed_at ?? null,
@@ -435,8 +447,8 @@ export function appDelivery(jobs: PrintJobRow[]): AppDelivery | null {
 }
 
 /** The action verbs the CRM may send, and what each refuses. */
-export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready" | "update" | "send_to_kitchen";
-export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready", "update", "send_to_kitchen"];
+export type OrderAction = "reprint" | "resend_app" | "resend" | "cancel" | "picked_up" | "reopen" | "set_ready" | "update" | "send_to_kitchen" | "driver";
+export const ORDER_ACTIONS: readonly OrderAction[] = ["reprint", "resend_app", "resend", "cancel", "picked_up", "reopen", "set_ready", "update", "send_to_kitchen", "driver"];
 
 /**
  * set_ready (CRM Ticket #1447, 2026-11-10): dispatch re-times ONE accepted

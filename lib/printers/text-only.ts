@@ -27,7 +27,12 @@ export function eatabitPrinterName(userAgent: string | null): string | null {
   if (!isTextOnlyPrinter(userAgent)) return null;
   // "pfd-eatabit/2.9.0"; firmware before 2.9.0 sent "pfd-eatabit 2.8.5".
   const version = (userAgent ?? "").match(/^pfd-eatabit[\/ ]([0-9][0-9A-Za-z.\-]{0,20})/)?.[1];
-  return version ? `${EATABIT_PRINTER_NAME} ${version}` : EATABIT_PRINTER_NAME;
+  const name = version ? `${EATABIT_PRINTER_NAME} ${version}` : EATABIT_PRINTER_NAME;
+  // PFD's touchscreen order box runs the same print core and says so after
+  // the version ("pfd-eatabit/1.1.0 orderbox", 2026-11-25). It keeps the
+  // Eatabit prefix so the all-text ticket and the advance-order hold still
+  // apply; health and the CRM read the suffix (lib/orderbox.ts).
+  return / orderbox\b/.test(userAgent ?? "") ? `${name} Order Box` : name;
 }
 
 export function isEatabitPrinterName(printerName: string | null | undefined): boolean {

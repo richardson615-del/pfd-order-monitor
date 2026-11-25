@@ -16,7 +16,8 @@
  * order is never shown.
  *
  * Numbers a restaurant reads:
- *  - Food sales: the items, after any discount. What the kitchen sold.
+ *  - Food sales: the items. What the kitchen sold. Discounts are PFD's promotions and not shown (DH1, Matt
+ *    2026-11-25: restaurants "only need to see numbers that apply to them").
  *  - Customers paid: the order totals, the way the customer's receipt reads.
  *  - Tax, delivery and service fees, tips: the parts of that total that are
  *    not food.
@@ -74,21 +75,19 @@ export interface SalesRange {
 
 /**
  * RS2 (Matt 2026-11-14: "The restaurants only need to see their number they are making on the tablet"): the
- * restaurant's sale on one order - its items less any discount. Not tax, fees or the tip; those are not the
+ * restaurant's sale on one order - its items. Not the discount (DH1: PFD's promotion, not the restaurant's), tax, fees or the tip; those are not the
  * restaurant's money and are what made The Depot read $3,800 one night and $2,600 the next morning for the same
  * day. Null when the order came through with no item total (emailed orders). Every money figure a restaurant
  * sees on the tablet and in the PFD Partner app is this.
  */
 export function restaurantSaleCents(o: { items_total?: number | string | null; discount?: number | string | null }): number | null {
-  const items = toCents(o.items_total);
-  if (items === null) return null;
-  return items - Math.abs(toCents(o.discount) ?? 0);
+  return toCents(o.items_total);
 }
 
 export interface SalesTotals {
   /** Orders that count (not cancelled, not test). */
   orders: number;
-  /** Food sales in cents: items_total less discount. */
+  /** Food sales in cents: items_total (DH1: the discount is PFD's, not taken off). */
   food_cents: number;
   /** What customers paid in cents: customer_total. */
   paid_cents: number;
@@ -373,7 +372,7 @@ export function salesReport(
     const discount = Math.abs(n0(toCents(o.discount)));
     totals.orders += 1;
     totals.paid_cents += n0(paid);
-    totals.food_cents += n0(toCents(o.items_total)) - discount;
+    totals.food_cents += n0(toCents(o.items_total));
     totals.discount_cents += discount;
     totals.tax_cents += n0(toCents(o.tax));
     totals.fees_cents += n0(toCents(o.delivery_fee)) + n0(toCents(o.service_fee));
@@ -422,7 +421,7 @@ export interface SalesReceipt {
   payment: string;
   cancelled: boolean;
   items: { name: string; price_cents: number | null; modifiers: string[]; unpriced: boolean }[];
-  /** RS2: items and discount only - the restaurant's side of the order. Tax, fees and tip are not shown to it. */
+  /** RS2: items only - the restaurant's side of the order. Discount (DH1), tax, fees and tip are not shown to it. */
   lines: { label: string; cents: number }[];
   paid_cents: number | null;
   /** RS2: the restaurant's sale on this order; the receipt's bottom line. */
@@ -456,7 +455,6 @@ export function salesReceipt(o: SalesOrder, timezone: string | null | undefined)
     })),
     lines: [
       line("Items", o.items_total),
-      line("Discount", o.discount, true),
     ].filter((l): l is { label: string; cents: number } => l !== null),
     paid_cents: toCents(o.customer_total),
     food_cents: restaurantSaleCents(o),
@@ -483,7 +481,6 @@ export const SALES_CSV_HEADER = [
   "Customer",
   "Items",
   "Item sales",
-  "Discount",
   "Tax",
   "Service fee",
   "Delivery fee",
@@ -510,7 +507,6 @@ export function salesCsv(orders: SalesOrder[], range: SalesRange, timezone: stri
         firstName(o.customer_name) ?? "",
         (o.items ?? []).map((it) => `${it.name}${it.price ? ` ${it.price}` : " (no price)"}`).join("; "),
         dollars(toCents(o.items_total)),
-        dollars(toCents(o.discount) === null ? null : -Math.abs(toCents(o.discount)!)),
         dollars(toCents(o.tax)),
         dollars(toCents(o.service_fee)),
         dollars(toCents(o.delivery_fee)),

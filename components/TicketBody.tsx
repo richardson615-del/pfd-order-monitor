@@ -23,11 +23,8 @@ export default function TicketBody({ order }: { order: Order }) {
   const paymentType = cateringText(order.source, order.payment_type);
   const notes = cateringText(order.source, order.notes);
   // RS2: the restaurant's side of the order only. Tax, fees and the tip are not its money; the payment line
-  // below still says whether to collect cash.
-  const money_rows: [string, string | null][] = [
-    ["Items", money(order.items_total)],
-    ["Discount", order.discount ? `−${money(Math.abs(order.discount))}` : null],
-  ];
+  // below still says whether to collect cash. DH1 (Matt 2026-11-25): no discount line - discounts are PFD's.
+  const money_rows: [string, string | null][] = [["Items", money(order.items_total)]];
   const sale = restaurantSaleCents(order);
 
   return (

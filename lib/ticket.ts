@@ -368,7 +368,8 @@ export function buildTicket(
     const f = fmt(v);
     if (f !== null) lines.push(L(pad(label, f, cols), fine));
   }
-  if (discount) lines.push(L(pad("Discount", discount, cols), fine));
+  // DH1 (Matt 2026-11-25): the discount is PFD's promotion; it no longer prints for the restaurant.
+  void discount;
   // The tip is the DRIVER's money - it prints on its own line, never buried.
   const tip = fmt(order.tip);
   if (tip !== null) lines.push(L(pad("TIP (driver)", tip, cols), { bold: true, ...fine }));

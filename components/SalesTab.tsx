@@ -88,7 +88,7 @@ export default function SalesTab({ timezone }: { timezone: string | null | undef
             <div className="money-stat">
               <span className="money-stat-label">Sales</span>
               <span className="money-stat-value num">{centsLabel(t.food_cents)}</span>
-              <span className="money-stat-sub">Your food sales, after discounts</span>
+              <span className="money-stat-sub">Your food sales</span>
             </div>
             <div className="money-stat">
               <span className="money-stat-label">Orders</span>
@@ -128,7 +128,6 @@ function SalesDetail({ report, multiDay }: { report: SalesReport; multiDay: bool
   const t = report.totals;
   // RS2: only the restaurant's own numbers. Tax, fees and tips are not its money.
   const lines: [string, string][] = [];
-  if (t.discount_cents) lines.push(["Discounts given", `-${centsLabel(t.discount_cents)}`]);
   if (t.cancelled.orders) lines.push([`Cancelled (${t.cancelled.orders})`, centsLabel(t.cancelled.food_cents)]);
   const maxDay = Math.max(1, ...report.days.map((d) => d.food_cents));
   return (

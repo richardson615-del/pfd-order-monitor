@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase-server";
+import { isOrderBoxPrinterName } from "@/lib/orderbox";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { DEFAULT_THRESHOLDS } from "@/lib/health";
 import { markPrinterExpected, resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("print_devices")
-    .select("id, name, is_active, last_seen_at, printer_name, app_version, created_at, text_scale, restaurants(id, name, ticket_text_scale)")
+    .select("id, name, is_active, last_seen_at, printer_name, app_version, created_at, text_scale, printer_status, printer_status_at, box_link, box_command, box_command_at, box_command_sent_at, box_command_done_at, box_command_result, restaurants(id, name, ticket_text_scale, box_promo), device_screens(taken_at)")
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -63,6 +64,19 @@ export async function GET(req: NextRequest) {
           d.text_scale || d.restaurants?.ticket_text_scale || "normal",
         restaurant: d.restaurants
           ? { id: d.restaurants.id, name: d.restaurants.name }
+          : null,
+        // 066: PFD's touchscreen order box only (null for every other device).
+        order_box: isOrderBoxPrinterName(d.printer_name)
+          ? {
+              printer_status: d.printer_status ?? null,
+              printer_status_at: d.printer_status_at ?? null,
+              link: d.box_link ?? null,
+              promo: d.restaurants?.box_promo ?? null,
+              command: d.box_command
+                ? { command: d.box_command, at: d.box_command_at, sent_at: d.box_command_sent_at ?? null, done_at: d.box_command_done_at ?? null, result: d.box_command_result ?? null }
+                : null,
+              screenshot_at: (Array.isArray(d.device_screens) ? d.device_screens[0]?.taken_at : d.device_screens?.taken_at) ?? null,
+            }
           : null,
       };
     }),

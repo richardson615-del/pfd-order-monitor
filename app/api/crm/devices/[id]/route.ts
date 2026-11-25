@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { markPrinterExpected, resolveOrCreateRestaurant } from "@/lib/restaurant-resolve";
 import { randomBytes } from "crypto";
+import { boxText, parseBoxCommand } from "@/lib/orderbox";
 
 export const dynamic = "force-dynamic";
 
@@ -13,13 +14,19 @@ export const dynamic = "force-dynamic";
  *   rename      { name }
  *   reassign    { restaurant_id }
  *   test_print
+ *   box_command { command: "reboot" | "screenshot" | "reprint", order_number? }
+ *               (066, PFD's order box) queued for the box's next sync, about
+ *               every 15 seconds. One at a time: a new one replaces one not
+ *               yet done. GET ./screen returns the latest screenshot.
+ *   box_promo   { text | null } the restaurant's idle-screen line on its
+ *               order box (120 characters).
  *
  * One endpoint with a named action rather than four verbs, so the CRM has a
  * single call to authorise and audit.
  */
 
 const ACTIONS = ["activate", "deactivate", "rename", "reassign", "test_print", "set_text_scale",
-  "reveal_key", "reissue_key"] as const;
+  "reveal_key", "reissue_key", "box_command", "box_promo"] as const;
 type Action = (typeof ACTIONS)[number];
 
 export async function POST(
@@ -46,6 +53,27 @@ export async function POST(
     .maybeSingle();
   if (!device) {
     return NextResponse.json({ error: "device not found" }, { status: 404 });
+  }
+
+  if (action === "box_command") {
+    const c = parseBoxCommand(body ?? {});
+    if ("error" in c) return NextResponse.json({ error: c.error, code: "invalid_command" }, { status: 400 });
+    const now = new Date().toISOString();
+    const { error } = await admin
+      .from("print_devices")
+      .update({ box_command: (c as { command: string }).command, box_command_at: now, box_command_sent_at: null, box_command_done_at: null, box_command_result: null })
+      .eq("id", device.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, command: (c as { command: string }).command, queued_at: now, note: "The box picks it up on its next sync, within about 15 seconds." });
+  }
+
+  if (action === "box_promo") {
+    const raw = body?.text;
+    if (raw != null && typeof raw !== "string") return NextResponse.json({ error: "text must be a string or null" }, { status: 400 });
+    const text = raw == null ? null : boxText(raw, 120) || null;
+    const { error } = await admin.from("restaurants").update({ box_promo: text }).eq("id", device.restaurant_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, promo: text });
   }
 
   if (action === "activate" || action === "deactivate") {

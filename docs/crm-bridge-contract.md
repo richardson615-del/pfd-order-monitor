@@ -1819,3 +1819,45 @@ Matt: "they all need to be the same but lets switch it to one hour and dispatch 
 - **`POST /api/crm/orders/:id/actions {action: "send_to_kitchen", actor}`**: dispatch sends a held order now. `{ ok, action, to: "printer" | "email", printers }`. 409 `already_sent` | `no_printer` | `zuppler_emails_it`; 404 `not_found`; 409 `order_settled` for cancelled/completed. Job `queued_by` = `advance_release:crm:<actor>`.
 - `advanceReleaseAt(order, base)` (pure) gives the release time for the CRM's "Goes to the kitchen at".
 
+
+## The order box (066, 2026-11-25)
+
+PFD's touchscreen order box prints through Server Direct Print like an Eatabit (User-Agent `pfd-eatabit/<version> orderbox`; `printer_name` becomes `PFD Eatabit <version> Order Box`, so the all-text ticket and the advance-order hold still apply). Everything its screen does goes through `POST /api/print/box` with the device key. Rules: `lib/orderbox.ts`; handlers: `lib/orderbox-server.ts`.
+
+### What the CRM sends
+
+- **Driver on the way:** `POST /api/crm/orders/:id/actions { action: "driver", driver: { name, status, eta_at } | null }`. First name only. `status` is `assigned`, `at_pickup` or `picked_up`. `eta_at` is when the driver should reach the restaurant (ISO), or null. `null` clears it. Answers `{ ok, action, changed }`; an unchanged push answers `changed: false` and writes nothing. The order feed carries what was last pushed as `driver: { name, status, eta_at } | null`, so the sync compares before pushing.
+- **Remote commands:** `POST /api/crm/devices/:id { action: "box_command", command: "reboot" | "screenshot" | "reprint", order_number? }`. One at a time; a new one replaces one not done. The box gets it on its next sync (about 15 s) and reports back; it is offered again after 5 minutes without a report and dropped after a day.
+- **Screenshot:** `GET /api/crm/devices/:id/screen` returns the latest PNG (half size), `X-Taken-At` header; 404 `no_screenshot` before the first one.
+- **Idle-screen line:** `POST /api/crm/devices/:id { action: "box_promo", text }` sets `restaurants.box_promo` (120 characters, ASCII; null clears).
+- `GET /api/crm/devices` adds `order_box: { printer_status, printer_status_at, link, promo, command, screenshot_at } | null` (null for every device that is not an order box).
+
+### What the CRM reads
+
+- **Deny (Uber Eats only):** the feed's `kitchen_denied: { at, code } | null`. `code` is one of Uber's `CAPACITY`, `ITEM_AVAILABILITY`, `STORE_CLOSED`, `OTHER`. The CRM denies the order with Uber using that code and then cancels the kitchen copy with the `cancel` action. Only an unaccepted Uber Eats order can be denied on the box.
+- **GOT IT** stamps `accepted_at` exactly as the tablet's Accept does, so the Uber accept cron and every ready-timer reader work unchanged. **READY** stamps `ready_at`; **Running late** moves `ready_by` and writes a cook-time log row (`source: tablet`, `actor: Order box`). **Busy**, **Pause** and **86** write the same rows and messages as the tablet (`author: Order box` on messages).
+- **Health:** `order_unaccepted:<order>` now also covers restaurants with an active order box (detail says GOT IT on the order box). New `printer_paper:<device>`: warning for paper low, critical for out of paper / cover open; it also shows on the kitchen tablet.
+
+### The box's own protocol (for reference)
+
+Form fields `ID=<key>&Action=<action>`. Reply: `key=value` lines, `ok=1|0` first, `error=` with words the box shows as they are.
+
+| Action | Fields | Does |
+|---|---|---|
+| Sync | | `now`, `name`, `prep`, `busy`, `paused`, `unread`, `today` (orders, sales cents, avg cents, top item), `promo`, `cmd` when queued, `msg` x3, `o` x30 |
+| Ack | Order, Minutes? | Accept (GOT IT) |
+| Ready | Order | READY |
+| Late | Order, Add=5/10 | Running late |
+| Prep | Order, Minutes | Accept with minutes, or re-time |
+| Busy | Add, For / End=1 | Busy boost |
+| Pause | For=15/30/60/120/today / End=1 | Pause online orders |
+| Msg | Kind, Order? | Quick message to dispatch |
+| Read | | Mark dispatch replies read |
+| Menu / Item86 | Ref, Out=1/0 | 86 for the rest of today, or back on |
+| Deny | Order, Code | Refuse an Uber Eats order |
+| Health | Printer, Link | Paper / cover status, WiFi or backup link |
+| Done | Cmd, Result | A remote command finished |
+| Reprint | Order | Queue the order to the restaurant's printers |
+| Shot | W, H in the query; RLE RGB565 body | Screenshot |
+
+`o=` fields: `id|number|source|type|status|accepted|ready_by|ready_at|driver|driver_status|driver_eta|denied|customer|items|received|due` (times are epoch seconds, 0 = none).

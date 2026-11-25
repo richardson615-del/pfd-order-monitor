@@ -154,7 +154,7 @@ test("the query window has a day of slack either side", () => {
 });
 
 console.log("the report:");
-test("adds up in cents: food after discount, what customers paid, tax, fees, tips, average", () => {
+test("adds up in cents: food (no discount taken off, DH1), what customers paid, tax, fees, tips, average", () => {
   const r = salesReport(
     [
       order({ received_at: "2026-10-27T17:00:00Z" }),
@@ -177,16 +177,16 @@ test("adds up in cents: food after discount, what customers paid, tax, fees, tip
     TZ
   );
   assert.equal(r.totals.orders, 2);
-  assert.equal(r.totals.food_cents, 1450 + 1800);
+  assert.equal(r.totals.food_cents, 1450 + 2000);
   assert.equal(r.totals.paid_cents, 1891 + 2779);
   assert.equal(r.totals.tax_cents, 141 + 180);
   assert.equal(r.totals.fees_cents, 100 + 499);
   assert.equal(r.totals.tip_cents, 200 + 300);
   assert.equal(r.totals.discount_cents, 200);
-  assert.equal(r.totals.average_cents, Math.round((1450 + 1800) / 2), "RS2: the average is of the restaurant's own sales");
-  assert.deepEqual(r.rows.map((x) => x.food_cents), [1800, 1450], "each row carries the restaurant's sale");
-  assert.deepEqual(r.days.map((d) => d.food_cents), [1450 + 1800]);
-  assert.deepEqual(r.channels.map((c) => c.food_cents), [1800, 1450]);
+  assert.equal(r.totals.average_cents, Math.round((1450 + 2000) / 2), "RS2: the average is of the restaurant's own sales");
+  assert.deepEqual(r.rows.map((x) => x.food_cents), [2000, 1450], "each row carries the restaurant's sale");
+  assert.deepEqual(r.days.map((d) => d.food_cents), [1450 + 2000]);
+  assert.deepEqual(r.channels.map((c) => c.food_cents), [2000, 1450]);
   assert.deepEqual(r.channels.map((c) => c.label), ["Phone", "Online"]);
   assert.deepEqual(r.payments.map((c) => [c.label, c.orders]), [["Cash", 1], ["Card", 1]]);
   assert.equal(r.days.length, 1);
@@ -239,14 +239,14 @@ test("rows carry the first name only, never a phone or address", () => {
 });
 
 console.log("the receipt:");
-test("RS2: the restaurant's sale is items less discount; unknown when the order has no item total", () => {
-  assert.equal(restaurantSaleCents({ items_total: 20, discount: 2 }), 1800);
-  assert.equal(restaurantSaleCents({ items_total: 20, discount: -2 }), 1800, "a discount stored negative still comes off");
+test("RS2/DH1: the restaurant's sale is its items, no discount taken off; unknown when the order has no item total", () => {
+  assert.equal(restaurantSaleCents({ items_total: 20, discount: 2 }), 2000);
+  assert.equal(restaurantSaleCents({ items_total: 20, discount: -2 }), 2000);
   assert.equal(restaurantSaleCents({ items_total: "14.50", discount: null }), 1450);
   assert.equal(restaurantSaleCents({ items_total: null, discount: 1 }), null);
 });
 
-test("items with prices, the unpriced one marked, lines without zeros, discount negative", () => {
+test("items with prices, the unpriced one marked, lines without zeros, no discount line (DH1)", () => {
   const rc = salesReceipt(
     order({
       items: [
@@ -264,9 +264,8 @@ test("items with prices, the unpriced one marked, lines without zeros, discount 
   ]);
   assert.deepEqual(rc.lines.map((l) => [l.label, l.cents]), [
     ["Items", 1450],
-    ["Discount", -150],
-  ], "RS2: the restaurant's side only - no tax, fees or tip");
-  assert.equal(rc.food_cents, 1300, "the bottom line is the restaurant's sale");
+  ], "RS2/DH1: the restaurant's side only - no discount, tax, fees or tip");
+  assert.equal(rc.food_cents, 1450, "the bottom line is the restaurant's sale");
   assert.equal(rc.payment, "Card");
   assert.deepEqual(rc.checks, ["No price on Banana Pudding"]);
 });
@@ -290,7 +289,7 @@ test("one line per order, oldest first, cancelled marked, unpriced items named, 
   );
   const lines = csv.trim().split("\r\n");
   assert.equal(lines.length, 3);
-  assert.ok(lines[0].startsWith("Date,Time,Order,Channel,Type,Customer,Items,Item sales,Discount,Tax"));
+  assert.ok(lines[0].startsWith("Date,Time,Order,Channel,Type,Customer,Items,Item sales,Tax"));
   assert.ok(lines[1].includes("12:00 PM") && lines[1].includes("Cancelled"));
   assert.ok(lines[2].includes("Ribs (no price)") && lines[2].includes("No price on Ribs"));
   assert.ok(!csv.includes("Bogdan"));

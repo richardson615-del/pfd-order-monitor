@@ -1,6 +1,6 @@
-# PFD Order Box firmware 1.1.0 (Waveshare ESP32-S3-Touch-LCD-7 + Eatabit EP-300 printer)
+# PFD Order Box firmware 1.1.1 (Waveshare ESP32-S3-Touch-LCD-7 + Eatabit EP-300 printer)
 
-**Status:** 1.1.0 builds, and every screen and its logic are tested on a computer (below). It has not run on a real board yet. On first boot, check the picture timing, the touch direction and the sound pin.
+**Status:** 1.1.1 builds, and every screen and its logic are tested on a computer (below). It has not run on a real board yet. On first boot, check the picture timing, the touch direction and the sound pin.
 
 ## What the box does
 - **New order:** the ticket prints and the edge of the screen glows. The box beeps until someone taps **GOT IT**, which accepts the order at the restaurant's prep time (busy time included). Uber Eats orders show **ACCEPT** / **Deny** instead. Deny asks for a reason (too busy, item out, closing, other), then the CRM refuses the order with Uber.
@@ -25,10 +25,10 @@
 - **Printer paper:** the box reads the EP-300 paper sensor every minute. Low paper or out of paper shows on the screen, in the CRM and on the tablet. With a speaker it also says so.
 - **Remote tools (CRM Equipment, the device page):** reboot, screenshot (shown on that page) and reprint an order by number.
 - **Backup internet:** enter a hotspot or LTE router on the settings page. If the store WiFi is down for a minute, the box switches to the backup, and switches back when the store WiFi returns.
-- **Speaker (optional):** set Sound to Speaker on the settings page. The box then says new orders out loud ("New order. Order 42, 3 items. Delivery."), when the driver arrives, and paper problems. `voice-preview.wav` is a sample. The voice is espeak and sounds robotic; a better voice can be dropped in later (`tools/make_voice.py`).
+- **Speaker (optional):** set Sound to Speaker on the settings page. The box then says new orders out loud ("New order. Order 42, 3 items. Delivery."), when the driver arrives, and paper problems. `voice-preview.mp3` is a sample. The voice is ElevenLabs "Bella" (Multilingual v2), generated on PFD's ElevenLabs account; the takes are in the source under `tools/voice/` and `tools/make_voice.py` rebuilds the clips.
 
 ## Flashing (first time, USB)
-- Flash `pfd-orderbox-1.1.0-full.bin` at **0x0**. Hold BOOT, tap RESET, release BOOT, then Connect in the web flasher.
+- Flash `pfd-orderbox-1.1.1-full.bin` at **0x0**. Hold BOOT, tap RESET, release BOOT, then Connect in the web flasher.
 - After that, it updates itself (Product=orderbox on /api/print/firmware). Releases go in pfd-order-monitor `public/firmware/orderbox/` and `lib/printers/orderbox-firmware-plan.json`.
 
 ## Wiring

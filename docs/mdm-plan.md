@@ -78,7 +78,7 @@ Consequence for the app (PR `fix/kiosk-alert-copy`): the gate's `blocked` state 
 The same three lines as `docs/kiosk.md` "What the Hexnode policy must set"; the app and the CRM assume all three:
 
 1. **Required App** — `com.pfdworks.orders` from the uploaded enterprise APK, required, silent install + update.
-2. **App Configuration** — key `device_ref`, value `%serialnumber%` (payload in `docs/hexnode-app-config.json`). This is what makes a tablet boot into its restaurant with nothing typed: the CRM's `tablets.serial` comes from the Hexnode device record (D2 sync), the CRM pushes `serial → restaurant` to the bridge, and the shell hands the same serial to the page.
+2. **App Configuration** — key `device_ref`, value `%serialnumber%` (payload in `docs/hexnode-app-config.json`). This is what makes a tablet boot into its restaurant with nothing typed: the CRM's `tablets.serial` comes from the Hexnode device record (D2 sync), the CRM pushes `serial → restaurant` to the bridge, and the shell hands the same serial to the page. From shell code 6 a second key, `device_secret`, carries that tablet's own secret (SH1; `docs/kiosk.md` "Device secret").
 3. **App Permission** — Send push notifications: **Allow**.
 
 ## 5. Facts not verified (UNKNOWN)

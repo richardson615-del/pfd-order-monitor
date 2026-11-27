@@ -18,6 +18,8 @@
   <!-- Managed app configuration (res/xml/app_restrictions.xml). Shown in the MDM console, never to the restaurant. -->
   <string name="device_ref_title">Device reference</string>
   <string name="device_ref_description">The tablet\'s serial number, as recorded in the Premium CRM. Binds this tablet to its restaurant.</string>
+  <string name="device_secret_title">Device secret</string>
+  <string name="device_secret_description">This tablet\'s own secret, from the Premium CRM Devices console (shown there once). Proves the tablet is the one with this serial. Leave empty if none was issued.</string>
 
   
 

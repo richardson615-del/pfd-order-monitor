@@ -38,7 +38,7 @@ prs-crm ──── Hexnode API (HEXNODE_PORTAL + HEXNODE_API_KEY, every 10 min
 | Rules file | `README.md` (+ `docs/release-checklist.md`) | `CLAUDE.md` (long; binding) |
 | Migrations | `db/migrations/NNN_*.sql`, idempotent, applied by `migrate.mjs` on deploy (direct apply allowed when Nick says so), listed in `lib/schema-check.ts` `REQUIRED_SCHEMA` | `migrations/NNNN_*.sql`, sequential, run on deploy; `migrations/seeds/` is **prod data** |
 | Tests | `npm test` = `tsx scripts/test-*.ts` (pure, no DB) | `npm test` (vitest), `npm run typecheck`, `npm run lint` |
-| Android shell | `android/` (Bubblewrap TWA `com.pfdworks.orders`, key at `C:\Users\richa\OneDrive\pfd-app-signing\`) — rebuild only for icon/name/startUrl/managed-config changes; Hexnode pushes it. Current: 1.3.0 / code 5 | — |
+| Android shell | `android/` (Bubblewrap TWA `com.pfdworks.orders`, key at `C:\Users\richa\OneDrive\pfd-app-signing\`) — rebuild only for icon/name/startUrl/managed-config changes; Hexnode pushes it. On tablets: 1.3.0 / code 5. In source: 1.4.0 / code 6 (reads the `device_secret` managed-config key, SH1) — not built or pushed yet | — |
 | Do not touch | ingest fate-sharing, `lib/canonical.ts` `orderDestinations()`, `orders.status` semantics, `lib/usernames.ts` domain, `/api/crm/*` shapes without a contract update | live dispatch tables, bridge shapes, Supabase Auth config, `.env*`, `migrations/seeds/*`, `.claude/settings.json` |
 
 ## 3. How changes ship (both repos)

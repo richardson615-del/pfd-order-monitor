@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorizeCrmWrite } from "@/lib/crm-auth";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { resolveRestaurantIds } from "@/lib/restaurant-ref";
-import { parseBindings } from "@/lib/device-binding";
+import { parseBindings, secretsEndedByBind } from "@/lib/device-binding";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,12 @@ export const dynamic = "force-dynamic";
  *
  * A restaurant id the bridge does not know is refused for that entry and
  * named in the response; the rest still land.
+ *
+ * Device secrets (SH1, migration 067): a push that leaves a tablet on the
+ * same restaurant touches nothing. One that moves or unassigns an `aid:`
+ * tablet clears its secret_hash first - that secret was issued for the old
+ * restaurant - and a Hexnode serial keeps its own (the rule and the reasons:
+ * secretsEndedByBind in lib/device-binding.ts). `secrets_cleared` counts them.
  */
 export async function POST(req: NextRequest) {
   const denied = authorizeCrmWrite(req);
@@ -59,6 +65,24 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Before the bindings land, never after: if this fails the call fails
+  // with the old bindings intact, and a secret cleared without its move is
+  // only a tablet that has to be linked by code - the safe side to fail on.
+  let secretsCleared = 0;
+  if (rows.length) {
+    const held = await rowsHoldingSecrets(admin);
+    if ("error" in held) return NextResponse.json({ error: held.error }, { status: 500 });
+    const ended = secretsEndedByBind(held.rows, rows);
+    for (let i = 0; i < ended.length; i += 100) {
+      const { error } = await admin
+        .from("kiosk_devices")
+        .update({ secret_hash: null, updated_at: nowIso })
+        .in("device_ref", ended.slice(i, i + 100));
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    secretsCleared = ended.length;
+  }
+
   if (rows.length) {
     const { error } = await admin.from("kiosk_devices").upsert(rows, { onConflict: "device_ref" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -69,5 +93,38 @@ export async function POST(req: NextRequest) {
     bound: rows.filter((r) => r.restaurant_id).length,
     unbound: rows.filter((r) => !r.restaurant_id).length,
     unknown_restaurants,
+    secrets_cleared: secretsCleared,
   });
+}
+
+/**
+ * Every row that holds a device secret: reference and current restaurant,
+ * never the hash. Read whole (a fleet is hundreds of rows, and the CRM's
+ * full-map push can name two thousand references - too many for one filter).
+ *
+ * "The column does not exist" (067 not applied yet) is an empty list, not a
+ * failure: no row can hold a secret, and binding must keep working. Any
+ * other error stops the call - guessing "nothing to clear" would let a
+ * moved tablet keep a secret it should have lost.
+ */
+async function rowsHoldingSecrets(
+  admin: ReturnType<typeof supabaseAdmin>
+): Promise<{ rows: { device_ref: string; restaurant_id: string | null }[] } | { error: string }> {
+  const out: { device_ref: string; restaurant_id: string | null }[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from("kiosk_devices")
+      .select("device_ref, restaurant_id")
+      .not("secret_hash", "is", null)
+      .order("device_ref")
+      .range(from, from + PAGE - 1);
+    if (error) {
+      if (error.code === "42703" && /secret_hash/.test(error.message ?? "")) return { rows: [] };
+      return { error: error.message };
+    }
+    const page = (data ?? []) as { device_ref: string; restaurant_id: string | null }[];
+    out.push(...page);
+    if (page.length < PAGE) return { rows: out };
+  }
 }

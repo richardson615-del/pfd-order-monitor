@@ -63,6 +63,7 @@ test("no heartbeat row: every derived field is null or false, the counts are rea
     alert_reason: null,
     alert_raised_at: null,
     alert_raised_reason: null,
+    sound_ok: null,
     push_subscriptions: 2,
     shell_version: null,
     display_mode: "kitchen",
@@ -165,6 +166,23 @@ test("why the gate went up comes through as the code, and anything else is null 
   assert.equal(odd.alert_reason, null);
   assert.equal(odd.alert_raised_reason, null);
   assert.equal(odd.alert_raised_at, null);
+});
+
+test("HP1: sound_ok comes through as the screen said it - true, false, or null when it did not say (068)", () => {
+  // false = the screen is showing "Tap to turn on order sound". Beside
+  // alert_state, never instead of it: a blocked tablet can also be silent.
+  const beat = (hb: Record<string, unknown>) => tabletStatus({ expected: true, displayMode: "kitchen", heartbeat: { last_seen_at: ago(0), ...hb }, pushSubscriptions: 1, now: NOW });
+  assert.equal(beat({ sound_ok: false }).sound_ok, false);
+  assert.equal(beat({ sound_ok: true }).sound_ok, true);
+  assert.equal(beat({}).sound_ok, null, "an older screen that never sends it is 'no data', not 'sound off'");
+  assert.equal(beat({ sound_ok: "false" }).sound_ok, null);
+  const both = beat({ sound_ok: false, alert_state: "blocked", push_subscribed: false });
+  assert.equal(both.alert_state, "blocked", "alert_state is untouched by it");
+  assert.equal(both.sound_ok, false);
+  assert.match(src("lib/crm-roster.ts"), /alert_raised_at, alert_raised_reason, sound_ok"/);
+  const doc = src("docs/crm-bridge-contract.md");
+  assert.match(doc, /"sound_ok": true\|false\|null/);
+  assert.match(doc, /It is \*\*not\*\* a new `alert_state`\s+value on purpose/);
 });
 
 test("not expected is still reported truthfully, not blanked", () => {

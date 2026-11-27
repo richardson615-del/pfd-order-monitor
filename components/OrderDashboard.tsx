@@ -34,16 +34,30 @@ import {
 } from "@/lib/app-update";
 import AppNav, { type TabKey, type NavTab } from "@/components/AppNav";
 import { SCREEN_ROLE_KEY, screenRole, type ScreenRole } from "@/lib/screen-role";
-import { armAudio, isAudioArmed, playNewOrderAlert, playOvertimeTone } from "@/lib/sound";
+import { armAudio, isAudioArmed, onAudioStateChange, playChime, playNewOrderAlert, playOvertimeTone } from "@/lib/sound";
 import { heroSummary, kitchenSort, newlyOver } from "@/lib/countdown";
 import {
   POLL_ONLY_MS,
   SW_ORDER_MESSAGE,
+  SYNC_TIMEOUT_MS,
   advanceCursor,
   mergeOrders,
+  ordersListView,
   pollConnection,
+  pollOverdue,
   realtimeOrdersEnabled,
+  sessionProbeResult,
+  sessionVerdict,
+  shouldResync,
+  signInPath,
+  syncFailureKind,
+  syncFailureText,
   syncPlan,
+  syncRetryDelayMs,
+  withTimeout,
+  type SessionProbe,
+  type SessionRead,
+  type SyncFailure,
 } from "@/lib/order-sync";
 import {
   Connection,
@@ -75,8 +89,11 @@ export default function OrderDashboard({
   restaurantName,
   timezone,
   prepMinutes: initialPrepMinutes,
+  initialOrdersOk = true,
 }: {
   initialOrders: Order[];
+  /** HP1: false when the server's own first read of the orders failed - an empty list is then "not known", not "no orders". */
+  initialOrdersOk?: boolean;
   restaurantId: string;
   /** kitchen or standard, from the restaurant's own setting. */
   mode: DisplayMode;
@@ -149,7 +166,18 @@ export default function OrderDashboard({
   }, []);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [soundArmed, setSoundArmed] = useState(true); // assume ok until checked
+  // HP1: whether the sound check has answered yet, so the heartbeat reports what was seen and never the assumption above.
+  const [soundChecked, setSoundChecked] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  /**
+   * HP1 (Tickets #1909, #1078). What the last failed sync was, for the strip;
+   * whether the list on screen is a real answer (an empty list is only "no
+   * orders" when it is); and whether the server has said this screen is
+   * signed out, which sends it to sign-in. See lib/order-sync.ts.
+   */
+  const [syncFailure, setSyncFailure] = useState<SyncFailure | null>(null);
+  const [listConfirmed, setListConfirmed] = useState(initialOrdersOk);
+  const [signedOut, setSignedOut] = useState(false);
   /**
    * When the office last heard from this screen, and whether this browser has
    * a push subscription. Both feed the status pill. null means NOT YET KNOWN,
@@ -326,26 +354,88 @@ export default function OrderDashboard({
   const lastFullAtRef = useRef<number | null>(Date.now());
   const pollFailuresRef = useRef(0);
   const pollEverOkRef = useRef(false);
-  const sync = useCallback(
-    async (force: "full" | null = null) => {
+  // HP1: when a sync last STARTED (for the focus/online triggers and the
+  // watchdog), the backoff retry's timer, one-sync-at-a-time, and whether
+  // this screen is already on its way to sign-in.
+  const lastAttemptRef = useRef<number | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncBusyRef = useRef(false);
+  const syncQueuedRef = useRef<"full" | "any" | null>(null);
+  const leavingRef = useRef(false);
+  const roleRef = useRef<ScreenRole | null>(null);
+  roleRef.current = role;
+
+  const failSync = useCallback((failure: SyncFailure) => {
+    // One blip is not an outage; two in a row and the screen must stop
+    // claiming it can receive orders. The next successful poll is a
+    // full one, so nothing that changed during the gap is skipped.
+    pollFailuresRef.current += 1;
+    lastFullAtRef.current = null;
+    setSyncFailure(failure);
+    if (!realtimeOrdersEnabled()) setConnection(pollConnection({ everSucceeded: pollEverOkRef.current, failures: pollFailuresRef.current }));
+  }, []);
+
+  /**
+   * The server says nobody is signed in on this browser. Say so and go
+   * where the middleware would send a reload: /link, which signs a Hexnode
+   * kiosk back in by itself (bootstrap by device reference) and shows a
+   * link code on any other tablet. Never an empty order list.
+   */
+  const goSignIn = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    setSignedOut(true);
+    window.setTimeout(() => window.location.assign(signInPath(roleRef.current)), 1_500);
+  }, []);
+
+  const syncOnce = useCallback(
+    async (force: "full" | null) => {
       const supabase = supabaseBrowser();
       const now = Date.now();
+      lastAttemptRef.current = now;
+      const online = typeof navigator === "undefined" || navigator.onLine !== false;
+
+      // Whose answer would this be? Without a session the database answers
+      // anybody with "no rows" and no error, which is how a signed-out
+      // screen came to show an empty list under "Live".
+      const browser = await readBrowserSession();
+      let verdict = sessionVerdict(browser);
+      if (verdict === "probe") verdict = sessionVerdict(browser, await probeSession());
+      if (verdict === "sign_in") return goSignIn();
+      if (verdict === "retry") return failSync({ kind: "network" });
+
       const mode = force ?? syncPlan({ cursor: cursorRef.current, lastFullAt: lastFullAtRef.current, now });
-      let query = supabase.from("orders").select("*").eq("restaurant_id", restaurantId);
-      if (mode === "incremental") query = query.gt("updated_at", cursorRef.current as string).order("updated_at", { ascending: true });
-      else query = query.order("received_at", { ascending: false });
-      const { data, error } = await query.limit(200);
+      const read = async () => {
+        let query = supabase.from("orders").select("*").eq("restaurant_id", restaurantId);
+        if (mode === "incremental") query = query.gt("updated_at", cursorRef.current as string).order("updated_at", { ascending: true });
+        else query = query.order("received_at", { ascending: false });
+        // A read that never comes back is a failed read, not a wait.
+        const abort = new AbortController();
+        const timer = setTimeout(() => abort.abort(), SYNC_TIMEOUT_MS);
+        try {
+          return await query.limit(200).abortSignal(abort.signal);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      let res = await read();
+      if (res.error && syncFailureKind({ ...res.error, status: res.status }, online) === "auth") {
+        // The token was refused (401): refresh it and ask once more. If it
+        // cannot be refreshed and the server agrees nobody is signed in,
+        // that is a signed-out screen, not a broken connection.
+        const refreshed = await withTimeout(supabase.auth.refreshSession(), SYNC_TIMEOUT_MS, null);
+        if (refreshed && !refreshed.error && refreshed.data.session) res = await read();
+        else if ((await probeSession()) === "signed_out") return goSignIn();
+      }
+      const { data, error } = res;
       if (error || !data) {
-        // One blip is not an outage; two in a row and the screen must stop
-        // claiming it can receive orders. The next successful poll is a
-        // full one, so nothing that changed during the gap is skipped.
-        pollFailuresRef.current += 1;
-        lastFullAtRef.current = null;
-        if (!realtimeOrdersEnabled()) setConnection(pollConnection({ everSucceeded: pollEverOkRef.current, failures: pollFailuresRef.current }));
+        failSync({ kind: syncFailureKind({ ...error, status: res.status }, online), status: res.status || null });
         return;
       }
       pollFailuresRef.current = 0;
       pollEverOkRef.current = true;
+      setSyncFailure(null);
+      setListConfirmed(true);
       const rows = data as Order[];
       if (mode === "full") {
         setOrders(rows);
@@ -357,7 +447,52 @@ export default function OrderDashboard({
       setLastSyncAt(Date.now());
       if (!realtimeOrdersEnabled()) setConnection(pollConnection({ everSucceeded: true, failures: 0 }));
     },
-    [restaurantId]
+    [restaurantId, failSync, goSignIn]
+  );
+
+  /**
+   * The one way a sync is started. One at a time - a second ask while one
+   * is running is remembered and run straight after, so a slow full pull
+   * can never land on top of a newer answer. A failure is retried on a
+   * backoff (about 3 s, 6 s, 12 s); after that the ordinary poll below,
+   * which runs every 15 s while the feed is down, is the retry.
+   */
+  const syncRef = useRef<(force?: "full" | null) => Promise<void>>();
+  const sync = useCallback(
+    async (force: "full" | null = null) => {
+      if (leavingRef.current) return;
+      if (syncBusyRef.current) {
+        syncQueuedRef.current = force === "full" || syncQueuedRef.current === "full" ? "full" : "any";
+        return;
+      }
+      syncBusyRef.current = true;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+      let next: "full" | null = force;
+      for (;;) {
+        try {
+          await syncOnce(next);
+        } catch {
+          // Anything thrown on the way is a failed sync like any other.
+          failSync({ kind: "network" });
+        }
+        const queued = syncQueuedRef.current;
+        syncQueuedRef.current = null;
+        if (!queued || leavingRef.current) break;
+        next = queued === "full" ? "full" : null;
+      }
+      syncBusyRef.current = false;
+      const wait = syncRetryDelayMs(pollFailuresRef.current);
+      if (wait !== null && !leavingRef.current) retryTimerRef.current = setTimeout(() => void syncRef.current?.(), wait);
+    },
+    [syncOnce, failSync]
+  );
+  syncRef.current = sync;
+  useEffect(
+    () => () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    },
+    []
   );
 
   // One sync straight away. With Realtime off the poll is what says
@@ -390,6 +525,33 @@ export default function OrderDashboard({
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [sync]);
+
+  // HP1 (Ticket #1078): the other moments the list is behind and nothing
+  // used to say so. The network came back; the window got the focus again;
+  // the page was restored from the browser's back/forward cache. And a
+  // watchdog: if no sync has even started for three polls - a timer chain
+  // the browser froze or dropped - start one.
+  useEffect(() => {
+    const onOnline = () => void sync("full");
+    const onFocus = () => {
+      if (shouldResync(lastAttemptRef.current, Date.now())) void sync("full");
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void sync("full");
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow);
+    const watchdog = setInterval(() => {
+      if (document.visibilityState === "visible" && pollOverdue(lastAttemptRef.current, Date.now())) void sync();
+    }, 5_000);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onPageShow);
+      clearInterval(watchdog);
+    };
   }, [sync]);
 
   // --- Realtime, opt-in, with its status actually observed -----------------
@@ -467,11 +629,16 @@ export default function OrderDashboard({
   // Any touch anywhere counts, so the first person to walk past and prod the
   // screen fixes it - which is the only thing that will happen on a tablet
   // that rebooted overnight with nobody watching.
+  // What the screen currently believes about sound, for the five-second look below.
+  const soundSeenRef = useRef(true);
+  soundSeenRef.current = soundArmed;
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
       const ok = await armAudio();
-      if (!cancelled) setSoundArmed(ok);
+      if (cancelled) return;
+      setSoundArmed(ok);
+      setSoundChecked(true);
     };
     void check();
 
@@ -481,12 +648,42 @@ export default function OrderDashboard({
     // Android suspends the context when the kiosk is backgrounded; coming back
     // to the foreground needs it resumed or the next order arrives in silence.
     document.addEventListener("visibilitychange", onGesture);
+
+    // HP1 (Ticket #1078): sound that was on can be switched off later by the
+    // browser - the tab was in the background, another app took the audio -
+    // and nothing here used to look again until the next touch, so the chime
+    // played into nothing with no warning on screen. The context says when
+    // its state changes; a five-second look covers a browser that does not.
+    // One quiet try to resume (allowed once the page has been touched); if
+    // that does not take, the bar goes up.
+    let lastQuietTry = 0;
+    const seen = (armed: boolean) => {
+      if (cancelled) return;
+      setSoundArmed(armed);
+      if (!armed && document.visibilityState === "visible" && Date.now() - lastQuietTry > 10_000) {
+        lastQuietTry = Date.now();
+        void check();
+      }
+    };
+    const unsubscribe = onAudioStateChange(seen);
+    const watch = setInterval(() => {
+      if (isAudioArmed() !== soundSeenRef.current) seen(isAudioArmed());
+    }, 5_000);
     return () => {
       cancelled = true;
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
       document.removeEventListener("visibilitychange", onGesture);
+      unsubscribe();
+      clearInterval(watch);
     };
+  }, []);
+  /** The bar's own tap: arm the sound and play the chime once, so the room hears that it worked. */
+  const turnSoundOn = useCallback(async () => {
+    const ok = await armAudio();
+    setSoundArmed(ok);
+    setSoundChecked(true);
+    if (ok) playChime();
   }, []);
 
   // --- Say that a signed-in screen is actually open --------------------------
@@ -520,6 +717,9 @@ export default function OrderDashboard({
           alertReason,
           alertRaisedAt: alertRaise?.at ?? null,
           alertRaisedReason: alertRaise?.reason ?? null,
+          // HP1: whether this screen's order sound can play right now. null
+          // until the check has answered - never the "assume ok" default.
+          soundOk: soundChecked ? soundArmed : null,
           // Which tablet this is, so the bridge can say the office moved it.
           deviceRef: readDeviceRefCache(),
           remote: role === "remote", // lib/screen-role.ts: answered, never recorded
@@ -529,6 +729,12 @@ export default function OrderDashboard({
           // 429 is the server saying "you beat less than a minute ago and I
           // still have it" - which is exactly a live heartbeat, not a failed one.
           if (res.ok || res.status === 429) setHeartbeatOkAt(Date.now());
+          // HP1: the server does not see a signed-in user. Refresh the
+          // session and sync - the sync asks the server again and goes to
+          // sign-in only if both agree the session is gone.
+          if (res.status === 401) {
+            void withTimeout(supabaseBrowser().auth.refreshSession(), SYNC_TIMEOUT_MS, null).then(() => syncRef.current?.());
+          }
           // The beat answers with what deployment is serving. This is the
           // version check: one request on a cadence that already exists,
           // rather than a second one on the same cadence.
@@ -566,7 +772,7 @@ export default function OrderDashboard({
     // Re-run when the subscription answer changes: with [] this closure would
     // capture the first value (null, before AlertGate has looked) and report
     // it for the life of the tab.
-  }, [pushSubscribed, shellVersion, alertState, alertReason, alertRaise, role]);
+  }, [pushSubscribed, shellVersion, alertState, alertReason, alertRaise, role, soundArmed, soundChecked]);
 
   // The push subscription is read and repaired by AlertGate, which owns that
   // question - it reports the answer here through onSubscribedChange so the
@@ -761,6 +967,7 @@ export default function OrderDashboard({
     else setOfflineSince(null);
   }, [live.level]);
   const offline = live.level === "offline";
+  const listView = ordersListView({ count: kitchen.length, confirmed: listConfirmed, offline });
 
   // The tab a restaurant sees on the wall all day. Naming the restaurant
   // means a tablet showing the wrong one is obvious at a glance rather than
@@ -800,9 +1007,29 @@ export default function OrderDashboard({
 
       {/* Offline has its own strip below, with the button that fixes it; the
           generic banner keeps only the sound case, which outranks it. */}
-      {warning && (!offline || !soundArmed) && (
+      {/* HP1: sound is its own bar, full width, and a button - the tap on it
+          is the touch the browser needs before it will play anything. */}
+      {!soundArmed && (
+        <button type="button" className="kiosk-banner kiosk-critical sound-bar" role="alert" onClick={() => void turnSoundOn()}>
+          Tap to turn on order sound
+        </button>
+      )}
+      {warning && soundArmed && !offline && (
         <div className={`kiosk-banner kiosk-${warning.level}`} role="status">
           {warning.text}
+        </div>
+      )}
+
+      {/* HP1: the server says nobody is signed in here. Never an empty order
+          list - say so, and go to sign-in (goSignIn, above). */}
+      {signedOut && (
+        <div className="alert-gate" role="alert">
+          <div className="alert-gate-inner">
+            <Brand size="md" onLight />
+            <p className="alert-gate-restaurant">{restaurantName}</p>
+            <h1>This screen was signed out</h1>
+            <p>Orders are not showing here until it is signed in again. Taking you to sign-in…</p>
+          </div>
         </div>
       )}
 
@@ -816,6 +1043,13 @@ export default function OrderDashboard({
       {offline && (
         <div className="offline-strip" role="alert">
           <span className="offline-text">{offlineNotice(offlineSince ? clockLabel(offlineSince, timezone) : null)}</span>
+          {/* HP1: what actually failed, and a way to try now instead of
+              refreshing the page (a refresh with no network lands on the
+              browser's "Not connected" page and loses the list). */}
+          <span className="offline-why">{syncFailureText(syncFailure)} Trying again by itself.</span>
+          <button type="button" className="btn small offline-retry" onClick={() => void sync("full")}>
+            Try again now
+          </button>
           {/* The kiosk's control, not ours. Hexnode draws the Wi-Fi button;
               this app never does. */}
           <span className="offline-hint">{KIOSK_WIFI_HINT}</span>
@@ -920,16 +1154,25 @@ export default function OrderDashboard({
                   </>
                 )}
               </>
-            ) : (
+            ) : listView === "empty" ? (
               <>
                 <span className="app-hero-check" aria-hidden="true">✓</span> All clear
               </>
+            ) : (
+              <>Orders are not showing right now</>
             )}
           </div>
 
           <div className={`app-list${offline ? " offline" : ""}`}>
-            {kitchen.length === 0 && (
+            {/* HP1: "Nothing in the kitchen" only when the server really
+                answered with no orders. Otherwise this screen does not know. */}
+            {listView === "empty" && (
               <div className="app-empty">Nothing in the kitchen. New orders show here and ring until they&apos;re accepted.</div>
+            )}
+            {listView === "unconfirmed" && (
+              <div className="app-empty unconfirmed" role="alert">
+                This screen cannot show orders right now. {syncFailureText(syncFailure)} It keeps trying by itself.
+              </div>
             )}
             {kitchen.map((order, i) => (
               <Fragment key={order.id}>
@@ -990,6 +1233,27 @@ export default function OrderDashboard({
  * this is and signs in as the new restaurant. Leaves for /link even when
  * the sign-out call fails - the boot screen is where the tablet must be.
  */
+/** HP1: what the browser's own session store says, inside a time limit. An error or a timeout is "unknown", never "absent". */
+async function readBrowserSession(): Promise<SessionRead> {
+  const res = await withTimeout(supabaseBrowser().auth.getSession(), SYNC_TIMEOUT_MS, null);
+  if (!res || res.error) return "unknown";
+  return res.data.session ? "present" : "absent";
+}
+
+/** HP1: ask the server whether it sees a signed-in user on this browser (GET /api/dashboard/session). Only a 401 is "signed out". */
+async function probeSession(): Promise<SessionProbe> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/dashboard/session", { cache: "no-store", signal: abort.signal });
+    return sessionProbeResult(res.status);
+  } catch {
+    return sessionProbeResult(null);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function signOutAndRebind(): Promise<void> {
   try {
     await supabaseBrowser().auth.signOut();

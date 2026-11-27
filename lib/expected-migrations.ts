@@ -68,4 +68,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "065_merge_restaurants_ticket_overlap.sql",
   "066_order_box.sql",
   "067_kiosk_device_secret.sql",
+  "068_heartbeat_sound_ok.sql",
 ];

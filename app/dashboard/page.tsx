@@ -37,7 +37,8 @@ export default async function DashboardPage() {
     .eq("id", restaurantId)
     .maybeSingle();
 
-  const { data: orders } = await supabase
+  // HP1: a read that failed is not "no orders" - the screen is told, and says so instead of "Nothing in the kitchen".
+  const { data: orders, error: ordersError } = await supabase
     .from("orders")
     .select("*")
     .eq("restaurant_id", restaurantId)
@@ -47,6 +48,7 @@ export default async function DashboardPage() {
   return (
     <OrderDashboard
       initialOrders={orders || []}
+      initialOrdersOk={!ordersError && Array.isArray(orders)}
       restaurantId={restaurantId}
       mode={displayMode(restaurant?.display_mode)}
       restaurantName={restaurant?.name ?? "this restaurant"}

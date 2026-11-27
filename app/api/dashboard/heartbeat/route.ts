@@ -109,6 +109,13 @@ export async function POST(req: NextRequest) {
         }
       : {};
 
+  // Whether the screen's order SOUND can play (migration 068, HP1, Tickets
+  // #1909/#1078). Separate from alert_state on purpose: that is the push
+  // permission gate, and a tablet can be allowed to notify while its browser
+  // refuses to play audio until somebody touches the screen. Same rule as
+  // push_subscribed: only an explicit boolean; anything else is null.
+  const soundOk = typeof body?.soundOk === "boolean" ? body.soundOk : null;
+
   // Once a minute per restaurant is plenty (the client beats every two).
   // Anything faster is a bug or abuse, and at five hundred tablets a
   // runaway beat loop is the difference between a quiet database and a
@@ -124,21 +131,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, recorded: 0, rate_limited: true, rebind, ...serving() }, { status: 429 });
   }
 
-  const { error } = await supabaseAdmin()
+  const rows = (withSound: boolean) =>
+    restaurantIds.map((restaurant_id) => ({
+      restaurant_id,
+      last_seen_at: now,
+      user_agent: userAgent,
+      push_subscribed: pushSubscribed,
+      shell_version: shellVersion,
+      alert_state: alertState,
+      alert_reason: alertReason,
+      ...alertRaised,
+      ...(withSound ? { sound_ok: soundOk } : {}),
+    }));
+  let { error } = await supabaseAdmin()
     .from("dashboard_heartbeats")
-    .upsert(
-      restaurantIds.map((restaurant_id) => ({
-        restaurant_id,
-        last_seen_at: now,
-        user_agent: userAgent,
-        push_subscribed: pushSubscribed,
-        shell_version: shellVersion,
-        alert_state: alertState,
-        alert_reason: alertReason,
-        ...alertRaised,
-      })),
-      { onConflict: "restaurant_id" }
-    );
+    .upsert(rows(true), { onConflict: "restaurant_id" });
+  // The beat is the office's proof the kitchen is watching. If the sound_ok
+  // column is somehow not there yet (migration 068), record the beat without
+  // it rather than lose every tablet's heartbeat over one new field.
+  if (error && /sound_ok/.test(error.message ?? "")) {
+    ({ error } = await supabaseAdmin().from("dashboard_heartbeats").upsert(rows(false), { onConflict: "restaurant_id" }));
+  }
 
   if (error) {
     // Never fails the caller. A tablet that cannot record a heartbeat is

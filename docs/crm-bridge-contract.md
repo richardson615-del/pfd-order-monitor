@@ -216,6 +216,7 @@ itself.
   "alert_reason": "perm_default|perm_denied|sub_absent|sub_read_failed|record_failed|unsupported|null", // why, at the last beat (047); null = nothing wrong / not said
   "alert_raised_at": "…|null",  // when the alert gate last went up on that screen (047); null = never reported
   "alert_raised_reason": "…|null", // alert_reason at that moment; same codes
+  "sound_ok": true|false|null,  // can the screen's order SOUND play (068, HP1)? false = it is showing "Tap to turn on order sound"; null = it did not say
   "push_subscriptions": 2,      // live push_subscriptions rows for this restaurant
   "shell_version": 4|null,      // Android shell appVersionCode from the last heartbeat; null = it did not say
   "display_mode": "kitchen",    // as above
@@ -262,6 +263,22 @@ why: a tablet whose gate keeps coming back shows a recent raise with
 `alert_state: "hidden"`. Read `user_agent` beside them — `SamsungBrowser` or
 `; wv)` means the app is not running on Chrome, and the fix is at the tablet
 (set Chrome as the default browser), not in Hexnode.
+
+`sound_ok` (added 2026-11-27, bridge migration 068, HP1, Tickets #1909 /
+#1078; additive — an older bridge omits it, and a CRM that does not know it
+ignores it) is the other half of "will it ring": whether the screen's
+browser will **play the chime**. A browser will not start audio until
+somebody touches the page, and can switch it off again later (most often on
+a tablet running the order screen in plain Chrome rather than the Hexnode
+shell). `false` = the screen is showing a full-width **"Tap to turn on order
+sound"** bar and new orders are silent until somebody at the store taps it;
+`true` = the chime will sound; `null` = it did not say (an older screen, or
+its first beat before the check answered). It is **not** a new `alert_state`
+value on purpose: `alert_state` keeps exactly its four values, the two are
+independent (a tablet can be `blocked` and silent), and the fix is different
+— `sound_ok: false` is fixed by one tap at the store, never in Hexnode.
+Label it **Sound off — tap the screen**; it does not change `online` or
+`push_subscribed`.
 
 Two liveness signals exist and mean different things: this heartbeat is
 "the app is open and talking to us" (2-minute cadence, primary); an MDM's

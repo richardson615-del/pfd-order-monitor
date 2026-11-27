@@ -285,6 +285,43 @@ export function itemsLine(items: Order["items"] | null | undefined, max = 3): st
   return names.length > max ? `${shown} …` : shown;
 }
 
+export interface ItemLines {
+  name: string;
+  price: string | null;
+  /** Every option and the customer's note for this item, in the order stored. */
+  modifiers: string[];
+}
+
+/**
+ * Every item with everything under it, for the card and the ticket (HP1,
+ * Ticket #1909: "the tablet does not show item customization").
+ *
+ * The card used to show itemsLine() only - three names, no options - so a
+ * kitchen had to open each order to see how to build it. This is the whole
+ * list: each item, then every modifier line the order holds (the options
+ * the customer chose and their note for that item). Nothing is cut or
+ * capped; a blank line is dropped, and so is a `note` the ingest already
+ * put among the modifiers. Tolerant of rows written before items had this
+ * shape: a missing or non-list `modifiers` is no options, not a crash.
+ */
+export function itemLines(items: unknown): ItemLines[] {
+  if (!Array.isArray(items)) return [];
+  const out: ItemLines[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as { name?: unknown; price?: unknown; modifiers?: unknown; note?: unknown };
+    const name = typeof it.name === "string" ? it.name.trim() : "";
+    const modifiers = (Array.isArray(it.modifiers) ? it.modifiers : [])
+      .map((m) => (typeof m === "string" ? m.trim() : ""))
+      .filter(Boolean);
+    const note = typeof it.note === "string" ? it.note.trim() : "";
+    if (note && !modifiers.includes(note)) modifiers.push(note);
+    if (!name && !modifiers.length) continue;
+    out.push({ name: name || "Item", price: typeof it.price === "string" && it.price.trim() ? it.price.trim() : null, modifiers });
+  }
+  return out;
+}
+
 /** The two looks a restaurant's tablet can have. */
 export type DisplayMode = "kitchen" | "standard";
 

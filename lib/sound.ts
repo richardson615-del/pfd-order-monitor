@@ -93,6 +93,29 @@ export function isAudioArmed(): boolean {
   return ctx?.state === "running";
 }
 
+/** Whether an AudioContext in this state will make sound. Only "running" does: not "suspended", not Safari's "interrupted", not "closed". */
+export function audioStateOk(state: string | null | undefined): boolean {
+  return state === "running";
+}
+
+/** How long armAudio waits for resume() before answering from the state it can see. */
+export const ARM_AUDIO_WAIT_MS = 1_500;
+
+/**
+ * Tell the caller whenever the context starts or stops being able to make
+ * sound (HP1). The browser can suspend a running context long after it was
+ * armed - the tab went to the background, another app took the audio - and
+ * nothing here used to notice: the screen went on saying sound was fine and
+ * the chime played into nothing. Returns the unsubscribe.
+ */
+export function onAudioStateChange(listener: (armed: boolean) => void): () => void {
+  const c = audioContext();
+  if (!c || typeof c.addEventListener !== "function") return () => {};
+  const handler = () => listener(audioStateOk(c.state));
+  c.addEventListener("statechange", handler);
+  return () => c.removeEventListener("statechange", handler);
+}
+
 /**
  * Creates and resumes the AudioContext. Call from a real user gesture -
  * anywhere on the page will do, which is why the dashboard listens for the
@@ -100,12 +123,19 @@ export function isAudioArmed(): boolean {
  *
  * Resolves to whether sound will now actually play, so the caller can keep
  * warning if it will not rather than assuming the attempt worked.
+ *
+ * It answers within ARM_AUDIO_WAIT_MS whatever resume() does (HP1). A
+ * browser that will not start audio without a touch may leave resume()
+ * pending rather than reject it; this used to wait on it for ever, so the
+ * caller never heard "no" and the screen never said sound was off.
  */
 export async function armAudio(): Promise<boolean> {
   const c = audioContext();
   if (!c) return false;
   try {
-    if (c.state !== "running") await c.resume();
+    if (c.state !== "running") {
+      await Promise.race([c.resume(), new Promise<void>((resolve) => setTimeout(resolve, ARM_AUDIO_WAIT_MS))]);
+    }
   } catch {
     // Rejected because this was not a genuine user gesture. Not fatal, and
     // not worth logging on every stray event - the caller reports the state.

@@ -1,6 +1,7 @@
 import { Order } from "@/lib/types";
 import { cateringText } from "@/lib/catering-text";
 import { centsLabel, restaurantSaleCents } from "@/lib/sales";
+import { itemLines } from "@/lib/order-display";
 
 /**
  * The order itself: what was ordered, what it costs, what the customer
@@ -19,7 +20,8 @@ const money = (n: number | null | undefined) =>
   n == null ? null : `$${n.toFixed(2)}`;
 
 export default function TicketBody({ order }: { order: Order }) {
-  const items = order.items ?? [];
+  // HP1: itemLines() is the same list the card shows - every option and item note, and no crash on an odd row.
+  const items = itemLines(order.items);
   const paymentType = cateringText(order.source, order.payment_type);
   const notes = cateringText(order.source, order.notes);
   // RS2: the restaurant's side of the order only. Tax, fees and the tip are not its money; the payment line
@@ -37,7 +39,7 @@ export default function TicketBody({ order }: { order: Order }) {
               <span className="tk-name">{it.name}</span>
               {it.price && <span className="tk-price num">{it.price}</span>}
             </div>
-            {it.modifiers?.length > 0 && (
+            {it.modifiers.length > 0 && (
               <ul className="tk-mods">
                 {it.modifiers.map((m, j) => (
                   <li key={j}>{m}</li>

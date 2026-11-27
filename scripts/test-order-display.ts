@@ -22,6 +22,7 @@ import {
   isLate,
   isSettled,
   isUnopened,
+  itemLines,
   itemsLine,
   orderFlag,
 } from "@/lib/order-display";
@@ -278,6 +279,51 @@ test("one line of items: the first three, then an ellipsis", () => {
   assert.equal(itemsLine([]), "");
   assert.equal(itemsLine(null), "");
   assert.equal(itemsLine([{ name: " " }] as any), "", "blank names are not items");
+});
+
+test("HP1: the card lists every item with every option and item note under it (Ticket #1909)", () => {
+  // The card used to be itemsLine() alone - three names, no options - so
+  // the kitchen had to open each ticket to see how to build the item.
+  const items = [
+    { name: "2x Latte", price: "$11.50", modifiers: ["Large +$1.00", "Oat Milk +$0.75", "Vanilla", "Caramel", "Extra hot"], note: "Extra hot" },
+    { name: "Bagel", price: "$3.00", modifiers: [] },
+    { name: "Muffin", price: null, modifiers: ["Warmed"] },
+    { name: "Tea", price: "$2.00", modifiers: ["No sugar"] },
+    { name: "Cookie", price: "$2.00", modifiers: ["  "] },
+  ];
+  const lines = itemLines(items);
+  assert.deepEqual(lines.map((l) => l.name), ["2x Latte", "Bagel", "Muffin", "Tea", "Cookie"], "every item, not the first three");
+  assert.deepEqual(lines[0].modifiers, ["Large +$1.00", "Oat Milk +$0.75", "Vanilla", "Caramel", "Extra hot"], "every option, in order; the note already among them is not doubled");
+  assert.deepEqual(lines[1].modifiers, []);
+  assert.deepEqual(lines[4].modifiers, [], "a blank line is not an option");
+  assert.equal(lines[0].price, "$11.50");
+  assert.equal(lines[2].price, null);
+  // A note the ingest did NOT fold into modifiers still shows, last.
+  assert.deepEqual(itemLines([{ name: "Soup", modifiers: ["Cup"], note: "Allergy: nuts" }])[0].modifiers, ["Cup", "Allergy: nuts"]);
+  // Rows written before items had this shape must not take the screen down.
+  assert.deepEqual(itemLines(null), []);
+  assert.deepEqual(itemLines("nope"), []);
+  assert.deepEqual(itemLines([null, 7, { name: " " }, { name: "Pie" }, { name: "Cake", modifiers: "x" }, { modifiers: ["No nuts"] }]), [
+    { name: "Pie", price: null, modifiers: [] },
+    { name: "Cake", price: null, modifiers: [] },
+    { name: "Item", price: null, modifiers: ["No nuts"] },
+  ]);
+
+  const card = src("components/OrderCard.tsx");
+  assert.match(card, /const items = itemLines\(order\.items\);/);
+  assert.match(card, /items\.map\(\(it, i\) => \([\s\S]*?className="card-item-name">\{it\.name\}[\s\S]*?className="card-mods"[\s\S]*?it\.modifiers\.map\(\(m, j\) => \(\s*<li key=\{j\}>\{m\}<\/li>/);
+  assert.doesNotMatch(card, /itemsLine\(|\.slice\(/, "the card no longer clips the list");
+  // The ticket renders the same list.
+  assert.match(src("components/TicketBody.tsx"), /const items = itemLines\(order\.items\);/);
+
+  // Readable at arm's length: the kitchen look sets the item at 20px and the
+  // option at 18px, in the ticket's amber, and nothing is cut to one line.
+  const css = src("app/globals.css");
+  assert.match(css, /\[data-display="kitchen"\] \.card-items \{ font-size: 20px;/);
+  assert.match(css, /\[data-display="kitchen"\] \.card-mods li \{ font-size: 18px; \}/);
+  assert.match(css, /\.card-mods li \{ color: var\(--status-warning-text\); font-weight: 600;/);
+  const rule = css.slice(css.indexOf("\n.card-items {"), css.indexOf("\n.card-items {") + 80);
+  assert.doesNotMatch(rule, /nowrap|ellipsis/);
 });
 
 test("a card shows the six things and the pill - never where the order came from", () => {

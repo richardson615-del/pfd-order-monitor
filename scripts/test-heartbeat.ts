@@ -276,7 +276,8 @@ test("HP1: whether the order sound can play is its own yes/no, never a fifth ale
   assert.match(readFileSync(new URL("../lib/expected-migrations.ts", import.meta.url), "utf8"), /"068_heartbeat_sound_ok\.sql"/);
   // The screen sends what it saw, and null until it has looked.
   const dash = readFileSync(new URL("../components/OrderDashboard.tsx", import.meta.url), "utf8");
-  assert.match(dash, /soundOk: soundChecked \? soundArmed : null,/);
+  assert.match(dash, /const soundOk = soundChecked \? soundArmed : null;/);
+  assert.match(dash, /alertRaisedReason: alertRaise\?\.reason \?\? null,\s*soundOk,/);
   assert.match(dash, /\[pushSubscribed, shellVersion, alertState, alertReason, alertRaise, role, soundArmed, soundChecked\]/, "a change is beaten, not held for the life of the tab");
 });
 

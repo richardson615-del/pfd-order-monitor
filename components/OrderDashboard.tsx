@@ -382,7 +382,9 @@ export default function OrderDashboard({
    * link code on any other tablet. Never an empty order list.
    */
   const goSignIn = useCallback(() => {
-    if (leavingRef.current) return;
+    // A rebind (the office moved this tablet) signs out on purpose and is
+    // already on its way to /link - leave it to that.
+    if (leavingRef.current || rebindingRef.current) return;
     leavingRef.current = true;
     setSignedOut(true);
     window.setTimeout(() => window.location.assign(signInPath(roleRef.current)), 1_500);
@@ -698,6 +700,9 @@ export default function OrderDashboard({
   const rebindingRef = useRef(false);
   useEffect(() => {
     if (role === null) return;
+    // HP1: whether this screen's order sound can play right now. null until
+    // the check has answered - never the "assume ok" default.
+    const soundOk = soundChecked ? soundArmed : null;
     const beat = () => {
       // Still fire-and-forget for the REQUEST, but the outcome is recorded:
       // the pill claimed the office could see this tablet with nothing behind
@@ -717,9 +722,7 @@ export default function OrderDashboard({
           alertReason,
           alertRaisedAt: alertRaise?.at ?? null,
           alertRaisedReason: alertRaise?.reason ?? null,
-          // HP1: whether this screen's order sound can play right now. null
-          // until the check has answered - never the "assume ok" default.
-          soundOk: soundChecked ? soundArmed : null,
+          soundOk,
           // Which tablet this is, so the bridge can say the office moved it.
           deviceRef: readDeviceRefCache(),
           remote: role === "remote", // lib/screen-role.ts: answered, never recorded
@@ -729,12 +732,6 @@ export default function OrderDashboard({
           // 429 is the server saying "you beat less than a minute ago and I
           // still have it" - which is exactly a live heartbeat, not a failed one.
           if (res.ok || res.status === 429) setHeartbeatOkAt(Date.now());
-          // HP1: the server does not see a signed-in user. Refresh the
-          // session and sync - the sync asks the server again and goes to
-          // sign-in only if both agree the session is gone.
-          if (res.status === 401) {
-            void withTimeout(supabaseBrowser().auth.refreshSession(), SYNC_TIMEOUT_MS, null).then(() => syncRef.current?.());
-          }
           // The beat answers with what deployment is serving. This is the
           // version check: one request on a cadence that already exists,
           // rather than a second one on the same cadence.
@@ -749,6 +746,12 @@ export default function OrderDashboard({
           if (data?.rebind === true && !rebindingRef.current) {
             rebindingRef.current = true;
             void signOutAndRebind();
+          }
+          // HP1: the server does not see a signed-in user. Refresh the
+          // session and sync - the sync asks the server again and goes to
+          // sign-in only if both agree the session is gone.
+          if (res.status === 401) {
+            void withTimeout(supabaseBrowser().auth.refreshSession(), SYNC_TIMEOUT_MS, null).then(() => syncRef.current?.());
           }
         })
         .catch(() => {

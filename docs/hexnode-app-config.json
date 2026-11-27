@@ -1,6 +1,7 @@
 {
   "productId": "com.pfdworks.orders",
   "managedProperty": [
-    { "key": "device_ref", "valueString": "%serialnumber%" }
+    { "key": "device_ref", "valueString": "%serialnumber%" },
+    { "key": "device_secret", "valueString": "PASTE-THIS-TABLETS-SECRET-FROM-THE-CRM-DEVICES-CONSOLE" }
   ]
 }

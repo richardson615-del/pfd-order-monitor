@@ -2,12 +2,18 @@
 <!--
   Android Enterprise managed configuration for the Premium Orders shell.
 
-  One key. The MDM (Hexnode, App Configuration for com.pfdworks.orders)
+  Two keys. The MDM (Hexnode, App Configuration for com.pfdworks.orders)
   fills device_ref per device with the tablet's serial number, using the
   console's dynamic-value wildcard for serial. LauncherActivity reads it
   and puts it on the start URL as ?device=<value>; the bridge maps it to
   the restaurant the CRM assigned that serial to. When the key is absent
   the shell falls back to the install's own ANDROID_ID.
+
+  device_secret (shell 6, SH1) is this tablet's own secret: 32 random
+  bytes as url-safe text, generated in the CRM's Devices console, which
+  keeps only its hash on the bridge. LauncherActivity puts it in the start
+  URL's fragment (#dsec=...), which is never sent to a server; the page
+  sends it in the body of its bootstrap call. Unset = no secret sent.
 
   See docs/kiosk.md, "Device binding".
 -->
@@ -17,5 +23,11 @@
         android:restrictionType="string"
         android:title="@string/device_ref_title"
         android:description="@string/device_ref_description"
+        android:defaultValue="" />
+    <restriction
+        android:key="device_secret"
+        android:restrictionType="string"
+        android:title="@string/device_secret_title"
+        android:description="@string/device_secret_description"
         android:defaultValue="" />
 </restrictions>

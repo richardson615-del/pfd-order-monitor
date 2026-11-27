@@ -13,6 +13,8 @@ different problem from `401`, and they are deliberately not conflated.
 | GET | `/api/crm/devices` | — | `{ devices: [...] }` |
 | POST | `/api/crm/devices` | `{ restaurant_id, name, restaurant_name }` | `{ device, device_key, restaurant_created }` |
 | POST | `/api/crm/devices/:id` | `{ action, ... }` | varies |
+| POST | `/api/crm/devices/:ref/secret` | `{ secret_hash \| null, actor? }` | `{ ok, device_ref, kind, has_secret, bound, created }` — **`:ref` is a tablet's device reference, not a printer id.** See "Tablet device secret (SH1)" |
+| GET | `/api/crm/devices/:ref/secret` | — | `{ device_ref, kind, known, has_secret, bound }` — never the hash |
 
 `device_key` is returned **once** and by no read path. Restaurants are
 find-or-created, so `restaurant_name` is required — the CRM knows about
@@ -556,7 +558,7 @@ restaurant id (== CRM `accounts.id`). Up to 2000 per call.
 
 | status | meaning |
 |---|---|
-| `200 { ok, bound, unbound, unknown_restaurants: [] }` | Landed. A `restaurant_id` the bridge does not know is skipped and named |
+| `200 { ok, bound, unbound, unknown_restaurants: [], secrets_cleared }` | Landed. A `restaurant_id` the bridge does not know is skipped and named. `secrets_cleared` (added with SH1) = how many `aid:` tablets lost their device secret because this push moved or unassigned them; see "Tablet device secret" |
 | `400` | No usable bindings — every entry needs a reference matching `[A-Za-z0-9:._-]{4,128}` |
 
 ```
@@ -568,6 +570,85 @@ Tablets that have bootstrapped in the last 7 days and are assigned to
 nobody: the **"New tablet seen 2 min ago · model · Assign to…"** rows on the
 Tablets page. `kind` says where the reference came from; `model` is what
 the tablet said about itself, never identity. Assigning one = bind.
+
+### Tablet device secret (SH1 / Z-02, migration 067)
+
+A device reference is not a secret: the serial is printed on the tablet and
+shown in the CRM, and `POST /api/kiosk/bootstrap` is unauthenticated. So a
+tablet also holds a **device secret**, and the bridge keeps only its sha256
+(`kiosk_devices.secret_hash`). Bootstrap now takes `{ device, secret? }`:
+
+| row | `KIOSK_REQUIRE_SECRET` off (default) | `KIOSK_REQUIRE_SECRET=1` |
+|---|---|---|
+| has a `secret_hash` | session only if `sha256(secret)` matches; otherwise `unbound` | same |
+| no `secret_hash` | as before: the reference alone is enough | `unbound` — cannot bootstrap |
+
+`unbound` and "asked again too soon" are now the same reply body
+(`{ status: "unbound", poll_every_ms }`), so a caller without the secret
+cannot tell a live serial from an unknown one. A tablet answered `unbound`
+stays on its link-code screen; linking by code still works and needs no
+secret.
+
+**Where a secret comes from**
+
+- **`aid:` tablets** — issued by the bridge when the tablet collects a link
+  code, if that reference is already bound to the restaurant the code was
+  linked to. The tablet keeps it in its own storage. Nothing for the CRM to do.
+- **Hexnode serials** — the CRM generates it and tells the bridge only the hash:
+
+```
+POST /api/crm/devices/:ref/secret
+{ "secret_hash": "<64 lowercase hex = sha256 of the secret's text>", "actor": "nick@pfdworks.com" }
+{ "secret_hash": null, "actor": "…" }        // clear
+→ { "ok": true, "device_ref": "R52X30ABCDE", "kind": "managed"|"android_id", "has_secret": true, "bound": true, "created": false }
+
+GET /api/crm/devices/:ref/secret
+→ { "device_ref": "R52X30ABCDE", "kind": "managed", "known": true, "has_secret": true, "bound": true }
+```
+
+- `:ref` is the tablet's **device reference** (`kiosk_devices.device_ref`:
+  the serial, or `aid:<id>`), URL-encoded. It is **not** the printer uuid the
+  other `/api/crm/devices/:id` routes take; a uuid is refused (`400
+  invalid_device_ref`).
+- **The secret**: 32 random bytes, as text matching `[A-Za-z0-9_-]{32,128}`
+  (base64url of 32 bytes = 43 characters is what the bridge itself issues).
+  **The hash**: `sha256` of that text (UTF-8), lowercase hex. The CRM shows
+  the secret once, for Hexnode, and stores only what it needs to; it sends the
+  bridge the hash and never the secret. A body with a `secret` field is
+  refused (`400 secret_not_accepted`) and nothing is written.
+- Setting a hash replaces any earlier one (rotation: the tablet keeps
+  bootstrapping only once Hexnode has delivered the new secret). `null` clears
+  it; clearing a reference the bridge has never seen is a no-op `200`.
+- Setting one for a serial the bridge has not seen records it unassigned
+  (`created: true`), so stock can be given its secret before it is assigned.
+- `bound` = the reference is assigned to a restaurant right now. `known`
+  (GET) = the bridge has a row for it. No read path returns the hash.
+
+| status | `code` | meaning |
+|---|---|---|
+| `200` | | Stored or cleared |
+| `400` | `invalid_device_ref` | Not a tablet reference (or a printer uuid) |
+| `400` | `invalid_secret_hash` | Missing, or not 64 hex characters / null |
+| `400` | `secret_not_accepted` | The body carried the secret itself |
+| `401` / `503` | | The usual CRM key answers |
+
+**To the tablet**: Hexnode managed app configuration for
+`com.pfdworks.orders`, key **`device_secret`**, value = that tablet's secret
+(`docs/hexnode-app-config.json`). Needs Android shell **code 6** (the first
+that reads the key); the shell passes it in the start URL's fragment, which
+is never sent to a server.
+
+**Moves** (`POST /api/crm/tablets/bind`): a push that leaves a tablet on the
+same restaurant changes nothing. Moving or unassigning an **`aid:`** tablet
+clears its secret (it was issued for the old restaurant; the tablet gets a
+new one the next time it is linked there by code). A **Hexnode serial keeps**
+its secret across a move — it identifies the unit, and Hexnode delivers it
+only to that unit — and while unassigned it cannot bootstrap whatever it
+holds. To retire a serial's secret, clear it here.
+
+**What the CRM builds** (Devices → Tablets, per Hexnode tablet): "Generate
+device secret" → make 32 random bytes, show the text once with the Hexnode
+key name, `POST` its sha256 here; a "secret set" badge from `GET`; "Clear".
 
 
 ## Orders (M1, 2026-09-18) — today's tickets for the office

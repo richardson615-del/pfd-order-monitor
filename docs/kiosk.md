@@ -33,8 +33,9 @@ cannot import anything (it is the page for when nothing loads).
 The app cannot read the hardware serial: Android 10+ keeps `Build.getSerial()`
 from everything but the device-owner agent, and the app does not try. So
 the Android shell hands the page a **device reference** on the start URL,
-`/dashboard?shell=5&device=<ref>`, and the page asks the bridge whose
-tablet that is.
+`/dashboard?shell=6&device=<ref>`, and the page asks the bridge whose
+tablet that is. (Shell 5, the build on tablets today, sends the same
+reference; 6 adds the device secret below.)
 
 ### The shell (`android/`, one rebuild → appVersionCode 5)
 
@@ -73,8 +74,8 @@ is even before the shell relaunches.
   described the reverse (bridge pulls `GET /api/tablets/by-ref` from the
   CRM); push was chosen so the bridge needs no CRM URL or credential and a
   tablet can boot while the CRM is down.
-- `POST /api/kiosk/bootstrap { device, model? }` (unauthenticated — the
-  caller has no session yet):
+- `POST /api/kiosk/bootstrap { device, secret?, model? }` (unauthenticated —
+  the caller has no session yet; see "Device secret" below for `secret`):
   - `bound` → `{ token_hash, restaurant }`. A magic-link hash for the
     restaurant's tablet login, minted now by `lib/tablet-session.ts` (the
     same helper the link-code path uses: `ensureTabletLogin` — never a
@@ -82,8 +83,10 @@ is even before the shell relaunches.
     verifies it in the browser; that sets the cookies.
   - `unbound` → recorded with `restaurant_id null`; the page keeps asking
     every 5 s and shows the link code meanwhile.
-  - `throttled` → bound, but a session was minted <30 s ago. A reload loop
-    or a replayed reference does not mint a session a second.
+  - throttled → bound, but a session was minted <30 s ago. A reload loop
+    or a replayed reference does not mint a session a second. Answered
+    with the same body as `unbound` since SH1, so nobody can tell a live
+    serial from an unknown one by asking twice.
   - Every call is logged (`kiosk_bootstrap_log`); 300 per address per 10
     minutes, generous because unbound tablets poll.
 - `GET /api/crm/tablets/unbound` — what the CRM's "new tablets seen" list
@@ -97,6 +100,47 @@ and the link code's own poll. Copy: *"Waiting for Premium to assign this
 tablet — Premium can assign it from the office, or call (615) 619-5081 and
 read them this code."* No input of any kind; no link to `/login`.
 
+### Device secret (SH1 / Z-02) — the serial alone is not enough
+
+The reference is printed on the tablet and shown in the CRM, and bootstrap
+has to be unauthenticated. Until SH1, knowing a serial was enough to be
+handed that restaurant's tablet session. Now a tablet also holds a **device
+secret** (32 random bytes) and the bridge keeps only its sha256
+(`kiosk_devices.secret_hash`, migration 067).
+
+| the row | `KIOSK_REQUIRE_SECRET` unset (default) | `KIOSK_REQUIRE_SECRET=1` |
+|---|---|---|
+| has a `secret_hash` | a session only for the matching secret; anything else is `unbound` | same |
+| has none | as before — the reference is enough | `unbound` |
+
+Where the secret comes from:
+
+- **`aid:` tablets** — when the tablet collects a link code
+  (`/api/kiosk/link-status?…&ref=<its reference>`) and the office has
+  already assigned that reference to the same restaurant, the one `linked`
+  answer also carries `device_secret`. The page keeps it in
+  `localStorage["premium.deviceSecret"]` and sends it in the **body** of
+  every later bootstrap. Linked again → a new one replaces it.
+- **Hexnode serials** — the CRM's Devices console generates it, sends the
+  bridge only the hash (`POST /api/crm/devices/:ref/secret`), and shows the
+  secret once. It goes into Hexnode's App Configuration under
+  **`device_secret`**. Shell 6 reads it and appends it to the start URL as a
+  **fragment** — `/dashboard?shell=6&device=<ref>#dsec=<secret>` — because
+  a fragment is never sent to a server (so it is in no request log, unlike
+  `?device=`). The page stores it and removes the fragment from the address.
+  A Trusted Web Activity has no other channel from the shell to the page.
+
+What a tablet without the right secret sees: the same Pairing screen as an
+unassigned one — the link code, and "call Premium". Linking by code needs no
+secret, so it is never a dead end. Moving an `aid:` tablet to another
+restaurant ends its secret; a Hexnode serial keeps its own (rules and
+reasons: `secretsEndedByBind` in `lib/device-binding.ts`).
+
+**Before `KIOSK_REQUIRE_SECRET=1`:** every tablet on a wall needs a
+`secret_hash`, or the next time it loses its session it lands on the link
+code instead of signing itself back in. A tablet that is signed in keeps
+working either way — bootstrap only runs when there is no session.
+
 ## What the Hexnode policy must set for `com.pfdworks.orders`
 
 Recorded 2026-09-16 from the trial tablet (FACT unless marked). Three
@@ -107,6 +151,7 @@ any one of them shows a screen that says so.
 |---|---|---|
 | **Policies → Apps → Required Apps** (Android) | `com.pfdworks.orders` (the uploaded enterprise APK) — required, silent install and update | The restaurant downloads nothing. The shell reaches the tablet from here and nowhere else; new shells (appVersionCode bumps) are pushed the same way. |
 | **Policies → Apps → App Configuration** (managed app config) | `device_ref` = `%serialnumber%` (Hexnode's dynamic value for the device serial) | 1b-i above: the shell reads `device_ref` from managed configuration and puts it on the start URL, and the bridge resolves it to a restaurant through the CRM's inventory. The CRM's own `tablets.serial` comes from the same Hexnode record, so the two match with nobody typing a serial. Editor payload: `docs/hexnode-app-config.json`. If the editor does not expand the wildcard, leave the key unset and 1b-ii (`aid:<ANDROID_ID>`) takes over with no rebuild. |
+| **Policies → Apps → App Configuration** (same place; shell 6+) | `device_secret` = that tablet's own secret from the CRM Devices console | "Device secret" above. Optional until `KIOSK_REQUIRE_SECRET=1`. **UNKNOWN:** whether Hexnode's App Configuration can hold a different value per device (a custom attribute / per-device wildcard) or needs one policy per tablet — check in the console before generating secrets for the fleet. The checked-in payload carries a placeholder; a value that is not a secret's shape is ignored by the shell. |
 | **Policies → Apps → App Permissions** → Premium → **Send push notifications: Allow** | Pre-grant `POST_NOTIFICATIONS` | The alert gate reads `Notification.permission === "granted"` on first run without a tap. With this missing, a kiosk shows **"Alerts are off on this tablet — call Premium on (615) 619-5081"** and reports `alert_state: "blocked"` on its heartbeat (migration 037) — the tablet has no Settings app to open, so the fix is here, in the console, and the gate re-checks by itself once a minute until it lands. |
 
 Plus the kiosk profile itself (single-app kiosk on the package, screen on
@@ -137,7 +182,10 @@ weeks offline. What keeps it alive and what would kill it:
   CRM's "reset password" says so; nothing else resets one), the user being
   deleted, or Chrome's site data cleared by an MDM policy. All three land
   on Pairing, where bootstrap re-binds it in seconds — a recovery path,
-  not a failure.
+  not a failure. (With a device secret, SH1: cleared site data also clears
+  the stored secret. A Hexnode tablet gets it back from the shell the next
+  time the app launches; an `aid:` tablet has to be linked by code once,
+  which issues a new one.)
 
 UNKNOWN, plan-dependent: whether the project's plan enforces a maximum
 session length regardless of the settings above. Free and Pro do not.

@@ -4,9 +4,17 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Brand } from "@/components/Brand";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { deviceId, readRestaurantCache, rememberDeviceRef, writeRestaurantCache } from "@/lib/kiosk-cache";
+import {
+  canKeepDeviceSecret,
+  deviceId,
+  readDeviceSecret,
+  readRestaurantCache,
+  rememberDeviceRef,
+  writeDeviceSecret,
+  writeRestaurantCache,
+} from "@/lib/kiosk-cache";
 import { LINK_STATUS_POLL_MS } from "@/lib/link-code";
-import { BOOTSTRAP_POLL_MS } from "@/lib/device-binding";
+import { BOOTSTRAP_POLL_MS, deviceRefKind } from "@/lib/device-binding";
 import { KIOSK_WIFI_HINT } from "@/lib/first-run";
 import { rememberShellVersion, useFreshBuildOnReturn } from "@/lib/use-fresh-build";
 import { safeNext } from "@/lib/safe-next";
@@ -141,7 +149,11 @@ function LinkScreen() {
         const res = await fetch("/api/kiosk/bootstrap", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ device: deviceRef, model: navigator.userAgent.slice(0, 120) }),
+          // The device secret (SH1), when this tablet holds one. Read fresh
+          // each time: the link poll may have just been issued one. In the
+          // body, never the URL. A tablet with none, or a wrong one, is
+          // answered "unbound" and simply stays on this screen with its code.
+          body: JSON.stringify({ device: deviceRef, secret: readDeviceSecret() ?? undefined, model: navigator.userAgent.slice(0, 120) }),
         });
         const data = await res.json().catch(() => ({}));
         // A bound answer is honoured even if this effect was torn down while
@@ -154,7 +166,8 @@ function LinkScreen() {
           return;
         }
         if (stopped) return;
-        // unbound / throttled: ask again next tick. Nothing to show.
+        // Anything else (the bridge says "unbound" for unassigned, asked too
+        // soon, and no or wrong secret alike): ask again next tick. Nothing to show.
       } catch {
         // The link-code path reports the network; this one stays quiet.
       }
@@ -173,8 +186,16 @@ function LinkScreen() {
     let stopped = false;
     const poll = async () => {
       try {
+        // An aid: tablet that can keep one asks for a device secret with its
+        // link (SH1) by naming its reference. A Hexnode serial gets its secret
+        // from managed configuration instead, so it does not ask.
+        const wantsSecret = deviceRef && deviceRefKind(deviceRef) === "android_id" && canKeepDeviceSecret();
         const res = await fetch(
-          "/api/kiosk/link-status?code=" + encodeURIComponent(code) + "&device=" + encodeURIComponent(device.current ?? ""),
+          "/api/kiosk/link-status?code=" +
+            encodeURIComponent(code) +
+            "&device=" +
+            encodeURIComponent(device.current ?? "") +
+            (wantsSecret ? "&ref=" + encodeURIComponent(deviceRef) : ""),
           { cache: "no-store" }
         );
         if (stopped) return;
@@ -190,6 +211,8 @@ function LinkScreen() {
           return;
         }
         if (data?.status === "linked" && typeof data.token_hash === "string") {
+          // Before the session is set and the page leaves: this answer comes once.
+          if (typeof data.device_secret === "string") writeDeviceSecret(data.device_secret);
           await settle(data.token_hash, data.restaurant ?? null);
         }
       } catch {
@@ -202,7 +225,7 @@ function LinkScreen() {
       stopped = true;
       clearInterval(id);
     };
-  }, [phase, code, requestCode, settle]);
+  }, [phase, code, deviceRef, requestCode, settle]);
 
   return (
     <div className="alert-gate pairing" role="main">

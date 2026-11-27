@@ -12,6 +12,13 @@
  *   premium.deviceRef   the reference the Android shell put on the start
  *                       URL (?device=), which is what binds this tablet to
  *                       its restaurant (see lib/device-binding.ts)
+ *   premium.deviceSecret  the device secret (SH1): what proves to the bridge
+ *                       that this is that tablet and not somebody who read
+ *                       its serial. From the shell (#dsec= on the start URL,
+ *                       Hexnode managed configuration) or issued when a link
+ *                       code is collected. Sent only in the body of
+ *                       POST /api/kiosk/bootstrap; never put in a URL the
+ *                       server sees, never shown.
  *
  * Every read and write is wrapped: storage throws in a private window, on a
  * cleared profile and under some kiosk policies, and none of those may take
@@ -38,8 +45,91 @@ export function readDeviceRefCache(): string | null {
   }
 }
 
-/** Remember the shell's reference if this URL carries one. Harmless anywhere else: no param, nothing written. */
+/** The device secret (SH1). Same shape rule as lib/device-binding.ts's DEVICE_SECRET_PATTERN. */
+export const DEVICE_SECRET_KEY = "premium.deviceSecret";
+/** The fragment key the Android shell uses: /dashboard?shell=6&device=<ref>#dsec=<secret>. */
+export const DEVICE_SECRET_FRAGMENT = "dsec";
+const SECRET_SHAPE = /^[A-Za-z0-9_-]{32,128}$/;
+
+/** The secret this tablet holds, or null. A missing or mangled one is null: the tablet then asks without, and lands on the link code. */
+export function readDeviceSecret(): string | null {
+  try {
+    const v = storage()?.getItem(DEVICE_SECRET_KEY);
+    return v && SECRET_SHAPE.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep a secret. True only if it is really there afterwards - a tablet must not believe it holds one it could not store. */
+export function writeDeviceSecret(secret: unknown): boolean {
+  if (typeof secret !== "string" || !SECRET_SHAPE.test(secret)) return false;
+  try {
+    const s = storage();
+    if (!s) return false;
+    s.setItem(DEVICE_SECRET_KEY, secret);
+    return s.getItem(DEVICE_SECRET_KEY) === secret;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Can this browser keep a secret between page loads? Asked BEFORE the
+ * tablet tells the bridge it wants one: a secret issued to a tablet that
+ * cannot store it would lock that tablet out of bootstrap until the next
+ * link.
+ */
+export function canKeepDeviceSecret(): boolean {
+  try {
+    const s = storage();
+    if (!s) return false;
+    const probe = "premium.probe";
+    s.setItem(probe, "1");
+    const ok = s.getItem(probe) === "1";
+    s.removeItem(probe);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** The secret in a URL's fragment (#dsec=…), or null. Pure. */
+export function readSecretFragment(url: string): string | null {
+  try {
+    const hash = new URL(url).hash.replace(/^#/, "");
+    const v = new URLSearchParams(hash).get(DEVICE_SECRET_FRAGMENT);
+    return v && SECRET_SHAPE.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take the shell's secret off the start URL: remember it, then remove the
+ * fragment from the address so it is not in this page's history entry and
+ * cannot be copied into a link, a `next=` or a report. A fragment is never
+ * sent to a server, which is why the shell uses one rather than a query
+ * parameter like ?device= - that one is in every request log.
+ */
+export function rememberDeviceSecretFromUrl(url: string): void {
+  try {
+    const secret = readSecretFragment(url);
+    if (!secret) return;
+    writeDeviceSecret(secret);
+    if (typeof window !== "undefined" && window.location.href === url) {
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    }
+  } catch {}
+}
+
+/**
+ * Remember the shell's reference if this URL carries one. Harmless anywhere else: no param, nothing written.
+ * The shell's device secret rides on the same start URL (in the fragment), so it is taken here too -
+ * every page that learns the reference learns both.
+ */
 export function rememberDeviceRef(url: string): string | null {
+  rememberDeviceSecretFromUrl(url);
   try {
     const v = new URL(url).searchParams.get("device");
     if (v && /^[A-Za-z0-9:._-]{4,128}$/.test(v)) {

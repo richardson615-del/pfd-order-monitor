@@ -40,6 +40,15 @@ import android.provider.Settings;
  *          install, needs no permission, and lets the office assign a
  *          tablet it has never heard of from its "new tablets seen" list.
  *
+ * And, since shell 6 (SH1), the tablet's device secret when Hexnode pushed
+ * one under the key "device_secret". The serial is printed on the tablet,
+ * so the bridge will not hand a restaurant's session to a reference alone;
+ * the secret is what proves this is that tablet. It goes in the URL's
+ * FRAGMENT (#dsec=<secret>), not the query: a fragment is never sent to a
+ * server, so it is in no request log, and the page removes it from the
+ * address as soon as it has stored it. A Trusted Web Activity has no other
+ * way to hand a page a value.
+ *
  * Nothing else about the launch changes. The page does the rest.
  */
 public class LauncherActivity
@@ -49,6 +58,11 @@ public class LauncherActivity
     static final String DEVICE_REF_KEY = "device_ref";
     static final String DEVICE_PARAM = "device";
     static final String ANDROID_ID_PREFIX = "aid:";
+    /** Must match the key in res/xml/app_restrictions.xml, the Hexnode App Configuration and lib/kiosk-cache.ts. */
+    static final String DEVICE_SECRET_KEY = "device_secret";
+    static final String DEVICE_SECRET_FRAGMENT = "dsec";
+    /** The same shape the bridge accepts: url-safe, so it needs no encoding and nothing else can ride in on it. */
+    static final String DEVICE_SECRET_PATTERN = "[A-Za-z0-9_-]{32,128}";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,24 +88,20 @@ public class LauncherActivity
             uri = uri.buildUpon().appendQueryParameter(DEVICE_PARAM, ref).build();
         }
 
+        // The fragment, never the query: see the class comment.
+        String secret = deviceSecret();
+        if (secret != null && uri.getFragment() == null) {
+            uri = uri.buildUpon().encodedFragment(DEVICE_SECRET_FRAGMENT + "=" + secret).build();
+        }
+
         return uri;
     }
 
     /** The managed-configuration value if the MDM set one, else "aid:" + ANDROID_ID, else null. */
     private String deviceRef() {
-        try {
-            RestrictionsManager rm = (RestrictionsManager) getSystemService(Context.RESTRICTIONS_SERVICE);
-            if (rm != null) {
-                Bundle restrictions = rm.getApplicationRestrictions();
-                if (restrictions != null) {
-                    String managed = restrictions.getString(DEVICE_REF_KEY);
-                    if (managed != null && !managed.trim().isEmpty()) {
-                        return managed.trim();
-                    }
-                }
-            }
-        } catch (RuntimeException ignored) {
-            // No restrictions service, or a policy that refuses it. Fall through.
+        String managed = managedString(DEVICE_REF_KEY);
+        if (managed != null) {
+            return managed;
         }
         try {
             String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
@@ -100,6 +110,31 @@ public class LauncherActivity
             }
         } catch (RuntimeException ignored) {
             // Nothing to identify this install by. The page shows the link code.
+        }
+        return null;
+    }
+
+    /** The secret the MDM pushed for this tablet, or null when there is none or it is not a secret's shape. Never logged. */
+    private String deviceSecret() {
+        String managed = managedString(DEVICE_SECRET_KEY);
+        return managed != null && managed.matches(DEVICE_SECRET_PATTERN) ? managed : null;
+    }
+
+    /** One managed-configuration string, trimmed; null when unset, empty or unreadable. */
+    private String managedString(String key) {
+        try {
+            RestrictionsManager rm = (RestrictionsManager) getSystemService(Context.RESTRICTIONS_SERVICE);
+            if (rm != null) {
+                Bundle restrictions = rm.getApplicationRestrictions();
+                if (restrictions != null) {
+                    String managed = restrictions.getString(key);
+                    if (managed != null && !managed.trim().isEmpty()) {
+                        return managed.trim();
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // No restrictions service, or a policy that refuses it.
         }
         return null;
     }

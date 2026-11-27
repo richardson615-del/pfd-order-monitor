@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Order } from "@/lib/types";
-import { ageClass, dueLabel, elapsedLabel, isScheduled, itemsLine, orderFlag } from "@/lib/order-display";
+import { ageClass, dueLabel, elapsedLabel, isScheduled, itemLines, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 import { displayOrderNo } from "@/lib/order-label";
@@ -16,8 +16,9 @@ import { centsLabel, restaurantSaleCents } from "@/lib/sales";
  * screen. The CSS does that; this decides what is true.
  *
  * Number, pickup/delivery, the pill, the timer, the customer, the total, and
- * one line of what they ordered - the first three items, so the fish can be
- * told from the chicken across the pass. Nothing else. Where the order came
+ * what they ordered: every item with every option and item note under it
+ * (HP1, Ticket #1909 - it used to be one line of three names, and the
+ * options were a tap away on the ticket). Nothing else. Where the order came
  * from is exactly the kind of thing that does not go here: the restaurant
  * does not care and cannot act on it. The one exception is a TEST order,
  * which says so quietly so nobody cooks it.
@@ -78,7 +79,7 @@ export default function OrderCard({
   // An accepted order's rail follows its countdown, not its age: it has been
   // taken, and what matters now is the promise.
   const tone = cd ? `age-${cd.phase === "calm" ? "calm" : cd.phase === "amber" ? "warn" : "late"}` : ageClass(order, now);
-  const items = itemsLine(order.items);
+  const items = itemLines(order.items);
   const pickupDone = order.order_type !== "delivery" && !waiting && !scheduled && order.status !== "completed" && order.status !== "cancelled";
 
   return (
@@ -115,9 +116,21 @@ export default function OrderCard({
           {restaurantSaleCents(order) != null && <span className="card-total num">{centsLabel(restaurantSaleCents(order)!)}</span>}
         </div>
 
-        {(items || order.source === "test") && (
+        {(items.length > 0 || order.source === "test") && (
           <div className="card-items">
-            {items}
+            {/* HP1 (Ticket #1909): every item and every option under it, on the card itself. */}
+            {items.map((it, i) => (
+              <div key={i} className="card-item">
+                <span className="card-item-name">{it.name}</span>
+                {it.modifiers.length > 0 && (
+                  <ul className="card-mods">
+                    {it.modifiers.map((m, j) => (
+                      <li key={j}>{m}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
             {order.source === "test" && <span className="card-test">Test — do not make</span>}
           </div>
         )}

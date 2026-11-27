@@ -41,6 +41,7 @@ export interface HeartbeatRow {
   alert_reason?: string | null;
   alert_raised_at?: string | null;
   alert_raised_reason?: string | null;
+  sound_ok?: boolean | null;
 }
 
 /** A kiosk_devices row (migration 036) bound to the restaurant. */
@@ -77,6 +78,13 @@ export interface TabletStatus {
   /** When the alert gate last went up on that screen, and why; null = never reported. */
   alert_raised_at: string | null;
   alert_raised_reason: AlertReason | null;
+  /**
+   * Whether the screen's order SOUND could play at the last beat (migration
+   * 068, HP1): false = the browser has audio off and the screen is showing
+   * "Tap to turn on order sound" - somebody at the store has to touch it.
+   * Independent of alert_state (the push permission). null = it has not said.
+   */
+  sound_ok: boolean | null;
   /** Live rows in push_subscriptions for this restaurant. */
   push_subscriptions: number;
   /** appVersionCode of the Android shell the last beat came from; null when it has not said. */
@@ -123,6 +131,7 @@ export function tabletStatus(args: {
     alert_reason: REASONS.has(hb?.alert_reason) ? (hb!.alert_reason as AlertReason) : null,
     alert_raised_at: hb?.alert_raised_at ?? null,
     alert_raised_reason: REASONS.has(hb?.alert_raised_reason) ? (hb!.alert_raised_reason as AlertReason) : null,
+    sound_ok: typeof hb?.sound_ok === "boolean" ? hb.sound_ok : null,
     push_subscriptions: Number.isInteger(args.pushSubscriptions) && args.pushSubscriptions > 0 ? args.pushSubscriptions : 0,
     shell_version: typeof hb?.shell_version === "number" && Number.isInteger(hb.shell_version) ? hb.shell_version : null,
     display_mode: args.displayMode === "standard" ? "standard" : "kitchen",

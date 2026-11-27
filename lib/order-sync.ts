@@ -95,3 +95,190 @@ export function pollConnection(args: { everSucceeded: boolean; failures: number 
 
 /** The message the service worker posts to open pages when a push lands, so they sync at once. */
 export const SW_ORDER_MESSAGE = "premium:order";
+
+/**
+ * HP1 (Tickets #1909, #1078, 2026-11-27): what a poll does when it does NOT
+ * come back with orders.
+ *
+ * Read on main before this: the poll asked Supabase straight from the browser
+ * and trusted any answer without an error. A browser whose session was gone
+ * asks as nobody, the row rules answer "no rows" with a 200, and the screen
+ * showed an empty list under a green "Live" - forever, because every later
+ * poll got the same polite nothing. A read that never came back had no
+ * timeout, and a failure waited out the ordinary cadence before trying again.
+ *
+ * So: every wait has a limit, a failure is named and retried on a backoff,
+ * and an answer is believed only while the browser still holds a session.
+ * A session the server confirms is gone sends the screen to sign-in.
+ */
+
+/** No single read in a sync may hang longer than this. */
+export const SYNC_TIMEOUT_MS = 12_000;
+
+export type SyncFailureKind =
+  /** The request never reached anything: wifi off, DNS, captive portal. */
+  | "network"
+  /** It left and nothing came back inside SYNC_TIMEOUT_MS. */
+  | "timeout"
+  /** The server answered, with an error. */
+  | "server"
+  /** The server refused the session's token (401). Refresh, then retry. */
+  | "auth";
+
+export interface SyncFailure {
+  kind: SyncFailureKind;
+  /** The HTTP status, when the server answered with one. */
+  status?: number | null;
+}
+
+/**
+ * Which kind of failure a PostgREST error is. postgrest-js reports a fetch
+ * that threw as status 0 with the thrown error's name in the message
+ * ("AbortError: ...", "TypeError: Failed to fetch").
+ */
+export function syncFailureKind(
+  err: { status?: number | null; code?: string | null; message?: string | null } | null | undefined,
+  online: boolean = true
+): SyncFailureKind {
+  const status = typeof err?.status === "number" ? err.status : 0;
+  const text = `${err?.code ?? ""} ${err?.message ?? ""}`;
+  if (status === 401 || /PGRST30[123]|JWT/i.test(text)) return "auth";
+  if (/AbortError|ABORT_ERR|timed? ?out/i.test(text)) return "timeout";
+  if (!online || status === 0) return "network";
+  return "server";
+}
+
+/** The sentence the screen shows for a failed sync: what failed, in the kitchen's words. */
+export function syncFailureText(failure: SyncFailure | null | undefined): string {
+  switch (failure?.kind) {
+    case "network":
+      return "No internet connection - this screen cannot reach Premium.";
+    case "timeout":
+      return "The internet here is too slow - Premium did not answer in time.";
+    case "auth":
+      return "Premium did not accept this screen's sign-in - checking it.";
+    case "server":
+      return `Premium's order server answered with an error${failure.status ? ` (${failure.status})` : ""}.`;
+    default:
+      return "This screen could not get the orders.";
+  }
+}
+
+/** First retry after a failed sync; doubles each time. */
+export const SYNC_RETRY_BASE_MS = 3_000;
+/** A retry that would wait this long or longer is left to the ordinary poll (15 s while down). */
+export const SYNC_RETRY_MAX_MS = 15_000;
+
+/**
+ * How long to wait before retrying after the Nth failure in a row: about
+ * 3 s, 6 s, 12 s, jittered ±20% so a fleet that lost the same server does
+ * not come back in step. null once the wait would reach the ordinary poll's
+ * down cadence - from there that poll IS the retry.
+ */
+export function syncRetryDelayMs(failures: number, rand: () => number = Math.random): number | null {
+  const n = Math.floor(failures);
+  if (!(n >= 1)) return null;
+  const base = SYNC_RETRY_BASE_MS * 2 ** (n - 1);
+  if (base >= SYNC_RETRY_MAX_MS) return null;
+  const r = Math.min(Math.max(rand(), 0), 1);
+  return Math.round(base * (0.8 + 0.4 * r));
+}
+
+/** What the browser's own session store says: there is one, there is none, or it could not be read. */
+export type SessionRead = "present" | "absent" | "unknown";
+/** What the server says about this browser's session (GET /api/dashboard/session). */
+export type SessionProbe = "signed_in" | "signed_out" | "unreachable";
+
+export type SessionVerdict =
+  /** Read the orders and believe the answer. */
+  | "sync"
+  /** Ask the server before believing anything. */
+  | "probe"
+  /** The session is gone. Go to sign-in; never show an empty list. */
+  | "sign_in"
+  /** Cannot tell. Count it as a failed sync and try again. */
+  | "retry";
+
+/**
+ * Whether a poll's answer may be believed.
+ *
+ * Only a session the browser can see makes the read trustworthy. With none,
+ * the database answers "no rows" to anybody, so the server is asked first:
+ * signed_out sends the screen to sign-in, unreachable is a failed sync.
+ * signed_in with no browser session is a browser that cannot read its own
+ * cookies; it reads as it always did. A session store that could not be
+ * read at all is a failed sync - it never signs a working screen out.
+ */
+export function sessionVerdict(browser: SessionRead, probe: SessionProbe | null = null): SessionVerdict {
+  if (browser === "present") return "sync";
+  if (browser === "unknown") return "retry";
+  if (probe === null) return "probe";
+  if (probe === "signed_out") return "sign_in";
+  if (probe === "unreachable") return "retry";
+  return "sync";
+}
+
+/** HTTP status of the session probe, as a SessionProbe. Only a 401 means signed out. */
+export function sessionProbeResult(status: number | null): SessionProbe {
+  if (status === 401) return "signed_out";
+  if (status !== null && status >= 200 && status < 300) return "signed_in";
+  return "unreachable";
+}
+
+/**
+ * Where a screen with no session goes. The kitchen tablet goes where the
+ * middleware already sends it on a reload - /link, which signs a Hexnode
+ * kiosk back in by itself and shows a link code on any other tablet. A
+ * computer or phone checking in goes to the username form.
+ */
+export function signInPath(role: "kitchen" | "remote" | null | undefined): string {
+  return `${role === "remote" ? "/login" : "/link"}?next=${encodeURIComponent("/dashboard")}`;
+}
+
+/**
+ * What the Orders tab shows in place of cards.
+ *
+ * "empty" - the calm "Nothing in the kitchen" - only when the last answer
+ * was a real one: a successful read, with a session, and the screen is not
+ * offline. Anything else with no cards is "unconfirmed": the screen does
+ * not know, and says so instead of looking like a quiet afternoon.
+ */
+export function ordersListView(args: { count: number; confirmed: boolean; offline: boolean }): "orders" | "empty" | "unconfirmed" {
+  if (args.count > 0) return "orders";
+  return args.confirmed && !args.offline ? "empty" : "unconfirmed";
+}
+
+/** A sync asked for by an event (focus, online) is skipped when one started this recently. */
+export const RESYNC_MIN_GAP_MS = 5_000;
+
+export function shouldResync(lastAttemptAt: number | null, now: number, minGapMs: number = RESYNC_MIN_GAP_MS): boolean {
+  return lastAttemptAt === null || now - lastAttemptAt >= minGapMs;
+}
+
+/**
+ * The poll has not even TRIED for this long: its timer chain died or the
+ * browser froze it. Three ordinary polls. The dashboard's one-second clock
+ * checks this and starts a sync itself.
+ */
+export const POLL_OVERDUE_MS = 3 * POLL_ONLY_MS;
+
+export function pollOverdue(lastAttemptAt: number | null, now: number, afterMs: number = POLL_OVERDUE_MS): boolean {
+  return lastAttemptAt !== null && now - lastAttemptAt >= afterMs;
+}
+
+/** Resolve with `fallback` if `p` has not settled within `ms`, or if it rejects. Never rejects. */
+export function withTimeout<T, F>(p: PromiseLike<T>, ms: number, fallback: F): Promise<T | F> {
+  return new Promise((resolve) => {
+    const id = setTimeout(() => resolve(fallback), ms);
+    Promise.resolve(p).then(
+      (v) => {
+        clearTimeout(id);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(id);
+        resolve(fallback);
+      }
+    );
+  });
+}

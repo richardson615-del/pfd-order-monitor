@@ -1160,13 +1160,16 @@ table.admin-table th, table.admin-table td {
 .app-hero .hero-count.amber { color: var(--status-warning-text); }
 .app-hero .hero-count.over { color: var(--age-late); }
 
-/* One line of what they ordered. The ticket has the rest. */
-.card-items {
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* What they ordered: every item, and every option under it in the ticket's
+   amber (HP1, Ticket #1909 - it was one clipped line of names). */
+.card-items { color: var(--text); }
+.card-item + .card-item { margin-top: 6px; }
+.card-item-name { display: block; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.card-mods { list-style: none; margin: 2px 0 0; padding: 0 0 0 4px; }
+.card-mods li { color: var(--status-warning-text); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.card-mods li::before { content: "– "; }
+.card.cancelled .card-items, .card.age-stale .card-items { color: var(--text-dim); }
+.card-items .card-test { display: block; margin: 6px 0 0; }
 
 /* --- completed rows -------------------------------------------------------- */
 /* Quieter than a kitchen card: nothing here is owed. */
@@ -1416,7 +1419,8 @@ table.admin-table th, table.admin-table td {
 [data-display="kitchen"] .app-hero { font-size: 24px; padding: 4px 20px 2px; }
 [data-display="kitchen"] .app-hero b { font-size: 34px; }
 [data-display="kitchen"] .app-tab-n { margin-left: 8px; }
-[data-display="kitchen"] .card-items { font-size: 16px; margin-top: 4px; }
+[data-display="kitchen"] .card-items { font-size: 20px; margin-top: 8px; }
+[data-display="kitchen"] .card-mods li { font-size: 18px; }
 [data-display="kitchen"] .done-row { padding: 12px 18px; border-radius: var(--radius-lg); font-size: 17px; }
 [data-display="kitchen"] .done-no { font-size: 22px; }
 [data-display="kitchen"] .done-name { font-size: 20px; }
@@ -1482,7 +1486,8 @@ table.admin-table th, table.admin-table td {
 [data-display="standard"] .app-hero { font-size: 18px; padding: 4px 24px 0; }
 [data-display="standard"] .app-hero b { font-size: 26px; }
 [data-display="standard"] .app-tab-n { margin-left: 6px; }
-[data-display="standard"] .card-items { font-size: 14px; margin-top: 6px; }
+[data-display="standard"] .card-items { font-size: 16px; margin-top: 8px; }
+[data-display="standard"] .card-mods li { font-size: 15px; }
 [data-display="standard"] .done-row { padding: 14px 18px; border-radius: var(--radius-lg); font-size: 14px; }
 [data-display="standard"] .done-no { font-size: 18px; }
 [data-display="standard"] .done-name { font-size: 16px; }
@@ -1815,6 +1820,12 @@ table.admin-table th, table.admin-table td {
 .store-alert.critical { border-color: color-mix(in srgb, var(--status-critical) 60%, var(--border)); }
 .store-alert-title { font-weight: 700; font-size: var(--text-md); }
 .kitchen-alert-banner { display: block; width: 100%; border: 0; cursor: pointer; font: inherit; font-size: 18px; }
+/* HP1: the order sound is off - one full-width bar, and tapping it is the touch the browser needs. */
+.sound-bar { display: block; width: 100%; min-height: 64px; border: 0; cursor: pointer; font: inherit; font-size: 22px; font-weight: 700; }
+/* HP1: what failed, in the offline strip, and the button that tries again now. */
+.offline-why { flex: 1 1 100%; font-size: var(--text-md); }
+.offline-retry { min-height: 44px; }
+.app-empty.unconfirmed { color: var(--text); font-weight: 600; }
 .store-hours { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: var(--text-md); }
 .store-edit { display: grid; gap: 10px; }
 .store-day { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }

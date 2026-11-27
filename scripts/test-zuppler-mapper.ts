@@ -5,6 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { implausibleTotalReason, mapZupplerGraphqlOrder, LOAD_ORDER_QUERY } from "@/lib/zuppler-mapper";
+import { itemLines } from "@/lib/order-display";
 
 // Make money() deterministic regardless of the ambient shell/CI env.
 // (money() reads process.env.ZUPPLER_AMOUNTS on every call.)
@@ -445,6 +446,84 @@ console.log("nested option groups:");
       g.data.order.carts[0].items[0].modifiers = bad;
       assert.deepEqual(mapZupplerGraphqlOrder(g).canonical.items?.[0]?.modifiers, []);
     }
+  });
+}
+
+// HP1 (Ticket #1909, 2026-11-27): "the tablet does not show item
+// customization". Read end to end with one made-up coffee-shop order:
+// several option groups per item, more than one option in a group, a
+// quantity, a paid option, an item note and a second item. The ingest keeps
+// every one (this file has pinned that since 2026-09-09); what dropped them
+// was the order CARD, which showed three item names and nothing under them.
+// itemLines() is what the card and the ticket now both render.
+console.log("HP1: every option and item note, from Zuppler to the card:");
+{
+  const drink = {
+    data: {
+      order: {
+        uuid: "0a1b2c3d-0000-4000-8000-000000000001",
+        shortUuid: "0a1b2c3d",
+        state: "confirmed",
+        createdAt: "2026-11-25T14:02:00Z",
+        totals: { subtotal: 1425, tax: 0, total: 1425, discount: 0 },
+        carts: [{
+          restaurantId: 99999,
+          settings: { service: { id: "PICKUP" } },
+          customer: { name: "Test" },
+          items: [
+            {
+              id: 1,
+              name: "Latte",
+              quantity: 2,
+              itemTotal: 1150,
+              comments: "Extra hot, light foam",
+              modifiers: [
+                { name: "Size", priority: 1, options: [{ name: "Large", price: 100, quantity: 1, total: 100 }] },
+                { name: "Milk", priority: 2, options: [{ name: "Oat Milk", price: 75, quantity: 1, total: 75 }] },
+                {
+                  name: "Flavor",
+                  priority: 3,
+                  options: [
+                    { name: "Vanilla", price: 0, quantity: 1, total: 0 },
+                    { name: "Caramel", price: 0, quantity: 1, total: 0 },
+                  ],
+                },
+                { name: "Add-ons", priority: 4, options: [{ name: "Extra Shot", price: 100, quantity: 2, total: 200 }] },
+              ],
+            },
+            {
+              id: 2,
+              name: "Breakfast Sandwich",
+              quantity: 1,
+              itemTotal: 275,
+              comments: null,
+              modifiers: [
+                { name: "Bread", priority: 1, options: [{ name: "Croissant", price: 0, quantity: 1, total: 0 }] },
+                { name: "Remove", priority: 2, options: [{ name: "No Cheese", price: 0, quantity: 1, total: 0 }] },
+              ],
+            },
+          ],
+        }],
+      },
+    },
+  };
+  const mapped = mapZupplerGraphqlOrder(drink).canonical.items;
+  const LATTE = ["Large +$1.00", "Oat Milk +$0.75", "Vanilla", "Caramel", "2x Extra Shot +$2.00", "Extra hot, light foam"];
+
+  test("the ingest keeps every option in every group, in order, then the item note", () => {
+    assert.equal(mapped?.[0]?.name, "2x Latte");
+    assert.deepEqual(mapped?.[0]?.modifiers, LATTE);
+    assert.equal((mapped?.[0] as { note?: string }).note, "Extra hot, light foam");
+    assert.deepEqual(mapped?.[1]?.modifiers, ["Croissant", "No Cheese"]);
+  });
+
+  test("the card and the ticket are given every one of those lines, each once", () => {
+    const lines = itemLines(mapped);
+    assert.deepEqual(lines.map((l) => l.name), ["2x Latte", "Breakfast Sandwich"]);
+    assert.deepEqual(lines[0].modifiers, LATTE, "nothing cut, nothing capped, and the note is not printed twice");
+    assert.deepEqual(lines[1].modifiers, ["Croissant", "No Cheese"]);
+    // A stored row survives the trip through JSON (orders.items is jsonb).
+    assert.deepEqual(itemLines(JSON.parse(JSON.stringify(mapped))), lines);
   });
 }
 

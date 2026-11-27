@@ -212,9 +212,11 @@ test("the restaurant comes from the session, never the request body", () => {
   // remote (2026-10-24, partner portal A2) is this screen saying it is NOT the
   // kitchen - it can only make the route write LESS (nothing), never another
   // restaurant's row.
+  // soundOk (HP1, migration 068) is whether THIS screen's order sound can
+  // play - one more fact about itself.
   assert.deepEqual(
     [...new Set(readsFromBody)],
-    ["deviceRef", "remote", "pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason"]
+    ["deviceRef", "remote", "pushSubscribed", "shellVersion", "alertState", "alertReason", "alertRaisedAt", "alertRaisedReason", "soundOk"]
   );
   assert.doesNotMatch(route, /body\?\.restaurant|restaurant_id: body/);
 });
@@ -257,6 +259,26 @@ test("the reason is one of the gate's codes or nothing, and a missing raise neve
   const sql = m047.split(/\r?\n/).filter((l) => !l.trimStart().startsWith("--")).join("\n");
   // \s-bounded: the reason code perm_default is not a DEFAULT clause.
   assert.doesNotMatch(sql, /not null|\sdefault\s/i);
+});
+
+test("HP1: whether the order sound can play is its own yes/no, never a fifth alert_state (068)", () => {
+  // The CRM on main matches alert_state by exact value and the column's
+  // CHECK is the four gate words, so "sound is off" travels beside it.
+  assert.match(route, /const soundOk = typeof body\?\.soundOk === "boolean" \? body\.soundOk : null;/, "only an explicit boolean; anything else is 'has not said'");
+  assert.match(route, /\{ sound_ok: soundOk \}/);
+  assert.match(route, /new Set\(\["hidden", "ask", "blocked", "unsupported"\]\)/, "alert_state keeps exactly its four values");
+  // If the column is somehow missing, the beat is still recorded without it.
+  assert.match(route, /if \(error && \/sound_ok\/\.test\(error\.message \?\? ""\)\) \{[\s\S]*?upsert\(rows\(false\)/);
+  const m068 = readFileSync(new URL("../db/migrations/068_heartbeat_sound_ok.sql", import.meta.url), "utf8");
+  assert.match(m068, /alter table dashboard_heartbeats\s+add column if not exists sound_ok boolean;/);
+  const sql = m068.split(/\r?\n/).filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  assert.doesNotMatch(sql, /not null|\sdefault\s|alert_state/i, "nullable, no default, and alert_state's CHECK is untouched");
+  assert.match(readFileSync(new URL("../lib/expected-migrations.ts", import.meta.url), "utf8"), /"068_heartbeat_sound_ok\.sql"/);
+  // The screen sends what it saw, and null until it has looked.
+  const dash = readFileSync(new URL("../components/OrderDashboard.tsx", import.meta.url), "utf8");
+  assert.match(dash, /const soundOk = soundChecked \? soundArmed : null;/);
+  assert.match(dash, /alertRaisedReason: alertRaise\?\.reason \?\? null,\s*soundOk,/);
+  assert.match(dash, /\[pushSubscribed, shellVersion, alertState, alertReason, alertRaise, role, soundArmed, soundChecked\]/, "a change is beaten, not held for the life of the tab");
 });
 
 test("it refuses an unauthenticated caller", () =>

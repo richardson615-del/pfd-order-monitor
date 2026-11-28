@@ -37,6 +37,18 @@ assert.ok(sql.search(/revoke\s+update/i) < sql.search(/grant\s+update/i), "revok
 assert.match(sql, /alter\s+policy\s+"orders_update"\s+on\s+orders[\s\S]*with\s+check\s*\(\s*is_admin\(\)\s+or\s+belongs_to_restaurant\(restaurant_id\)\s*\)/i, "orders_update has a WITH CHECK");
 assert.doesNotMatch(sql, /grant\s+update[^;]*to\s+anon/i, "anon gets no UPDATE");
 
+// 069 (ED3): the tablet stamps customer_change_seen_at when the "Customer
+// details changed" bar is tapped. One column, added on top of 063's list.
+const sql069 = src("db/migrations/069_customer_details_update.sql")
+  .split("\n")
+  .filter((l) => !l.trim().startsWith("--"))
+  .join("\n");
+const grants069 = [...sql069.matchAll(/grant\s+update\s*\(([^)]*)\)\s*on\s+table\s+orders\s+to\s+authenticated/gi)];
+assert.equal(grants069.length, 1, "069 grants one column UPDATE on orders");
+assert.deepEqual(grants069[0]![1]!.split(",").map((c) => c.trim().toLowerCase()), ["customer_change_seen_at"], "069 grants only customer_change_seen_at");
+assert.doesNotMatch(sql069, /to\s+anon/i, "069 grants nothing to anon");
+granted.add("customer_change_seen_at");
+
 // The session-client writers: every column they set must be granted.
 function writtenColumns(file: string): Set<string> {
   const text = src(file);

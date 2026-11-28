@@ -34,7 +34,9 @@ export type OrderPatch =
   | { kind: "accept"; minutes: number | null }
   | { kind: "ready" }
   | { kind: "retime"; minutes: number }
-  | { kind: "status"; status: "new" | "opened" | "completed" | "printed" };
+  | { kind: "status"; status: "new" | "opened" | "completed" | "printed" }
+  /** ED3: somebody tapped the yellow "Customer details changed" banner. */
+  | { kind: "customer_seen" };
 
 export type OrderPatchResult = { ok: true; patch: OrderPatch } | { ok: false; error: string; code: string };
 
@@ -46,6 +48,7 @@ const minutesError = `minutes must be a whole number from ${MIN_PREP_MINUTES} to
  *   { ready: true }               the food is ready
  *   { minutes }                   re-time an accepted order (minutes from Accept)
  *   { status }                    the old status writes, unchanged
+ *   { customer_seen: true }       ED3: the "Customer details changed" banner was tapped
  */
 export function parseOrderPatch(body: unknown): OrderPatchResult {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
@@ -53,6 +56,10 @@ export function parseOrderPatch(body: unknown): OrderPatchResult {
   if (hasMinutes && !isValidPrepMinutes(b.minutes)) return { ok: false, error: minutesError, code: "invalid_minutes" };
   const minutes = hasMinutes ? (b.minutes as number) : null;
 
+  if (b.customer_seen === true) {
+    if (hasMinutes || "status" in b || b.accepted === true || b.ready === true) return { ok: false, error: "send customer_seen on its own", code: "invalid_body" };
+    return { ok: true, patch: { kind: "customer_seen" } };
+  }
   if (b.accepted === true) return { ok: true, patch: { kind: "accept", minutes } };
   if (b.ready === true) {
     if (hasMinutes) return { ok: false, error: "send ready or minutes, not both", code: "invalid_body" };

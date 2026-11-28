@@ -20,6 +20,8 @@ const STATUS_TIMESTAMP_COLUMN: Record<string, string> = {
  *   { ready: true }               the food is ready (PA5); stamps ready_at once
  *   { minutes }                   re-time an accepted, not-ready order (minutes from Accept); a cook_time_log row (BT1)
  *   { status: "opened" | "completed" | "printed" | "new" }
+ *   { customer_seen: true }       ED3: the yellow "Customer details changed" banner was tapped -
+ *                                 stamps customer_change_seen_at, so it clears on every screen
  * Relies on the caller's Supabase session (cookie on the tablet, Bearer from
  * the PFD Partner app) + RLS, so a restaurant can only update its own orders.
  */
@@ -135,6 +137,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         actor: cleanOwnerName(body?.author) ?? actorOf(user),
       })
     );
+    return NextResponse.json({ order: data });
+  }
+
+  // ED3: the banner was read. Stamped every tap (a newer change re-raises it,
+  // because customer_changed_at would then be later than this).
+  if (patch.kind === "customer_seen") {
+    const { data, error } = await supabase.from("orders").update({ customer_change_seen_at: now }).eq("id", params.id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ order: data });
   }
 

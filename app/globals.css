@@ -1950,3 +1950,29 @@ table.admin-table th, table.admin-table td {
 .sales-mod { padding-left: 14px; font-size: var(--text-xs); color: var(--text-dim); }
 .sales-sep { height: 1px; background: var(--border); margin: 6px 0; }
 .sales-total { font-weight: 700; font-size: var(--text-md); }
+
+/* ED3 (2026-11-28): dispatch changed the customer's details in the CRM. A
+   yellow bar on the card and the ticket until somebody taps it. Solid amber
+   with the dark warning ink - the same pair the kiosk warning uses - so it
+   reads across a kitchen, light or dark. */
+.customer-changed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--status-warning);
+  color: var(--status-warning-foreground);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.customer-changed-ok { font-weight: 600; font-size: 0.85em; text-decoration: underline; }
+.ticket-page .customer-changed { width: auto; margin: 14px 20px 0; }
+[data-display="kitchen"] .customer-changed { font-size: 18px; padding: 12px 16px; }

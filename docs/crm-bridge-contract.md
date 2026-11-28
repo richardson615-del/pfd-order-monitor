@@ -1,5 +1,11 @@
 # CRM bridge contract
 
+Contract version: **2026-11-28.1** (ED3: `update_customer`). Versions are the
+date of the change plus a counter for that day. Before ED3 this file carried
+no version; every change is additive unless its section says otherwise, and
+a bridge older than a change answers its new action with 400
+`invalid_action`, which the CRM reads as "not available yet".
+
 Base: `https://pfd-order-monitor.vercel.app`
 Auth: `Authorization: Bearer <CRM_WRITE_KEY>` on every route.
 Errors: `{ "error": "..." }` with a real status. `503` means the bridge is
@@ -675,7 +681,7 @@ key name, `POST` its sha256 here; a "secret set" badge from `GET`; "Clear".
 | GET | `/api/crm/orders` | `?date=YYYY-MM-DD[&tz=America/Chicago][&restaurant_id=<either id>][&include_test=1][&since=<ISO>]` | `{ date, tz, generated_at, since, truncated, counts, orders[], deleted[] }` |
 | POST | `/api/crm/orders` | a phone order (O1, below) | `201 { ok, created: true, id, order }`; `200` on an identical retry; 409 `external_id_conflict` / `order_number_conflict`; 422 `restaurant_not_found` |
 | GET | `/api/crm/orders/:id` | — | `{ generated_at, order }` — the whole ticket; 404 `order_not_found` |
-| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen" \| "set_ready" \| "update", actor, tz?, minutes?, order?, reason? }` | `{ ok, action, … }`; cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; update answers `{ ok, action, changed, summary, reprinted, channels }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old` / `order_mismatch`; 400 `invalid_action` / `reason_required` / the phone-order codes |
+| POST | `/api/crm/orders/:id/actions` | `{ action: "reprint" \| "resend_app" \| "resend" \| "cancel" \| "picked_up" \| "reopen" \| "set_ready" \| "update" \| "update_customer", actor, tz?, minutes?, order?, reason?, changed_fields?, customer_name?, customer_phone?, delivery_address?, delivery_notes? }` | `{ ok, action, … }`; update_customer answers `{ ok, action, changed, notified, reprinted, channels }` (see "Customer details changed"); cancel answers `{ ok, action, was_printed, jobs_pulled, pushed }`; picked_up answers `{ ok, action, already, completed_at? }`; reopen answers `{ ok, action, reopened, status, pushed }`; update answers `{ ok, action, changed, summary, reprinted, channels }`; 409 `order_settled` / `app_not_expected` / `not_today` / `order_cancelled` / `no_destination` / `not_phone_order` / `order_completed` / `order_not_completed` / `too_old` / `order_mismatch`; 400 `invalid_action` / `reason_required` / the phone-order codes |
 | GET | `/api/crm/accounting/orders` | `?from&to[&restaurant_id=<either id>][&limit][&offset]` | money rows for statements — see below |
 
 **Who this is for:** PFD staff in a browser. So `source` is shown (`zuppler`
@@ -1238,10 +1244,89 @@ with `source: "ubereats"`:
   `order_cancelled`), no reason (400 `reason_required`). Nothing changed
   answers `{ ok: true, changed: [] }`. A bridge older than this answers 400
   `invalid_action`, which the CRM should read as "not available yet".
+- `POST /api/crm/orders/:id/actions` **`update_customer`** (2026-11-28, ED3,
+  prs-crm brief `docs/briefs/2026-11-28-edit-customer-details-on-orders.md`;
+  migration 069): see "Customer details changed" below. Unlike `update` it
+  takes **any source**, Zuppler included.
 - `POST /api/crm/orders/:id/actions` `cancel` accepts a `ubereats` order as
   it does a phone order (the CRM cancels it when Uber does).
 - The CRM's payout engine does not pay these out until a payout rule is
   set (`unsupported_source`).
+
+### Customer details changed (ED3, 2026-11-28, migration 069)
+
+Dispatch fixed a wrong name, phone, drop-off address or delivery directions
+in the CRM, and the restaurant has to see it (Forrest's dispatcher feedback:
+edits only reached Zuppler, so the partner never saw them).
+
+```
+POST /api/crm/orders/:id/actions
+{
+  "action": "update_customer",
+  "actor": "dispatcher@pfdworks.com",
+  "tz": "America/Chicago",
+  "changed_fields": ["delivery_address", "delivery_notes"],
+  "customer_name": "Pat Example",
+  "customer_phone": "(615) 555-0100",
+  "delivery_address": "2 New St, Springfield, TN 37172",
+  "delivery_notes": "Side door, gate 1234"
+}
+```
+
+- **`changed_fields`** (required, 1-4 of `customer_name`, `customer_phone`,
+  `delivery_address`, `delivery_notes`) is what the bridge writes. Each
+  listed field needs its new value; fields not listed are ignored even if
+  sent, so the CRM may send all four as they are now. A listed field whose
+  value is already stored is not counted as a change.
+- `customer_name` ≤ 120 chars, `customer_phone` ≤ 40, `delivery_address`
+  ≤ 360 and must not contain `" | "`, `delivery_notes` ≤ 500. Only
+  `delivery_notes` may be cleared (`null` or `""`). A run of 13-19 digits
+  in any field is 400 `card_number_rejected`, as on a phone order.
+- **Where it lands.** `customer_name` and `customer_phone` are the order's
+  own columns. Directions have no column of their own: the bridge keeps
+  them in `customer_address` as `street | directions` (the Zuppler mapper's
+  convention; the ticket prints them as a `>> ` line), so `delivery_address`
+  and `delivery_notes` are the two halves of that one column, and changing
+  one keeps the other. No money column is touched.
+- **Any source** - Zuppler, phone, Uber Eats, ezCater. Refused: a cancelled
+  order (409 `order_cancelled`); `delivery_address` on a pickup order
+  (409 `not_delivery`). 400 `changed_fields_required` /
+  `invalid_changed_fields` / `invalid_field` / `card_number_rejected`.
+- **The kitchen is told** only for an order not completed and received today
+  (the `tz` day, default America/Chicago; the same rule as `update`):
+  - the tablet's order card and ticket show the new details in place (they
+    read the same columns; `updated_at` moves, so the next poll has them)
+    under a yellow **"Customer details changed <time>"** bar naming what
+    changed, until somebody at the restaurant taps it;
+  - an UPDATED ticket everywhere the restaurant receives orders, the same
+    fan-out as `update`: printers (`queued_by = reprint:update:crm:<actor>`,
+    the ticket leads with `*** UPDATED - ORDER #n ***` and the lines
+    `CUSTOMER DETAILS CHANGED`, `ADDRESS: ...`, `DIRECTIONS: ...`,
+    `NAME: ...`, `PHONE: ...`), the PC inbox (`[UPDATED]`), and the tablet
+    push `UPDATED - Order #n`. Reprints were already in this contract
+    (`reprint`, `resend`, `update`); this uses that same path.
+  A completed or older order changes quietly (`notified: false`,
+  `reprinted: false`, `channels: []`).
+- **Answer:** `{ ok: true, action: "update_customer", changed: [...],
+  notified, reprinted, channels: [{ channel, ok, detail }] }`. Nothing
+  changed answers `{ ok: true, changed: [], notified: false }`.
+  `notified: true` with no channel `ok` means the restaurant has nowhere
+  working to hear it - the CRM should tell dispatch to call.
+- **On the order row** (migration 069, all nullable): `customer_changed_at`
+  (when), `customer_changed_fields` (which), `customer_change_seen_at`
+  (when the bar was tapped; the tablet's `PATCH /api/orders/:id
+  { customer_seen: true }`). `raw_payload.last_update` gets
+  `{ revision, at, by, kind: "customer", changed, summary }`, which is what
+  the printer reads. The bridge logs field names only, never the values.
+- **Zuppler revisions:** once `customer_changed_at` is set, a later Zuppler
+  revision of the order no longer overwrites `customer_name`,
+  `customer_phone` or `customer_address` (dispatch's correction wins; the
+  Zuppler side is changed by hand). Its money and items still land.
+- **Older apps and bridges:** a bridge before this answers 400
+  `invalid_action` ("not available yet"). The new columns are additive; a
+  screen, Partner app or order box that does not know them ignores them,
+  and still shows the corrected name, phone and address, because those are
+  the columns it already reads.
 
 **Menu source: none.** The brief asked for `GET /api/crm/restaurants/:id/menu`
 *if* the bridge's Zuppler client can load a menu. It cannot: the only

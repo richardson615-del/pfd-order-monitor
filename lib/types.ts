@@ -79,4 +79,10 @@ export interface Order {
    * the migration ran, or a fixture, may not carry it.
    */
   updated_at?: string | null;
+  /** 069 (ED3): when dispatch last changed the customer details from the CRM; null = never. */
+  customer_changed_at?: string | null;
+  /** 069: which ones - customer_name, customer_phone, delivery_address, delivery_notes. */
+  customer_changed_fields?: string[] | null;
+  /** 069: when somebody at the restaurant tapped the "Customer details changed" banner. */
+  customer_change_seen_at?: string | null;
 }

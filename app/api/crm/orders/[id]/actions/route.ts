@@ -15,6 +15,8 @@ import { UUID_RE } from "@/lib/restaurant-ref";
 import { sendOrderToKitchen } from "@/lib/advance-hold";
 import { parseDriverPush } from "@/lib/orderbox";
 import { setOrderDriver } from "@/lib/orderbox-server";
+import { parseCustomerUpdate } from "@/lib/customer-update";
+import { updateCustomerForCrm } from "@/lib/customer-update-server";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +84,19 @@ export const dynamic = "force-dynamic";
  *               quietly. 409 not_phone_order / order_cancelled / order_mismatch;
  *               400 reason_required / invalid order. Answers
  *               { ok, action, changed, summary, reprinted, channels }.
+ *
+ *   update_customer (2026-11-28, ED3) dispatch corrected the customer's
+ *               name, phone, drop-off address or delivery directions. ANY
+ *               source (Zuppler too). Body { changed_fields: [...],
+ *               customer_name?, customer_phone?, delivery_address?,
+ *               delivery_notes? } - only the listed fields are written. An
+ *               order still in the kitchen today gets the yellow "Customer
+ *               details changed" banner on the tablet, an UPDATED ticket and
+ *               the UPDATED push (same fan-out as update). Completed / older
+ *               orders change quietly. 409 order_cancelled / not_delivery;
+ *               400 changed_fields_required / invalid_changed_fields /
+ *               invalid_field / card_number_rejected. Answers
+ *               { ok, action, changed, notified, reprinted, channels }.
  *
  *   set_ready   (2026-11-10, CRM Ticket #1447) dispatch re-times one
  *               accepted order: body { minutes } (1-180, counted from
@@ -159,6 +174,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const tz = typeof body?.tz === "string" && isValidTimeZone(body.tz) ? body.tz : DEFAULT_ORDERS_TZ;
     const result = await updatePhoneOrderForCrm(order, { order: body?.order, reason: body?.reason, actor, tz });
     // "in" narrows here; this repo is not strict, so `!result.ok` does not.
+    if ("error" in result) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+    return NextResponse.json({ ...result, action });
+  }
+
+  if (action === "update_customer") {
+    const parsed = parseCustomerUpdate(body);
+    if ("error" in parsed) return NextResponse.json({ error: parsed.error, code: parsed.code }, { status: 400 });
+    const tz = typeof body?.tz === "string" && isValidTimeZone(body.tz) ? body.tz : DEFAULT_ORDERS_TZ;
+    const result = await updateCustomerForCrm(order.id, parsed.update, { actor, tz });
     if ("error" in result) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     return NextResponse.json({ ...result, action });
   }

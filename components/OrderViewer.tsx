@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Order } from "@/lib/types";
 import TicketBody from "./TicketBody";
+import CustomerChangedBanner from "./CustomerChangedBanner";
 import { ageClass, dueLabel, elapsedLabel, isScheduled, isSettled, orderFlag } from "@/lib/order-display";
 import { countdown, isUnaccepted, prepTimeLabel } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
@@ -86,6 +87,8 @@ export default function OrderViewer({
   const accept = (minutes?: number) => patch(minutes ? { accepted: true, minutes } : { accepted: true }, "Could not accept that. Try again.");
   const markReady = () => patch({ ready: true }, "Could not mark that ready. Try again.");
   const retime = (minutes: number) => patch({ minutes }, "Could not change the ready time. Try again.");
+  // ED3: the "Customer details changed" bar was read.
+  const customerSeen = () => patch({ customer_seen: true }, "Could not clear that. Try again.");
 
   /**
    * Complete. Marks it completed, then goes back to the list - a full
@@ -208,6 +211,8 @@ export default function OrderViewer({
           <span className={`ticket-timer num ${age}`}>{elapsedLabel(order, now)}</span>
         )}
       </div>
+
+      <CustomerChangedBanner order={order} timezone={timezone} onSeen={customerSeen} />
 
       <div className="ticket-who">
         <span className="ticket-name">{order.customer_name || "Customer"}</span>

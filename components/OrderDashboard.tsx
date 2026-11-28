@@ -328,6 +328,8 @@ export default function OrderDashboard({
   const retime = useCallback((order: Order, minutes: number) => patchOrder(order, { minutes }), [patchOrder]);
   // 2026-11-09 (Matt): the customer collected a pickup order - completed, off the list.
   const pickedUp = useCallback((order: Order) => patchOrder(order, { status: "completed" }), [patchOrder]);
+  // ED3: the "Customer details changed" bar was read - clears it on every screen.
+  const customerSeen = useCallback((order: Order) => patchOrder(order, { customer_seen: true }), [patchOrder]);
 
   /**
    * One short chime the moment a countdown crosses zero - once per order,
@@ -1183,7 +1185,7 @@ export default function OrderDashboard({
                 {isScheduled(order, now) && (i === 0 || !isScheduled(kitchen[i - 1], now)) && (
                   <div className="app-divider scheduled">Scheduled</div>
                 )}
-                <OrderCard order={order} now={now} timezone={timezone} prepMinutes={prepMinutes} acceptMinutes={preselected} onAccept={accept} onReady={markReady} onRetime={retime} onPickedUp={pickedUp} />
+                <OrderCard order={order} now={now} timezone={timezone} prepMinutes={prepMinutes} acceptMinutes={preselected} onAccept={accept} onReady={markReady} onRetime={retime} onPickedUp={pickedUp} onCustomerSeen={customerSeen} />
               </Fragment>
             ))}
           </div>

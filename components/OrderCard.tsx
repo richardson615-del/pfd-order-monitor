@@ -7,6 +7,7 @@ import { countdown, isUnaccepted } from "@/lib/countdown";
 import { RUNNING_LATE_STEPS, isReady, readyChoices, runningLateMinutes } from "@/lib/ready-timer";
 import { displayOrderNo } from "@/lib/order-label";
 import { centsLabel, restaurantSaleCents } from "@/lib/sales";
+import CustomerChangedBanner from "./CustomerChangedBanner";
 
 /**
  * One order in the kitchen list.
@@ -38,6 +39,10 @@ import { centsLabel, restaurantSaleCents } from "@/lib/sales";
  * be, a plain Accept (it acknowledges; there is nothing to time yet) and no
  * Ready or +5 / +10. Two hours before it is due it is an ordinary card.
  *
+ * ED3 (2026-11-28): dispatch changed the customer's details in the CRM -
+ * a yellow "Customer details changed <time>" bar on top of the card until
+ * somebody taps it. The card itself already shows the new details.
+ *
  * `now` is passed in rather than read here so every card on the screen agrees
  * about the time, and so the timers move when the dashboard ticks instead of
  * only when the data changes.
@@ -52,6 +57,7 @@ export default function OrderCard({
   onReady,
   onRetime,
   onPickedUp,
+  onCustomerSeen,
 }: {
   order: Order;
   now: number;
@@ -64,6 +70,8 @@ export default function OrderCard({
   onRetime?: (order: Order, minutes: number) => void;
   /** 2026-11-09 (Matt): a pickup order the customer collected - Picked up on the card ends it. Deliveries end when the driver picks up (CRM picked_up). */
   onPickedUp?: (order: Order) => void;
+  /** ED3: the "Customer details changed" bar was tapped. */
+  onCustomerSeen?: (order: Order) => void;
 }) {
   const preselected = acceptMinutes ?? prepMinutes;
   const flag = orderFlag(order);
@@ -86,6 +94,7 @@ export default function OrderCard({
     <div
       className={`card ${tone}${order.status === "cancelled" ? " cancelled" : ""}${waiting ? " unopened" : ""}${cd ? ` counting ${cd.phase}` : ""}${scheduled ? " scheduled" : ""}`}
     >
+      <CustomerChangedBanner order={order} timezone={timezone} onSeen={onCustomerSeen} />
       <Link href={`/order/${order.id}`} className="card-body">
         <div className="card-top">
           <span className="card-no num">#{displayOrderNo(order)}</span>

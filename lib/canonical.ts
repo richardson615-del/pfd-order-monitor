@@ -5,6 +5,7 @@ import { notifyRestaurant, type PushResult } from "./push";
 import { pushToRestaurantApps } from "./partner-push";
 import { resolveFooter } from "./footer-engine";
 import { emailSkipReason } from "./email-routing";
+import { keepCrmCustomerEdits } from "./customer-update";
 
 /**
  * The canonical order: the single contract every ingestion source must
@@ -260,7 +261,14 @@ export async function ingestOrder(
       notes: input.notes ?? null,
     };
 
-    const changes = orderUpdateFields(existing, next);
+    // ED3: details dispatch corrected in the CRM are not put back by a revision.
+    // Read on its own so the dedupe read above never depends on migration 069.
+    const diff = orderUpdateFields(existing, next);
+    let changes = diff;
+    if (diff && ("customer_name" in diff || "customer_phone" in diff || "customer_address" in diff)) {
+      const { data: edited } = await admin.from("orders").select("customer_changed_at").eq("id", existing.id).maybeSingle();
+      changes = keepCrmCustomerEdits(edited ?? {}, diff);
+    }
     if (!changes) return { status: "duplicate", orderId: existing.id };
 
     console.log("Zuppler order adjusted", {
